@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manim-agent"
+version = "0.1.0"
+description = "AI Manim Agent — backend and shared contracts"
+readme = "docs/proposal.md"
+requires-python = ">=3.11"
+dependencies = [
+  "celery[redis]>=5.4.0,<6.0.0",
+  "fastapi>=0.115.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "PyJWT>=2.9.0,<3.0.0",
+  "litellm>=1.55.0,<2.0.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "pydantic-settings>=2.6.0,<3.0.0",
+  "pyyaml>=6.0.0,<7.0.0",
+  "redis>=5.0.0,<6.0.0",
+  "uvicorn[standard]>=0.32.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "fakeredis>=2.23.0,<3.0.0",
+  "manim>=0.18.1,<0.20.0",
+  "pytest>=8.3.0,<9.0.0",
+  "pytest-cov>=6.0.0,<7.0.0",
+  "pytest-timeout>=2.3.0,<3.0.0",
+  "ruff>=0.8.0,<1.0.0",
+  "mypy>=1.13.0,<2.0.0",
+]
+
+worker = [
+  "manim>=0.18.1,<0.20.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ai_engine*", "backend*", "primitives*", "shared*", "worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "integration: integration tests (DB, Docker, network)",
+  "e2e_llm: end-to-end tests with real LLM API (release gate)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["ai_engine", "backend", "primitives", "shared", "worker"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+fail_under = 75
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["ai_engine", "backend", "primitives", "shared", "tests", "worker"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+packages = ["ai_engine", "backend", "primitives", "shared", "worker"]
+
+[[tool.mypy.overrides]]
+module = ["manim.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["celery", "redis", "redis.*", "litellm", "litellm.*", "jwt"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["worker.tasks", "worker.tts_tasks"]
+disallow_untyped_decorators = false

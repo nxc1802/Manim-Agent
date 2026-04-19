@@ -1,0 +1,50 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    depends_on:
+      - redis
+    ports:
+      - "8000:7860"
+    environment:
+      PORT: "7860"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker/Dockerfile
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REPO_ROOT: /app
+      # Optional: set these to upload rendered mp4 to Supabase Storage from the worker.
+      # SUPABASE_URL: https://xxxx.supabase.co
+      # SUPABASE_SERVICE_ROLE_KEY: ...
+      # SUPABASE_STORAGE_BUCKET: videos
+
+  tts-worker:
+    build:
+      context: .
+      dockerfile: docker/tts-worker/Dockerfile
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # Optional: same Storage bucket as video worker; voice objects use prefix `{project_id}/voice/`.
+      # SUPABASE_URL: https://xxxx.supabase.co
+      # SUPABASE_SERVICE_ROLE_KEY: ...
+      # SUPABASE_STORAGE_BUCKET: videos

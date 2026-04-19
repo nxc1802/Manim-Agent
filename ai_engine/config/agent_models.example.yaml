@@ -1,0 +1,75 @@
+# Copy to agent_models.yaml and tune (do not put API keys here — use OPENROUTER_API_KEY in env).
+# LiteLLM + OpenRouter: model ids use the `openrouter/...` prefix.
+# Agent prompts use English only.
+
+defaults:
+  temperature: 0.4
+  max_tokens: 4096
+
+nemotron: &nemotron openrouter/nvidia/nemotron-3-super-120b-a12b:free
+
+agents:
+  director:
+    model: *nemotron
+    temperature: 0.7
+    max_tokens: 8192
+  planner:
+    model: *nemotron
+  voice:
+    model: *nemotron
+  builder:
+    model: *nemotron
+    temperature: 0.2
+    max_tokens: 16384
+  code_reviewer:
+    model: *nemotron
+    temperature: 0.1
+    max_tokens: 8192
+  visual_reviewer:
+    model: *nemotron
+    temperature: 0.1
+    max_tokens: 4096
+
+sync_engine:
+  model: *nemotron
+  temperature: 0.0
+  max_tokens: 4096
+
+builder_review_loop:
+  max_rounds: 3
+  each_round_order:
+    - builder_revise
+    - code_review
+    - render_preview_if_needed
+    - visual_review
+  early_stop:
+    require_all:
+      - code_review_passed
+      - visual_review_passed
+  pass_criteria:
+    code_review_passed:
+      agent_blocking_issues_empty: true
+      static_ast_parse_ok: true
+      static_forbidden_imports_ok: true
+    visual_review_passed:
+      agent_blocking_issues_empty: true
+  blocking_severity_min: warning
+  stop_when_only_info_severity: false
+  on_max_rounds_exceeded: hitl_or_fail
+
+runtime_limits:
+  worker:
+    manim_render_timeout_seconds: 3600
+    tts_subprocess_timeout_seconds: 900
+  preview_poll:
+    timeout_seconds: 900
+    interval_seconds: 0.5
+  llm_request_timeout_seconds:
+    default: 600
+    director: 180
+    planner: 240
+    builder: 900
+    code_reviewer: 300
+    visual_reviewer: 300
+    sync_engine: 240
+    voice: 240

@@ -1,0 +1,38 @@
+# Phase 9 — release gate: real LLM E2E (configure OPENROUTER_API_KEY in repo secrets).
+name: Release gate (E2E LLM)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-llm:
+    runs-on: ubuntu-latest
+    env:
+      E2E_LLM: "1"
+      LLM_MODE: auto
+      CI: "true"
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      REDIS_URL: redis://127.0.0.1:6379/0
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -U pip && python -m pip install -e ".[dev]"
+
+      - name: E2E LLM pipeline
+        run: pytest tests/e2e -m e2e_llm -q --tb=short

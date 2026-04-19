@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+from backend.core.config import settings
+from celery import Celery
+
+celery_app = Celery(
+    "manim_agent",
+    broker=settings.celery_broker_url_resolved,
+    backend=settings.celery_result_backend_resolved,
+    include=["worker.tasks", "worker.tts_tasks"],
+)
+
+celery_app.conf.update(
+    task_default_queue="render",
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    timezone="UTC",
+    enable_utc=True,
+    task_routes={"manim_agent.synthesize_voice": {"queue": "tts"}},
+)

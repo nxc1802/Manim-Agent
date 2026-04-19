@@ -1,0 +1,18 @@
+{
+  "version": "1",
+  "beats": [
+    {
+      "step_label": "intro",
+      "narration_hint": "Open with a title and context.",
+      "primitives": [
+        { "name": "title_card", "args": { "title": "Demo" } },
+        { "name": "fade_in", "args": {} }
+      ]
+    },
+    {
+      "step_label": "explain",
+      "narration_hint": "Show the core idea visually.",
+      "primitives": [{ "name": "circle", "args": { "radius": 1.0 } }]
+    }
+  ]
+}

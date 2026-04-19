@@ -1,0 +1,9 @@
+# Piper runtime (TTS worker + tests). Copy to `piper.local.yaml` in this folder to override (gitignored).
+# Paths below match the `docker/tts-worker` image; for local macOS/Linux, point `voice_model_path`
+# at your `.onnx` file and ensure `binary` is on PATH.
+
+binary: piper
+voice_model_path: /models/en_US-ryan-medium.onnx
+noise_scale: 0.667
+length_scale: 1.0
+sentence_silence: 0.25

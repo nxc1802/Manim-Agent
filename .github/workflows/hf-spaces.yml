@@ -1,0 +1,24 @@
+# Optional: sync three Hugging Face Docker Spaces after GHCR images exist.
+# Configure repository secrets: HF_TOKEN. Optionally set variables HF_SPACE_API_REPO,
+# HF_SPACE_MANIM_WORKER_REPO, HF_SPACE_TTS_WORKER_REPO (Space repo ids, e.g. org/space-api).
+name: Hugging Face Spaces (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: HF layout reminder
+        run: |
+          echo "Build images first (docker-publish workflow on main / tags)."
+          echo "Then create three HF Spaces with Docker SDK, each Dockerfile FROM:"
+          echo "  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/manim-agent-api:latest"
+          echo "  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/manim-agent-worker:latest"
+          echo "  ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/manim-agent-tts-worker:latest"
+          echo "Set HF_TOKEN and use huggingface_hub CLI or HF web UI to link repos."
