@@ -222,9 +222,9 @@ Lộ trình bám **pipeline nội dung + pipeline render** (xem [05_pipeline.md]
 
 **Deliverables**
 
-- `tests/e2e/test_pipeline_real_llm.py` (hoặc tương đương), đánh dấu `@pytest.mark.e2e_llm`.
-- Tài liệu biến môi trường bắt buộc: ví dụ `E2E_LLM=1`, `OPENROUTER_API_KEY`, **ngân sách token** và prompt cố định ngắn (một brief đã chọn trước).
-- **Skip có kiểm soát:** nếu thiếu secret → `pytest.skip` với message rõ; **pipeline release không được skip** (secret bắt buộc trên CI release).
+- `tests/e2e/test_pipeline_real_llm.py` (hoặc tương đương), đánh dấu `@pytest.mark.e2e`.
+- Tài liệu: `OPENROUTER_API_KEY`, **ngân sách token** và prompt cố định ngắn (một brief đã chọn trước).
+- **Skip có kiểm soát:** nếu thiếu `OPENROUTER_API_KEY` → `pytest.skip` (local / fork PR); trên repo chính nên cấu hình secret để job CI chạy thật.
 
 ### Kiểm thử (chuẩn chỉ — bắt buộc cho release)
 
@@ -249,7 +249,7 @@ Lộ trình bám **pipeline nội dung + pipeline render** (xem [05_pipeline.md]
 | ------------------------------------- | ------------------------------------- | ----------------------------------------------------- |
 | `tests/unit/`                         | Mọi PR, local trước push              | Nhanh, không mạng ngoài, không Docker (trừ pure lib). |
 | `tests/integration/`                  | PR hoặc `main` (tuỳ Docker/Supabase)  | API, DB, worker, webhook mock.                        |
-| `tests/e2e/` + `@pytest.mark.e2e_llm` | **Trước tag release**; có thể nightly | **LLM thật**, kiểm tra output như phase 9.            |
+| `tests/e2e/` + `@pytest.mark.e2e` | **Trước tag release**; có thể nightly; CI `main`/PR | **LLM thật** khi có secret; không có key thì skip. |
 
 
 
@@ -257,7 +257,7 @@ Lộ trình bám **pipeline nội dung + pipeline render** (xem [05_pipeline.md]
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | PR hàng ngày               | `pytest tests/unit` (+ integration nhẹ không tốn kém).                               |
 | Merge `main` / pre-release | + integration Docker/Supabase theo quy ước repo.                                     |
-| **Release tag**            | `E2E_LLM=1 pytest tests/e2e -m e2e_llm` (hoặc job CI tương đương) **bắt buộc xanh**. |
+| **Release tag**            | `pytest tests/e2e -m e2e` với `OPENROUTER_API_KEY` (job CI trên `main` hoặc chạy tay) **nên xanh** trước khi tag. |
 
 
 **Build Docker** không thay thế pytest. **LLM thật** không chạy trên mọi commit để tránh chi phí và flake; tập trung vào **Phase 9** và nhánh release.

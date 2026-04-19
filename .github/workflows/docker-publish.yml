@@ -1,7 +1,7 @@
 # Publishes linux/amd64 images to GHCR for local/K8s and for Hugging Face Spaces (Docker SDK).
 # Repo: https://github.com/nxc1802/Manim-Agent
-# HF: three Spaces (API, Manim worker, TTS worker) — set repo variables / secrets (HF_TOKEN,
-# HF_SPACE_*_REPO) and use workflow `hf-spaces.yml`, or point each Space Dockerfile at:
+# HF: three Spaces (API, Manim worker, TTS worker) — secret HF_TOKEN + Variables HF_SPACE_*_REPO
+# (see `hf-spaces.yml`), or point each Space Dockerfile at:
 #   FROM ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:main
 
 name: Docker images (API + Workers)

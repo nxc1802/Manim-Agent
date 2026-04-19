@@ -1,4 +1,4 @@
-.PHONY: dev install lint typecheck test test-cov test-e2e-llm worker worker-tts docker-build-api docker-build-worker docker-build-tts-worker
+.PHONY: dev install lint typecheck test test-cov test-e2e worker worker-tts docker-build-api docker-build-worker docker-build-tts-worker
 
 PYTHON ?= python3
 
@@ -32,8 +32,8 @@ typecheck:
 test:
 	pytest tests/unit -q
 
-test-e2e-llm:
-	E2E_LLM=1 $(PYTHON) -m pytest tests/e2e -m e2e_llm -q --tb=short
+test-e2e:
+	$(PYTHON) -m pytest tests/e2e -m e2e -q --tb=short
 
 test-cov:
 	pytest tests/unit -q \

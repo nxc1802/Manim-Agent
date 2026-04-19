@@ -52,11 +52,8 @@ def get_runtime_limits() -> RuntimeLimitsConfig:
 
 
 def get_llm_client() -> LLMClient:
-    if settings.llm_mode == "fake":
-        return FakeLLMClient()
+    """Use LiteLLM when ``OPENROUTER_API_KEY`` is set; otherwise ``FakeLLMClient`` (offline)."""
     key = (settings.openrouter_api_key or "").strip() or None
-    if settings.llm_mode == "live":
-        return LiteLLMClient(key, api_base=settings.llm_api_base)
     if key:
         return LiteLLMClient(key, api_base=settings.llm_api_base)
     return FakeLLMClient()

@@ -29,7 +29,6 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1",
         validation_alias="LLM_API_BASE",
     )
-    llm_mode: Literal["auto", "live", "fake"] = Field(default="auto", validation_alias="LLM_MODE")
     agent_models_yaml: str | None = Field(default=None, validation_alias="AGENT_MODELS_YAML")
 
     auth_mode: Literal["off", "jwt"] = Field(default="off", validation_alias="AUTH_MODE")

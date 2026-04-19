@@ -46,7 +46,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
   "integration: integration tests (DB, Docker, network)",
-  "e2e_llm: end-to-end tests with real LLM API (release gate)",
+  "e2e: end-to-end API tests (live LLM when OPENROUTER_API_KEY is set)",
 ]
 
 [tool.coverage.run]

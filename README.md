@@ -22,7 +22,7 @@ make lint
 make typecheck
 ```
 
-Copy [`.env.example`](.env.example) to `.env` and adjust when enabling Supabase (Phase 6).
+Copy [`.env.example`](.env.example) to `.env` and set only what you need; all other keys fall back to defaults in [`backend/core/config.py`](backend/core/config.py) (`Settings`).
 
 ## Phase 2 — Primitives catalog
 

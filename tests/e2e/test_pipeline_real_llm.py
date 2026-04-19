@@ -1,4 +1,4 @@
-"""Release-gate E2E: Director → Planner → Builder with a live LLM (no FakeLLMClient override)."""
+"""E2E: Director → Planner → Builder with a live LLM (no FakeLLMClient override)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from backend.main import app
 from fastapi.testclient import TestClient
 
-pytestmark = [pytest.mark.e2e_llm, pytest.mark.usefixtures("e2e_llm_gate")]
+pytestmark = [pytest.mark.e2e, pytest.mark.usefixtures("e2e_openrouter_gate")]
 
 
 def _bootstrap_scene_with_storyboard(client: TestClient) -> UUID:
