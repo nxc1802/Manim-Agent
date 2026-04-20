@@ -41,9 +41,10 @@ def _celery_argv() -> list[str]:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     argv = _celery_argv()
     proc = subprocess.Popen(argv)  # noqa: S603
+    app.state.proc = proc
     try:
         yield
     finally:
@@ -70,4 +71,13 @@ def root() -> dict[str, str]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    proc = getattr(app.state, "proc", None)
+    if proc is None or proc.poll() is not None:
+        from fastapi import Response, status
+
+        return Response(
+            content='{"status": "error", "worker": "dead"}',
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            media_type="application/json",
+        )
     return {"status": "ok", "worker": "running"}
