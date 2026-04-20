@@ -58,27 +58,26 @@ docker compose up --build
 
 Services: `redis`, `api` (port `8000` → container `7860`), `worker`.
 
-### CI/CD — publish to GHCR
+### GitHub Actions — deploy Hugging Face Spaces
 
-Workflow: [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) builds & pushes:
+Single workflow: [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). On **push to `main`** (or manual run), it syncs **three** Space repos (`HF_SPACE_*` variables) with a `Dockerfile` that starts `FROM ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:<tag>`.
 
-- `ghcr.io/<owner>/manim-agent-api:<tag>`
-- `ghcr.io/<owner>/manim-agent-worker:<tag>`
+Build and push those images to GHCR yourself (see **Local image builds** below), then set Space **secrets** on Hugging Face (e.g. `REDIS_URL`, Celery URLs, Supabase keys) so containers can run.
 
-Tags: `latest` on `main`, plus `sha-<gitsha>` for traceability.
+### Hugging Face Spaces (3 Spaces)
 
-### Hugging Face Spaces (2 Spaces)
+Use **three** Spaces (API, Manim render worker, TTS worker) so they scale/sleep independently. All must reach the **same** Redis (e.g. Upstash) so the API can enqueue Celery tasks and both workers can consume them.
 
-Use **two separate Spaces** so API and worker scale/sleep independently:
-
-1. **Space — API**: Container image = `manim-agent-api` from GHCR. Set secrets/env: `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` (same logical Redis as worker), `PORT` (HF defaults to `7860`; the API Dockerfile respects `PORT`).
-2. **Space — Worker**: Container image = `manim-agent-worker` from GHCR. Set the **same** Redis URLs plus Supabase worker vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`, optional `SUPABASE_SIGNED_URL_SECONDS`.
-
-Both Spaces must reach the same Redis (for example Upstash) because the API enqueues Celery tasks and the worker consumes them.
+1. **API** — env: `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `PORT` (API Dockerfile defaults to `7860`).
+2. **Render worker** — same Redis URLs; Supabase vars for uploads if used.
+3. **TTS worker** — same Redis URLs; Supabase vars if used.
 
 ### Local image builds
 
 ```bash
 make docker-build-api
 make docker-build-worker
+make docker-build-tts-worker
 ```
+
+Push to GHCR with your registry login, e.g. tag `latest` for `manim-agent-api`, `manim-agent-worker`, and `manim-agent-tts-worker` (see `docker-compose.yml` / `docker/*/Dockerfile` for contexts).

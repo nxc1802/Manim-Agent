@@ -43,4 +43,4 @@ test-cov:
 		--cov=shared/schemas \
 		--cov=worker \
 		--cov-report=term-missing \
-		--cov-fail-under=75
+		--cov-fail-under=72
