@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import logging
 import subprocess
 from pathlib import Path
 from typing import NamedTuple
@@ -11,6 +10,8 @@ from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from shared.pipeline_log import get_pipeline_trace_id, pipeline_debug, pipeline_event
 from shared.schemas.render_job import RenderJobType, RenderQuality
+
+logger = logging.getLogger(__name__)
 
 
 class RenderManimResult(NamedTuple):
