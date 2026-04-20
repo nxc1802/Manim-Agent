@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Replace each Hugging Face Space repo with a thin Docker bundle (README + Dockerfile).
+"""Replace one or all Hugging Face Space repos with a thin Docker bundle (README + Dockerfile).
 
 Requires:
   HF_TOKEN (secret)
-  HF_SPACE_API_REPO, HF_SPACE_MANIM_WORKER_REPO, HF_SPACE_TTS_WORKER_REPO (repo variables)
   GITHUB_REPOSITORY_OWNER (lowercase owner for ghcr.io image names)
+
+Repo variables (only those you sync must be set):
+  HF_SPACE_API_REPO, HF_SPACE_MANIM_WORKER_REPO, HF_SPACE_TTS_WORKER_REPO
 
 Optional:
   HF_IMAGE_TAG — image tag on GHCR (default: latest)
+  HF_SYNC_TARGET — sync a single Space: ``api`` | ``worker`` | ``tts-worker`` (default: all)
+  GITHUB_SHA, GITHUB_RUN_ID — included in the Space commit message when set
 """
 
 from __future__ import annotations
@@ -38,6 +42,16 @@ def _dockerfile(suffix: str) -> bytes:
     return f"FROM ghcr.io/{owner}/manim-agent-{suffix}:{tag}\n".encode()
 
 
+def _commit_message(*, label: str, repo_id: str) -> str:
+    sha = (os.environ.get("GITHUB_SHA") or "").strip()
+    run = (os.environ.get("GITHUB_RUN_ID") or "").strip()
+    tail = f"{sha[:7]}" if len(sha) >= 7 else (sha or "local")
+    base = f"[{label}] {repo_id} @ {tail}"
+    if run:
+        base += f" (run {run})"
+    return f"{base} — Dockerfile + README"
+
+
 def _sync_one(
     api: HfApi,
     *,
@@ -45,6 +59,7 @@ def _sync_one(
     image_suffix: str,
     title: str,
     readme_port: int | None,
+    commit_message: str,
 ) -> None:
     existing_paths: list[str] = []
     for item in api.list_repo_tree(
@@ -74,7 +89,7 @@ def _sync_one(
         repo_id=repo_id,
         repo_type="space",
         operations=operations,
-        commit_message="Sync Space from Manim-Agent (Dockerfile + README)",
+        commit_message=commit_message,
     )
     print(f"Pushed to Space {repo_id} (image manim-agent-{image_suffix})")
 
@@ -89,21 +104,48 @@ def main() -> int:
         print("ERROR: GITHUB_REPOSITORY_OWNER is required", file=sys.stderr)
         return 1
 
-    # All Spaces expose PORT (default 7860) for HF health checks; workers add a tiny HTTP server.
-    specs: list[tuple[str, str, str, int | None]] = [
-        ("HF_SPACE_API_REPO", "api", "Manim Agent API", 7860),
-        ("HF_SPACE_MANIM_WORKER_REPO", "worker", "Manim Agent Worker (Render)", 7860),
-        ("HF_SPACE_TTS_WORKER_REPO", "tts-worker", "Manim Agent Worker (TTS)", 7860),
+    # (env_key, image_suffix, title, readme_port, short_label for commit)
+    all_specs: list[tuple[str, str, str, int | None, str]] = [
+        ("HF_SPACE_API_REPO", "api", "Manim Agent API", 7860, "API"),
+        ("HF_SPACE_MANIM_WORKER_REPO", "worker", "Manim Agent Worker (Render)", 7860, "Render"),
+        ("HF_SPACE_TTS_WORKER_REPO", "tts-worker", "Manim Agent Worker (TTS)", 7860, "TTS"),
     ]
 
+    target = (os.environ.get("HF_SYNC_TARGET") or "").strip().lower()
+    if target:
+        suffix_map = {
+            "api": "api",
+            "worker": "worker",
+            "tts-worker": "tts-worker",
+            "tts": "tts-worker",
+        }
+        normalized = suffix_map.get(target, target)
+        specs = [s for s in all_specs if s[1] == normalized]
+        if not specs:
+            print(
+                "ERROR: HF_SYNC_TARGET must be api, worker, or tts-worker",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        specs = all_specs
+
     api = HfApi(token=token)
-    for env_key, suffix, title, port in specs:
+    for env_key, suffix, title, port, label in specs:
         repo_id = (os.environ.get(env_key) or "").strip()
         if not repo_id:
-            print(f"ERROR: {env_key} is required", file=sys.stderr)
+            print(f"ERROR: {env_key} is required for this sync", file=sys.stderr)
             return 1
+        msg = _commit_message(label=label, repo_id=repo_id)
         try:
-            _sync_one(api, repo_id=repo_id, image_suffix=suffix, title=title, readme_port=port)
+            _sync_one(
+                api,
+                repo_id=repo_id,
+                image_suffix=suffix,
+                title=title,
+                readme_port=port,
+                commit_message=msg,
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: {repo_id}: {exc}", file=sys.stderr)
             return 1

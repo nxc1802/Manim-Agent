@@ -41,7 +41,7 @@ make dev
 
 ## Hugging Face Spaces + GitHub Actions
 
-The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): on **push to `main`** or **manual dispatch**, it runs `scripts/sync_hf_spaces.py`, which **replaces** each Space repo with a thin bundle (`README.md` + `Dockerfile` pointing at `ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:<tag>`).
+The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). It runs **three separate jobs** (API / Render / TTS) so the Actions UI shows which Space was updated. On **push to `main`**, only Spaces whose **path filters** match are synced (shared paths like `backend/**` or `worker/**` can trigger more than one job). **workflow_dispatch** syncs **all three**. Each Space commit message is tagged `[API]`, `[Render]`, or `[TTS]` and includes the git SHA and run id. `scripts/sync_hf_spaces.py` respects **`HF_SYNC_TARGET`** (`api` | `worker` | `tts-worker`) for a single Space.
 
 You need **one** Hugging Face token plus **three Space repo ids** (use **Variables** for the ids).
 

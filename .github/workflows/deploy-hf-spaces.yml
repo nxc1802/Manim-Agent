@@ -1,8 +1,9 @@
-# Only GitHub Actions workflow: push thin Docker Space bundles to three Hugging Face Spaces.
+# Deploy only the Hugging Face Space(s) affected by changed paths (push to main).
+# Manual run (workflow_dispatch) syncs all three Spaces.
 #
 # Secrets:  HF_TOKEN
 # Variables: HF_SPACE_API_REPO, HF_SPACE_MANIM_WORKER_REPO, HF_SPACE_TTS_WORKER_REPO
-# Optional variable: HF_IMAGE_TAG (default latest) — must match tags you pushed to GHCR.
+# Optional: HF_IMAGE_TAG (default latest)
 
 name: Deploy Hugging Face Spaces
 
@@ -15,25 +16,130 @@ permissions:
   contents: read
 
 jobs:
-  deploy-spaces:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.set.outputs.api }}
+      render: ${{ steps.set.outputs.render }}
+      tts: ${{ steps.set.outputs.tts }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            api:
+              - 'docker/api/**'
+              - 'backend/**'
+              - 'shared/**'
+              - 'primitives/**'
+              - 'ai_engine/**'
+              - 'worker/**'
+              - 'pyproject.toml'
+              - 'requirements.txt'
+              - 'README.md'
+              - 'scripts/sync_hf_spaces.py'
+              - '.github/workflows/deploy-hf-spaces.yml'
+            render:
+              - 'docker/worker/**'
+              - 'backend/**'
+              - 'shared/**'
+              - 'primitives/**'
+              - 'ai_engine/**'
+              - 'worker/**'
+              - 'examples/**'
+              - 'docs/**'
+              - 'pyproject.toml'
+              - 'requirements.txt'
+              - 'scripts/sync_hf_spaces.py'
+              - '.github/workflows/deploy-hf-spaces.yml'
+            tts:
+              - 'docker/tts-worker/**'
+              - 'backend/**'
+              - 'shared/**'
+              - 'ai_engine/**'
+              - 'worker/**'
+              - 'pyproject.toml'
+              - 'requirements.txt'
+              - 'scripts/sync_hf_spaces.py'
+              - '.github/workflows/deploy-hf-spaces.yml'
+
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "render=true" >> "$GITHUB_OUTPUT"
+            echo "tts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=${{ steps.filter.outputs.api }}" >> "$GITHUB_OUTPUT"
+            echo "render=${{ steps.filter.outputs.render }}" >> "$GITHUB_OUTPUT"
+            echo "tts=${{ steps.filter.outputs.tts }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-api:
+    name: HF Space — API
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_API_REPO: ${{ vars.HF_SPACE_API_REPO }}
+      HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      HF_SYNC_TARGET: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -U pip huggingface_hub
+      - run: python scripts/sync_hf_spaces.py
+
+  deploy-render:
+    name: HF Space — Render worker
+    needs: changes
+    if: needs.changes.outputs.render == 'true'
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_MANIM_WORKER_REPO: ${{ vars.HF_SPACE_MANIM_WORKER_REPO }}
+      HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      HF_SYNC_TARGET: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -U pip huggingface_hub
+      - run: python scripts/sync_hf_spaces.py
+
+  deploy-tts:
+    name: HF Space — TTS worker
+    needs: changes
+    if: needs.changes.outputs.tts == 'true'
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_TTS_WORKER_REPO: ${{ vars.HF_SPACE_TTS_WORKER_REPO }}
       HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
       GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
       GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      HF_SYNC_TARGET: tts-worker
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install huggingface_hub
-        run: python -m pip install -U pip huggingface_hub
-
-      - name: Sync three Spaces (clear + README + Dockerfile)
-        run: python scripts/sync_hf_spaces.py
+      - run: python -m pip install -U pip huggingface_hub
+      - run: python scripts/sync_hf_spaces.py
