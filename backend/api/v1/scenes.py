@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from shared.code_utils import extract_python_code
+
 from ai_engine.agents.builder import run_builder
 from ai_engine.agents.director import run_director
 from ai_engine.agents.planner import run_planner
@@ -228,11 +230,10 @@ def generate_scene_code(
             detail="planner_output is required; run POST .../plan first",
         )
     plan = PlannerOutput.model_validate(scene.planner_output)
-
     excerpt = scene.storyboard_text[:4000] if scene.storyboard_text else None
     params = get_agent_llm_params("builder")
     rt = get_runtime_limits()
-    code, _pv, _bm = run_builder(
+    raw_code, _pv, _bm = run_builder(
         llm=llm,
         model=params.model,
         temperature=params.temperature,
@@ -242,10 +243,14 @@ def generate_scene_code(
         storyboard_excerpt=excerpt,
         request_timeout_seconds=rt.llm_timeout_seconds("builder"),
     )
+    code = extract_python_code(raw_code)
+    logger.info("Generated code for scene_id=%s (chars=%d)", scene_id, len(code))
+
     limits = SandboxLimits(max_bytes=settings.max_manim_code_bytes)
     try:
         validate_manim_code(code, limits=limits)
     except SandboxValidationError as exc:
+        logger.warning("Code validation failed for scene_id=%s: %s", scene_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -259,6 +264,8 @@ def generate_scene_code(
         manim_code=stripped,
         manim_code_version=next_ver,
     )
+    if updated:
+        logger.info("Saved manim_code to Redis for scene_id=%s version=%d", scene_id, next_ver)
     assert updated is not None
 
     preview_job_id: UUID | None = None

@@ -70,14 +70,29 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> Response:
     proc = getattr(app.state, "proc", None)
     if proc is None or proc.poll() is not None:
-        from fastapi import Response, status
-
         return Response(
-            content='{"status": "error", "worker": "dead"}',
+            content='{"status": "error", "worker": "dead", "redis": false}',
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             media_type="application/json",
         )
-    return {"status": "ok", "worker": "running"}
+
+    # Check Redis
+    from backend.services.redis_client import get_redis
+    from redis.exceptions import RedisError
+
+    try:
+        get_redis().ping()
+        return Response(
+            content='{"status": "ok", "worker": "running", "redis": true}',
+            status_code=status.HTTP_200_OK,
+            media_type="application/json",
+        )
+    except (RedisError, OSError):
+        return Response(
+            content='{"status": "error", "worker": "running", "redis": false}',
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            media_type="application/json",
+        )

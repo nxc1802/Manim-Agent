@@ -51,9 +51,19 @@ def render_manim_scene_to_disk(
     if job.scene_id is not None:
         content = RedisContentStore(get_redis())
         scene = content.get_scene(job.scene_id)
-        if scene is None or not (scene.manim_code and scene.manim_code.strip()):
-            msg = f"Scene {job.scene_id} missing manim_code for render"
+        if scene is None:
+            msg = f"Scene {job.scene_id} not found in content store for job {job_id}"
+            logger.error(msg)
             raise RuntimeError(msg)
+        
+        mcode = (scene.manim_code or "").strip()
+        logger.info("Retrieved scene_id=%s manim_code_len=%d version=%d", job.scene_id, len(mcode), scene.manim_code_version)
+        
+        if not mcode:
+            msg = f"Scene {job.scene_id} missing manim_code for render (job_id={job_id})"
+            logger.error(msg)
+            raise RuntimeError(msg)
+            
         scene_file = (job_dir / "generated_scene.py").resolve()
         scene_file.write_text(scene.manim_code, encoding="utf-8")
         scene_class = settings.generated_scene_class
