@@ -1,56 +1,71 @@
 #!/usr/bin/env bash
-# Staging directory + git push --force to a Hugging Face Space repo (thin Docker bundle).
-# Bundle layout: Dockerfile.in, README.template.md (placeholders __GHCR_IMAGE__, __GITHUB_REPOSITORY__).
+# Stage a monorepo *slice* matching what each Dockerfile COPYs, pick the right Dockerfile
+# (same idea as Dockerfile.worker → Dockerfile per Space), then git push --force to HF.
 #
-# Required env: HF_TOKEN, HF_SPACE_REPO (e.g. org/space-name), HF_BUNDLE (relative to repo root),
-#              GHCR_IMAGE, GITHUB_REPOSITORY
-# Optional:     COMMIT_MESSAGE
+# Required env:
+#   HF_TOKEN, HF_SPACE_REPO, GITHUB_REPOSITORY, HF_DEPLOY_FLAVOR (api | render | tts)
+# Optional:
+#   COMMIT_MESSAGE
 
 set -euo pipefail
 
 : "${HF_TOKEN:?HF_TOKEN is required}"
 : "${HF_SPACE_REPO:?HF_SPACE_REPO is required}"
-: "${HF_BUNDLE:?HF_BUNDLE is required}"
-: "${GHCR_IMAGE:?GHCR_IMAGE is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${HF_DEPLOY_FLAVOR:?HF_DEPLOY_FLAVOR is required (api, render, or tts)}"
 
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-Deploy Hugging Face Space}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BUNDLE_ABS="${REPO_ROOT}/${HF_BUNDLE}"
-
-if [[ ! -d "${BUNDLE_ABS}" ]]; then
-  echo "ERROR: bundle not found: ${BUNDLE_ABS}" >&2
-  exit 1
-fi
 
 STAGE="$(mktemp -d)"
 cleanup() { rm -rf "${STAGE}"; }
 trap cleanup EXIT
 
-cp -a "${BUNDLE_ABS}/." "${STAGE}/"
+# Shared by all Spaces (worker code imports backend/shared/ai_engine).
+mkdir -p "${STAGE}"
+cp -a "${REPO_ROOT}/backend" "${STAGE}/"
+cp -a "${REPO_ROOT}/shared" "${STAGE}/"
+cp -a "${REPO_ROOT}/worker" "${STAGE}/"
+cp -a "${REPO_ROOT}/ai_engine" "${STAGE}/"
+cp "${REPO_ROOT}/pyproject.toml" "${STAGE}/"
+cp "${REPO_ROOT}/README.md" "${STAGE}/"
+cp "${REPO_ROOT}/requirements.txt" "${STAGE}/"
 
-if [[ ! -f "${STAGE}/Dockerfile.in" || ! -f "${STAGE}/README.template.md" ]]; then
-  echo "ERROR: bundle must contain Dockerfile.in and README.template.md" >&2
-  exit 1
-fi
+case "${HF_DEPLOY_FLAVOR}" in
+  api)
+    cp -a "${REPO_ROOT}/primitives" "${STAGE}/"
+    cp "${REPO_ROOT}/docker/api/Dockerfile" "${STAGE}/Dockerfile"
+    readme_template="${REPO_ROOT}/deploy/huggingface/api/README.template.md"
+    ;;
+  render)
+    cp -a "${REPO_ROOT}/primitives" "${STAGE}/"
+    cp -a "${REPO_ROOT}/examples" "${STAGE}/"
+    cp -a "${REPO_ROOT}/docs" "${STAGE}/"
+    cp "${REPO_ROOT}/docker/worker/Dockerfile" "${STAGE}/Dockerfile"
+    readme_template="${REPO_ROOT}/deploy/huggingface/render-worker/README.template.md"
+    ;;
+  tts)
+    mkdir -p "${STAGE}/docker/tts-worker"
+    cp "${REPO_ROOT}/docker/tts-worker/piper.docker.yaml" "${STAGE}/docker/tts-worker/piper.docker.yaml"
+    cp "${REPO_ROOT}/docker/tts-worker/Dockerfile" "${STAGE}/Dockerfile"
+    readme_template="${REPO_ROOT}/deploy/huggingface/tts-worker/README.template.md"
+    ;;
+  *)
+    echo "ERROR: HF_DEPLOY_FLAVOR must be api, render, or tts (got: ${HF_DEPLOY_FLAVOR})" >&2
+    exit 1
+    ;;
+esac
 
-sed -e "s|__GHCR_IMAGE__|${GHCR_IMAGE}|g" \
-  -e "s|__GITHUB_REPOSITORY__|${GITHUB_REPOSITORY}|g" \
-  "${STAGE}/Dockerfile.in" >"${STAGE}/Dockerfile"
-rm -f "${STAGE}/Dockerfile.in"
-
-sed -e "s|__GHCR_IMAGE__|${GHCR_IMAGE}|g" \
-  -e "s|__GITHUB_REPOSITORY__|${GITHUB_REPOSITORY}|g" \
-  "${STAGE}/README.template.md" >"${STAGE}/README.md"
-rm -f "${STAGE}/README.template.md"
+sed -e "s|__GITHUB_REPOSITORY__|${GITHUB_REPOSITORY}|g" \
+  "${readme_template}" >"${STAGE}/README.md"
 
 cd "${STAGE}"
 git init -q
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git config user.name "github-actions[bot]"
-git add Dockerfile README.md
+git add -A
 git commit -q -m "${COMMIT_MESSAGE}"
 
 REMOTE="https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}.git"

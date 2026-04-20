@@ -1,10 +1,9 @@
-# Three jobs (one per Space). Each push to main runs paths-filter; matching jobs stage
-# deploy/huggingface/<bundle>/ (Dockerfile.in + README.template.md), render placeholders,
-# then git push --force to https://huggingface.co/spaces/<repo> (no huggingface_hub / Python SDK).
+# Three jobs — each stages a monorepo *slice* (backend, shared, worker, ai_engine, …) matching
+# the COPY instructions in the chosen Dockerfile, copies docker/<role>/Dockerfile → ./Dockerfile,
+# renders README from deploy/huggingface/*/README.template.md, then git push --force to the Space.
+# No thin FROM ghcr.io-only repos: Hugging Face builds the image from source on each Space.
 #
-# Worker Spaces stay "Running" via FastAPI on PORT in worker_health.py (image built from this repo).
-#
-# Secrets: HF_TOKEN  |  Variables: HF_SPACE_* , optional HF_IMAGE_TAG
+# Secrets: HF_TOKEN  |  Variables: HF_SPACE_API_REPO, HF_SPACE_MANIM_WORKER_REPO, HF_SPACE_TTS_WORKER_REPO
 
 name: Deploy Hugging Face Spaces
 
@@ -23,10 +22,8 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_REPO: ${{ vars.HF_SPACE_API_REPO }}
-      HF_BUNDLE: deploy/huggingface/api
-      HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
+      HF_DEPLOY_FLAVOR: api
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,16 +63,13 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping API Space — no matching file changes on this push."
 
-      - name: Stage bundle and git push --force to Space
+      - name: Stage slice + Dockerfile + git push --force
         if: steps.should_run.outputs.deploy == 'true'
         env:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x scripts/push_hf_space.sh
-          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          TAG="${HF_IMAGE_TAG:-latest}"
-          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-api:${TAG}"
           export COMMIT_MESSAGE="[API] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
           bash scripts/push_hf_space.sh
 
@@ -85,10 +79,8 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_REPO: ${{ vars.HF_SPACE_MANIM_WORKER_REPO }}
-      HF_BUNDLE: deploy/huggingface/render-worker
-      HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
+      HF_DEPLOY_FLAVOR: render
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,16 +123,13 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping Render worker Space — no matching file changes on this push."
 
-      - name: Stage bundle and git push --force to Space
+      - name: Stage slice + Dockerfile + git push --force
         if: steps.should_run.outputs.deploy == 'true'
         env:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x scripts/push_hf_space.sh
-          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          TAG="${HF_IMAGE_TAG:-latest}"
-          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-worker:${TAG}"
           export COMMIT_MESSAGE="[Render] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
           bash scripts/push_hf_space.sh
 
@@ -150,10 +139,8 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_SPACE_REPO: ${{ vars.HF_SPACE_TTS_WORKER_REPO }}
-      HF_BUNDLE: deploy/huggingface/tts-worker
-      HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
+      HF_DEPLOY_FLAVOR: tts
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -193,15 +180,12 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping TTS worker Space — no matching file changes on this push."
 
-      - name: Stage bundle and git push --force to Space
+      - name: Stage slice + Dockerfile + git push --force
         if: steps.should_run.outputs.deploy == 'true'
         env:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           chmod +x scripts/push_hf_space.sh
-          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          TAG="${HF_IMAGE_TAG:-latest}"
-          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-tts-worker:${TAG}"
           export COMMIT_MESSAGE="[TTS] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
           bash scripts/push_hf_space.sh

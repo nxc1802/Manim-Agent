@@ -60,9 +60,9 @@ Services: `redis`, `api` (port `8000` → container `7860`), `worker`.
 
 ### GitHub Actions — deploy Hugging Face Spaces
 
-Single workflow: [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). On **push to `main`** (or manual run), each Space is updated by staging [`deploy/huggingface/`](deploy/huggingface/) bundles and **`git push --force`** to the matching Hugging Face Space repo (`HF_TOKEN` + `HF_SPACE_*` variables), producing a thin `Dockerfile` with `FROM ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:<tag>`.
+Single workflow: [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). On **push to `main`** (or manual run), each Space receives a **source slice** of this monorepo (e.g. `backend/`, `shared/`, `worker/`, `ai_engine/`, plus `primitives/` / `examples/` / `docs/` where the Dockerfile needs them) and the correct **`docker/*/Dockerfile` copied to `./Dockerfile`**, then [`scripts/push_hf_space.sh`](scripts/push_hf_space.sh) runs **`git push --force`** to the Hugging Face Space (`HF_TOKEN` + `HF_SPACE_*`). Hugging Face **builds the image on the Space** — no GHCR-only thin image. Worker Spaces use **FastAPI** on `PORT` in [`worker/worker_health.py`](worker/worker_health.py) so the runtime shows **Running**.
 
-Build and push those images to GHCR yourself (see **Local image builds** below), then set Space **secrets** on Hugging Face (e.g. `REDIS_URL`, Celery URLs, Supabase keys) so containers can run.
+Set Space **secrets** on Hugging Face (e.g. `REDIS_URL`, Celery URLs, Supabase keys) so each build can run. **Local image builds** below are optional (compose / your own registry), not part of the HF deploy path.
 
 ### Hugging Face Spaces (3 Spaces)
 
@@ -79,4 +79,4 @@ make docker-build-worker
 make docker-build-tts-worker
 ```
 
-Push to GHCR with your registry login, e.g. tag `latest` for `manim-agent-api`, `manim-agent-worker`, and `manim-agent-tts-worker` (see `docker-compose.yml` / `docker/*/Dockerfile` for contexts).
+To publish elsewhere, tag and push with your registry login (see `docker-compose.yml` / `docker/*/Dockerfile` for build contexts).

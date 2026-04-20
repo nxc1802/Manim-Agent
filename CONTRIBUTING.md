@@ -43,7 +43,7 @@ make dev
 
 ## Hugging Face Spaces + GitHub Actions
 
-The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): **three jobs** (API, Render, TTS). Each job copies a bundle from [`deploy/huggingface/`](deploy/huggingface/) (`Dockerfile.in` → `Dockerfile`, `README.template.md` → `README.md` after substituting `__GHCR_IMAGE__` / `__GITHUB_REPOSITORY__`), then runs [`scripts/push_hf_space.sh`](scripts/push_hf_space.sh): **temp dir + `git push --force`** to `https://huggingface.co/spaces/<HF_SPACE_*>` — no `huggingface_hub` Python client. Path filters + **`fetch-depth: 0`** apply on push to `main`; **workflow_dispatch** updates all three Spaces. Worker Spaces stay **Running** via **FastAPI** on `PORT` in [`worker/worker_health.py`](worker/worker_health.py) inside the container image.
+The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): **three jobs** (API, Render, TTS). Each job runs [`scripts/push_hf_space.sh`](scripts/push_hf_space.sh): stage the **same core trees** (`backend/`, `shared/`, `worker/`, `ai_engine/`, root `pyproject.toml` / `requirements.txt` / `README.md`) plus extras per role (`primitives/` for API+render, `examples/`+`docs/` for render, `docker/tts-worker/piper.docker.yaml` path for TTS), then copy the right **`docker/api` | `docker/worker` | `docker/tts-worker` `Dockerfile`** to `./Dockerfile` (same idea as `Dockerfile.worker` → `Dockerfile` in other projects), render `deploy/huggingface/*/README.template.md` → `README.md`, and **`git push --force`** to the Space. HF builds from that repo — not a thin `FROM ghcr.io` stub. **workflow_dispatch** updates all three. **`fetch-depth: 0`** keeps `paths-filter` accurate on push.
 
 You need **one** Hugging Face token plus **three Space repo ids** (use **Variables** for the ids).
 
@@ -53,11 +53,10 @@ You need **one** Hugging Face token plus **three Space repo ids** (use **Variabl
 | **Variable** | `HF_SPACE_API_REPO` | `Cuong2004/Manim-Agent` |
 | **Variable** | `HF_SPACE_MANIM_WORKER_REPO` | `Cuong2004/Manim-Agent-Worker-Render` |
 | **Variable** | `HF_SPACE_TTS_WORKER_REPO` | `Cuong2004/Manim-Agent-Worker-TTS` |
-| **Variable** (optional) | `HF_IMAGE_TAG` | Image tag on GHCR (default **`latest`** if unset). |
 
 In GitHub: **Settings → Secrets and variables → Actions**. Put `HF_TOKEN` under **Secrets**; put the three `HF_SPACE_*` values under **Variables**.
 
-**GHCR images:** this repo no longer builds them in Actions. Build and push locally or with your own pipeline, e.g. `docker build` / `docker push` to `ghcr.io/<owner>/manim-agent-api`, `manim-agent-worker`, `manim-agent-tts-worker` with tag `latest` (or set `HF_IMAGE_TAG` to match).
+For **local** testing, use `docker compose` / `make docker-build-*` with the same `docker/*/Dockerfile` files; production on HF is built from the **pushed monorepo slice**, not from a separate GHCR pull in the Space Dockerfile.
 
 ## E2E with a real LLM (Phase 9)
 

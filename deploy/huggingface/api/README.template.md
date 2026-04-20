@@ -4,5 +4,6 @@ sdk: docker
 app_port: 7860
 ---
 
-**Image:** `__GHCR_IMAGE__`  
-**Source:** https://github.com/__GITHUB_REPOSITORY__
+Source monorepo: https://github.com/__GITHUB_REPOSITORY__
+
+This Space contains the same **backend/** (and related packages) as the GitHub repo, built with **`docker/api/Dockerfile`** copied as `Dockerfile` at the repo root.
