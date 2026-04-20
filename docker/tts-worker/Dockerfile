@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     ffmpeg \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 # rhasspy/piper releases use date tags (not v1.x) and asset names x86_64 / aarch64.
@@ -51,4 +52,5 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 7860
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["/entrypoint.sh"]

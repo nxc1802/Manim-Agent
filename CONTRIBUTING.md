@@ -41,7 +41,7 @@ make dev
 
 ## Hugging Face Spaces + GitHub Actions
 
-The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). It runs **three separate jobs** (API / Render / TTS) so the Actions UI shows which Space was updated. On **push to `main`**, only Spaces whose **path filters** match are synced (shared paths like `backend/**` or `worker/**` can trigger more than one job). **workflow_dispatch** syncs **all three**. Each Space commit message is tagged `[API]`, `[Render]`, or `[TTS]` and includes the git SHA and run id. `scripts/sync_hf_spaces.py` respects **`HF_SYNC_TARGET`** (`api` | `worker` | `tts-worker`) for a single Space.
+The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): **exactly three jobs** (API, Render worker, TTS worker) — no separate “changes” job; each job runs its own path filter. On **push to `main`**, a job **skips** the Hugging Face sync when its paths did not change. **workflow_dispatch** deploys **all three** Spaces (each job runs the sync). Space commits are tagged `[API]` / `[Render]` / `[TTS]` with SHA and run id. `scripts/sync_hf_spaces.py` uses **`HF_SYNC_TARGET`** for a single Space per job.
 
 You need **one** Hugging Face token plus **three Space repo ids** (use **Variables** for the ids).
 

@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2-dev \
     libpango1.0-dev \
     ffmpeg \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,4 +34,5 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 7860
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["/entrypoint.sh"]
