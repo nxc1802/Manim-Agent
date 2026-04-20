@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
 from backend.api.v1.router import api_router
@@ -42,10 +43,16 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready", tags=["health"])
-def ready() -> dict[str, str | bool]:
-    """Readiness probe; reports Redis connectivity (broker/job store)."""
+def ready() -> JSONResponse:
+    """Readiness probe; 503 when Redis (broker/job store) is unreachable."""
     try:
         get_redis().ping()
-        return {"status": "ready", "redis": True}
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "ready", "redis": True},
+        )
     except (RedisError, OSError):
-        return {"status": "ready", "redis": False}
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "redis": False},
+        )

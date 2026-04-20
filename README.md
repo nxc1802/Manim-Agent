@@ -13,7 +13,7 @@ make dev
 ```
 
 - API: `http://127.0.0.1:8000/docs`
-- Health: `GET /health`, readiness: `GET /ready`
+- Health: `GET /health`, readiness: `GET /ready` (`503` when Redis is unreachable)
 - Stub projects: `GET /v1/projects`
 
 ```bash

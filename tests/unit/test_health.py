@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from backend.main import app
 from fastapi.testclient import TestClient
 
@@ -19,7 +20,25 @@ def test_ready_ok() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert "redis" in body
+    assert body["redis"] is True
+
+
+def test_ready_returns_503_when_redis_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend import main as main_mod
+
+    def _bad_redis() -> object:
+        class _R:
+            def ping(self) -> None:
+                raise OSError("redis down")
+
+        return _R()
+
+    monkeypatch.setattr(main_mod, "get_redis", _bad_redis)
+
+    client = TestClient(app)
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "redis": False}
 
 
 def test_list_projects_empty() -> None:
