@@ -4,7 +4,8 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    REPO_ROOT=/app
+    REPO_ROOT=/app \
+    PORT=7860
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -27,4 +28,9 @@ COPY ai_engine /app/ai_engine
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir -e ".[worker]"
 
-CMD ["celery", "-A", "worker.celery_app:celery_app", "worker", "--loglevel=INFO", "-Q", "render"]
+COPY docker/worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 7860
+
+ENTRYPOINT ["/entrypoint.sh"]

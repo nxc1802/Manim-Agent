@@ -89,10 +89,11 @@ def main() -> int:
         print("ERROR: GITHUB_REPOSITORY_OWNER is required", file=sys.stderr)
         return 1
 
+    # All Spaces expose PORT (default 7860) for HF health checks; workers add a tiny HTTP server.
     specs: list[tuple[str, str, str, int | None]] = [
         ("HF_SPACE_API_REPO", "api", "Manim Agent API", 7860),
-        ("HF_SPACE_MANIM_WORKER_REPO", "worker", "Manim Agent Worker (Render)", None),
-        ("HF_SPACE_TTS_WORKER_REPO", "tts-worker", "Manim Agent Worker (TTS)", None),
+        ("HF_SPACE_MANIM_WORKER_REPO", "worker", "Manim Agent Worker (Render)", 7860),
+        ("HF_SPACE_TTS_WORKER_REPO", "tts-worker", "Manim Agent Worker (TTS)", 7860),
     ]
 
     api = HfApi(token=token)

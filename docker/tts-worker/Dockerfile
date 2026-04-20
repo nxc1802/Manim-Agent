@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     REPO_ROOT=/app \
-    LD_LIBRARY_PATH=/opt/piper
+    LD_LIBRARY_PATH=/opt/piper \
+    PORT=7860
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -45,4 +46,9 @@ COPY docker/tts-worker/piper.docker.yaml /app/ai_engine/config/piper.local.yaml
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir -e .
 
-CMD ["celery", "-A", "worker.celery_app:celery_app", "worker", "--loglevel=INFO", "-Q", "tts", "-n", "tts@%h"]
+COPY docker/tts-worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 7860
+
+ENTRYPOINT ["/entrypoint.sh"]

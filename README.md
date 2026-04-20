@@ -68,9 +68,8 @@ Build and push those images to GHCR yourself (see **Local image builds** below),
 
 Use **three** Spaces (API, Manim render worker, TTS worker) so they scale/sleep independently. All must reach the **same** Redis (e.g. Upstash) so the API can enqueue Celery tasks and both workers can consume them.
 
-1. **API** — env: `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `PORT` (API Dockerfile defaults to `7860`).
-2. **Render worker** — same Redis URLs; Supabase vars for uploads if used.
-3. **TTS worker** — same Redis URLs; Supabase vars if used.
+1. **API** — env: `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `PORT` (defaults `7860`).
+2. **Render / TTS workers** — same Redis URLs; optional Supabase for uploads. Worker images run a minimal HTTP server on `PORT` alongside Celery so **Hugging Face Spaces** health checks can reach **Running** (Celery alone does not listen on a port).
 
 ### Local image builds
 
