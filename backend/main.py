@@ -6,6 +6,7 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
+from shared.pipeline_log import setup_pipeline_logging
 
 from backend.api.v1.router import api_router
 from backend.core.config import settings
@@ -13,6 +14,7 @@ from backend.core.correlation import CorrelationIdMiddleware
 from backend.core.errors import register_exception_handlers
 from backend.services.redis_client import get_redis
 
+setup_pipeline_logging()
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(

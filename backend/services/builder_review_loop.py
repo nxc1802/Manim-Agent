@@ -13,6 +13,7 @@ from ai_engine.agents.builder import run_builder
 from ai_engine.config import RuntimeLimitsConfig, load_builder_review_loop, resolve_agent_params
 from ai_engine.llm_client import LLMClient
 from ai_engine.orchestrator import run_single_review_round
+from shared.pipeline_log import pipeline_event
 from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.review import ReviewResult
 from shared.schemas.scene import Scene
@@ -129,7 +130,15 @@ def run_builder_review_loop(
                 webhook_url=None,
                 docker_image_tag=settings.worker_image_tag,
             )
-            render_manim_scene.delay(str(job_id))
+            pipeline_event(
+                "builder.review_loop",
+                "preview_job_queued",
+                "Builder loop enqueued preview render",
+                job_id=str(job_id),
+                scene_id=str(scene_id),
+                project_id=str(scene.project_id),
+            )
+            render_manim_scene.apply_async(args=[str(job_id)])
 
             tw0 = time.perf_counter()
             job = wait_for_render_job(

@@ -36,10 +36,12 @@ def test_enqueue_then_execute_mocked_render(
 
     monkeypatch.setattr("worker.renderer.render_manim_scene_to_disk", fake_render)
 
-    def immediate(job_id: str) -> None:
-        execute_render_job(UUID(job_id))
+    def immediate(*args: object, **kwargs: object) -> None:
+        a = kwargs.get("args", args[0] if args else ())
+        assert isinstance(a, (list, tuple))
+        execute_render_job(UUID(str(a[0])))
 
-    monkeypatch.setattr("backend.api.v1.render.render_manim_scene.delay", immediate)
+    monkeypatch.setattr("backend.api.v1.render.render_manim_scene.apply_async", immediate)
 
     store = RedisContentStore(fake_redis)
     project_id = uuid4()

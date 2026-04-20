@@ -14,18 +14,22 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from shared.pipeline_log import setup_pipeline_logging
+
+setup_pipeline_logging()
 
 _CELERY_APP = "worker.celery_app:celery_app"
 
 
 def _celery_argv() -> list[str]:
     mode = (os.environ.get("WORKER_HEALTH_MODE") or "render").strip().lower()
+    celery_log = (os.environ.get("CELERY_LOG_LEVEL") or "INFO").strip().upper()
     argv: list[str] = [
         "celery",
         "-A",
         _CELERY_APP,
         "worker",
-        "--loglevel=INFO",
+        f"--loglevel={celery_log}",
         "--concurrency=1",
     ]
     if mode in ("tts", "tts-worker"):

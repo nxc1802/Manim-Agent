@@ -19,6 +19,7 @@ from ai_engine.orchestrator import run_single_review_round
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
+from shared.pipeline_log import celery_trace_headers, pipeline_event
 from shared.schemas.builder_api import GenerateCodeBody, GenerateCodeResponse
 from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.render_job import RenderJob
@@ -45,6 +46,7 @@ from backend.api.deps import (
     get_voice_job_store,
 )
 from backend.core.config import settings
+from backend.core.correlation import get_request_id
 from backend.services.builder_review_loop import run_builder_review_loop
 from backend.services.code_sandbox import SandboxLimits, SandboxValidationError, validate_manim_code
 from backend.services.content_store import RedisContentStore
@@ -261,6 +263,7 @@ def generate_scene_code(
 
     preview_job_id: UUID | None = None
     if opts.enqueue_preview:
+        trace_id = get_request_id()
         job_id = uuid4()
         try:
             job_store.create_queued_job(
@@ -272,6 +275,15 @@ def generate_scene_code(
                 webhook_url=None,
                 docker_image_tag=settings.worker_image_tag,
             )
+            pipeline_event(
+                "api.scenes",
+                "preview_job_queued",
+                "Preview render job stored in Redis",
+                trace_id=trace_id,
+                job_id=str(job_id),
+                project_id=str(scene.project_id),
+                scene_id=str(scene_id),
+            )
         except RedisError as exc:
             logger.exception("Redis failure while creating preview render job")
             raise HTTPException(
@@ -279,7 +291,18 @@ def generate_scene_code(
                 detail="Job store unavailable",
             ) from exc
         try:
-            render_manim_scene.delay(str(job_id))
+            render_manim_scene.apply_async(
+                args=[str(job_id)],
+                headers=celery_trace_headers(trace_id),
+            )
+            pipeline_event(
+                "api.scenes",
+                "preview_celery_enqueued",
+                "render_manim_scene dispatched (preview)",
+                trace_id=trace_id,
+                job_id=str(job_id),
+                scene_id=str(scene_id),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to enqueue Celery preview task")
             raise HTTPException(
@@ -343,8 +366,30 @@ def enqueue_scene_voice(
         docker_image_tag=settings.tts_worker_image_tag,
     )
     insert_voice_job_row(job)
+    trace_id = get_request_id()
+    pipeline_event(
+        "api.voice",
+        "job_queued",
+        "Voice job stored in Redis",
+        trace_id=trace_id,
+        voice_job_id=str(job_id),
+        project_id=str(scene.project_id),
+        scene_id=str(scene_id),
+        details={"text_chars": len(text), "language": opts.language},
+    )
     try:
-        synthesize_voice.delay(str(job_id))
+        synthesize_voice.apply_async(
+            args=[str(job_id)],
+            headers=celery_trace_headers(trace_id),
+        )
+        pipeline_event(
+            "api.voice",
+            "celery_enqueued",
+            "synthesize_voice dispatched",
+            trace_id=trace_id,
+            voice_job_id=str(job_id),
+            scene_id=str(scene_id),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to enqueue Celery TTS task")
         raise HTTPException(

@@ -19,3 +19,7 @@ celery_app.conf.update(
     enable_utc=True,
     task_routes={"manim_agent.synthesize_voice": {"queue": "tts"}},
 )
+
+from shared.pipeline_log import setup_pipeline_logging  # noqa: E402
+
+setup_pipeline_logging()

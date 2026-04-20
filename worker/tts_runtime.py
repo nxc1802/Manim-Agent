@@ -20,6 +20,7 @@ from backend.services.supabase_pipeline_rest import insert_worker_service_audit_
 from backend.services.supabase_voice_rest import patch_scene_audio_row, patch_voice_job_row
 from backend.services.tts.segment_alignment import segment_time_alignment
 from backend.services.voice_job_store import RedisVoiceJobStore
+from shared.pipeline_log import get_pipeline_trace_id, pipeline_event
 from shared.schemas.voice_segments import VoiceSegmentTimestamps
 
 from worker.supabase_storage import upload_voice_artifact_if_configured
@@ -95,11 +96,19 @@ def _run_piper(cfg: PiperRuntimeConfig, text: str, out_wav: Path) -> None:
 
 
 def execute_voice_job(job_id: UUID) -> None:
+    tid = get_pipeline_trace_id()
     vstore = RedisVoiceJobStore(get_redis())
     cstore = RedisContentStore(get_redis())
     job = vstore.get(job_id)
     if job is None:
         logger.error("voice job missing: %s", job_id)
+        pipeline_event(
+            "worker.tts",
+            "job_missing",
+            "Voice job not found in Redis",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+        )
         return
 
     vstore.update(
@@ -119,7 +128,25 @@ def execute_voice_job(job_id: UUID) -> None:
     text = text_raw.strip() if isinstance(text_raw, str) else ""
     if not text:
         _fail(vstore, job_id, "synthesis_text_missing", "Missing synthesis_text in job metadata")
+        pipeline_event(
+            "worker.tts",
+            "validation_failed",
+            "Missing synthesis_text",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+        )
         return
+
+    pipeline_event(
+        "worker.tts",
+        "job_loaded",
+        "Starting Piper synthesis",
+        voice_job_id=str(job_id),
+        trace_id=tid,
+        project_id=str(job.project_id),
+        scene_id=str(job.scene_id),
+        details={"text_chars": len(text), "voice_engine": job.voice_engine},
+    )
 
     piper_cfg = load_piper_runtime_config()
     tmpdir = Path(tempfile.mkdtemp(prefix="tts_"))
@@ -136,6 +163,13 @@ def execute_voice_job(job_id: UUID) -> None:
             raise RuntimeError(msg)
         _run_piper(piper_cfg, text, out_wav)
         logs = "Piper synthesis completed."
+        pipeline_event(
+            "worker.tts",
+            "piper_done",
+            "Piper wrote WAV",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+        )
 
         duration_f = _audio_duration_seconds(out_wav)
         ts = segment_time_alignment(text, total_duration_seconds=duration_f)
@@ -147,6 +181,14 @@ def execute_voice_job(job_id: UUID) -> None:
             job_id=job_id,
         )
         asset_url = remote_url or out_wav.resolve().as_uri()
+        pipeline_event(
+            "worker.tts",
+            "artifact_ready",
+            "Voice WAV uploaded or local URI",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+            details={"has_remote_url": bool(remote_url), "duration_seconds": duration_f},
+        )
 
         meta: dict[str, Any] = {
             **job.metadata,
@@ -205,8 +247,24 @@ def execute_voice_job(job_id: UUID) -> None:
                 "voice_engine": job.voice_engine,
             },
         )
+        pipeline_event(
+            "worker.tts",
+            "job_completed",
+            "Voice job and scene updated",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+            scene_id=str(job.scene_id),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Voice synthesis failed job_id=%s", job_id)
+        pipeline_event(
+            "worker.tts",
+            "job_failed",
+            "TTS pipeline raised",
+            voice_job_id=str(job_id),
+            trace_id=tid,
+            details={"error": str(exc)[:2000]},
+        )
         insert_worker_service_audit_row(
             audit_id=uuid4(),
             project_id=job.project_id,

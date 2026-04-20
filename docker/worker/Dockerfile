@@ -31,4 +31,4 @@ RUN python -m pip install --upgrade pip \
 
 EXPOSE 7860
 
-CMD ["sh", "-c", "exec uvicorn worker.worker_health:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "exec uvicorn worker.worker_health:app --host 0.0.0.0 --port ${PORT:-7860} --log-level ${UVICORN_LOG_LEVEL:-info}"]

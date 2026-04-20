@@ -40,10 +40,12 @@ def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient(planner_json=planner_json)
     mock_task = MagicMock()
 
-    def _run(jid: str) -> None:
-        execute_voice_job(UUID(jid))
+    def _run(*args: object, **kwargs: object) -> None:
+        a = kwargs.get("args", args[0] if args else ())
+        assert isinstance(a, (list, tuple))
+        execute_voice_job(UUID(str(a[0])))
 
-    mock_task.delay.side_effect = _run
+    mock_task.apply_async.side_effect = _run
     monkeypatch.setattr("backend.api.v1.scenes.synthesize_voice", mock_task)
     with TestClient(app) as client:
         yield client

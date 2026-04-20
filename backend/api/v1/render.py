@@ -6,12 +6,14 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
+from shared.pipeline_log import celery_trace_headers, pipeline_event
 from shared.schemas.render_api import RenderEnqueueBody, RenderEnqueueResponse
 from worker.tasks import render_manim_scene
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_job_store, get_request_user_id
 from backend.core.config import settings
+from backend.core.correlation import get_request_id
 from backend.services.content_store import RedisContentStore
 from backend.services.job_store import RedisRenderJobStore
 
@@ -31,6 +33,7 @@ def enqueue_render(
     """Create a render job in Redis and enqueue Celery (Manim runs in worker only)."""
     project_readable_by_user(content, project_id, user_id)
     job_id = uuid4()
+    trace_id = get_request_id()
     webhook = str(body.webhook_url) if body.webhook_url is not None else None
     try:
         store.create_queued_job(
@@ -42,6 +45,16 @@ def enqueue_render(
             webhook_url=webhook,
             docker_image_tag=settings.worker_image_tag,
         )
+        pipeline_event(
+            "api.render",
+            "job_queued",
+            "Render job stored in Redis",
+            trace_id=trace_id,
+            job_id=str(job_id),
+            project_id=str(project_id),
+            scene_id=str(body.scene_id),
+            details={"render_type": body.render_type, "quality": body.quality},
+        )
     except RedisError:
         logger.exception("Redis failure while creating render job")
         return JSONResponse(
@@ -50,7 +63,17 @@ def enqueue_render(
         )
 
     try:
-        render_manim_scene.delay(str(job_id))
+        render_manim_scene.apply_async(
+            args=[str(job_id)],
+            headers=celery_trace_headers(trace_id),
+        )
+        pipeline_event(
+            "api.render",
+            "celery_enqueued",
+            "render_manim_scene dispatched",
+            trace_id=trace_id,
+            job_id=str(job_id),
+        )
     except Exception:  # noqa: BLE001 — broker/kombu can raise varied connection errors
         logger.exception("Failed to enqueue Celery task (broker/redis)")
         return JSONResponse(

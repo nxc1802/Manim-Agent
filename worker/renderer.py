@@ -9,6 +9,7 @@ from backend.core.config import settings
 from backend.services.content_store import RedisContentStore
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
+from shared.pipeline_log import get_pipeline_trace_id, pipeline_debug, pipeline_event
 from shared.schemas.render_job import RenderJobType, RenderQuality
 
 
@@ -74,6 +75,23 @@ def render_manim_scene_to_disk(
         str(media_dir),
     ]
 
+    tid = get_pipeline_trace_id()
+    pipeline_event(
+        "worker.manim",
+        "subprocess_start",
+        "Running manim render",
+        trace_id=tid,
+        job_id=str(job_id),
+        details={"scene_class": scene_class, "flags": q_flags, "scene_file": str(scene_file)},
+    )
+    pipeline_debug(
+        "worker.manim",
+        "subprocess_cmd",
+        "Full manim command",
+        trace_id=tid,
+        job_id=str(job_id),
+        details={"argv": cmd},
+    )
     proc = subprocess.run(
         cmd,
         cwd=str(repo_root),
@@ -84,6 +102,17 @@ def render_manim_scene_to_disk(
     stdout_tail = (proc.stdout or "")[-8000:]
     stderr_tail = (proc.stderr or "")[-8000:]
     if proc.returncode != 0:
+        pipeline_event(
+            "worker.manim",
+            "subprocess_failed",
+            "manim exited non-zero",
+            trace_id=tid,
+            job_id=str(job_id),
+            details={
+                "returncode": proc.returncode,
+                "stderr_tail": (stderr_tail or "")[:1500],
+            },
+        )
         detail = (stderr_tail or stdout_tail or "").strip() or f"manim exit code {proc.returncode}"
         raise RuntimeError(detail)
 
@@ -91,4 +120,12 @@ def render_manim_scene_to_disk(
     if not matches:
         msg = f"No mp4 produced under {media_dir}"
         raise FileNotFoundError(msg)
+    pipeline_event(
+        "worker.manim",
+        "subprocess_ok",
+        "mp4 produced",
+        trace_id=tid,
+        job_id=str(job_id),
+        details={"mp4": str(matches[-1])},
+    )
     return RenderManimResult(matches[-1], stdout_tail, stderr_tail, cmd)
