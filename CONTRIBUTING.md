@@ -2,7 +2,9 @@
 
 ## Piper TTS (worker)
 
-Synthesis **always** runs Piper in the Celery `tts` worker. Tuning (`binary`, `voice_model_path`, scales) lives in YAML, not env:
+Synthesis **always** runs Piper in the Celery `tts` worker. On **Docker / Hugging Face**, the container entry is **`worker.worker_health`**: FastAPI keeps `PORT` open for health checks and starts Celery in `lifespan` (`WORKER_HEALTH_MODE=tts` in the TTS image).
+
+Tuning (`binary`, `voice_model_path`, scales) lives in YAML, not env:
 
 - Defaults: `ai_engine/config/piper.example.yaml`
 - Overrides: copy to `ai_engine/config/piper.local.yaml` (gitignored). The Docker TTS image bakes `docker/tts-worker/piper.docker.yaml` as `piper.local.yaml`.

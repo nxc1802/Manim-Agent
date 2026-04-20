@@ -1,4 +1,4 @@
-# TTS worker: Piper + FFmpeg + Celery consumer on the `tts` queue (no Manim).
+# TTS worker: Piper + FFmpeg + Celery on `tts` (FastAPI health shell — see worker_health.py).
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -6,13 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     REPO_ROOT=/app \
     LD_LIBRARY_PATH=/opt/piper \
-    PORT=7860
+    PORT=7860 \
+    WORKER_HEALTH_MODE=tts
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     ffmpeg \
-    tini \
     && rm -rf /var/lib/apt/lists/*
 
 # rhasspy/piper releases use date tags (not v1.x) and asset names x86_64 / aarch64.
@@ -47,10 +47,6 @@ COPY docker/tts-worker/piper.docker.yaml /app/ai_engine/config/piper.local.yaml
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir -e .
 
-COPY docker/tts-worker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 EXPOSE 7860
 
-ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
-CMD ["/entrypoint.sh"]
+CMD ["sh", "-c", "exec uvicorn worker.worker_health:app --host 0.0.0.0 --port ${PORT:-7860}"]
