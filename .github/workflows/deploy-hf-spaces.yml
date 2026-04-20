@@ -1,6 +1,9 @@
 # Three jobs only (one per Hugging Face Space). Each job runs paths-filter locally — no extra "changes" job.
 # workflow_dispatch always deploys that Space; push to main deploys only when paths match.
 #
+# Checkout uses fetch-depth: 0 so paths-filter can diff push events reliably (default depth=1 often misses files).
+# Worker Spaces: docker/worker|tts-worker, worker/** (incl. worker_health.py, celery, tasks), shared backend/ai_engine deps.
+#
 # Secrets: HF_TOKEN
 # Variables: HF_SPACE_* , optional HF_IMAGE_TAG
 
@@ -29,6 +32,8 @@ jobs:
       HF_SYNC_TARGET: api
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -45,6 +50,7 @@ jobs:
               - 'pyproject.toml'
               - 'requirements.txt'
               - 'README.md'
+              - 'CONTRIBUTING.md'
               - 'scripts/sync_hf_spaces.py'
               - '.github/workflows/deploy-hf-spaces.yml'
 
@@ -87,6 +93,8 @@ jobs:
       HF_SYNC_TARGET: worker
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -100,10 +108,13 @@ jobs:
               - 'primitives/**'
               - 'ai_engine/**'
               - 'worker/**'
+              - 'worker/worker_health.py'
               - 'examples/**'
               - 'docs/**'
               - 'pyproject.toml'
               - 'requirements.txt'
+              - 'README.md'
+              - 'CONTRIBUTING.md'
               - 'scripts/sync_hf_spaces.py'
               - '.github/workflows/deploy-hf-spaces.yml'
 
@@ -146,6 +157,8 @@ jobs:
       HF_SYNC_TARGET: tts-worker
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -158,8 +171,11 @@ jobs:
               - 'shared/**'
               - 'ai_engine/**'
               - 'worker/**'
+              - 'worker/worker_health.py'
               - 'pyproject.toml'
               - 'requirements.txt'
+              - 'README.md'
+              - 'CONTRIBUTING.md'
               - 'scripts/sync_hf_spaces.py'
               - '.github/workflows/deploy-hf-spaces.yml'
 
