@@ -4,7 +4,8 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    REPO_ROOT=/app
+    REPO_ROOT=/app \
+    LD_LIBRARY_PATH=/opt/piper
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -12,15 +13,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PIPER_VERSION=1.2.0
+# rhasspy/piper releases use date tags (not v1.x) and asset names x86_64 / aarch64.
+ARG PIPER_RELEASE=2023.11.14-2
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "$arch" in \
-      aarch64|arm64) parch="arm64" ;; \
-      *) parch="amd64" ;; \
+      aarch64|arm64) asset="piper_linux_aarch64.tar.gz" ;; \
+      x86_64|amd64) asset="piper_linux_x86_64.tar.gz" ;; \
+      *) echo "unsupported arch for Piper: ${arch}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/rhasspy/piper/releases/download/v${PIPER_VERSION}/piper_linux_${parch}.tar.gz" \
-      | tar xz -C /usr/local/bin --strip-components=1 piper/piper
+    mkdir -p /opt; \
+    curl -fsSL "https://github.com/rhasspy/piper/releases/download/${PIPER_RELEASE}/${asset}" \
+      | tar xz -C /opt; \
+    test -x /opt/piper/piper
 
 RUN mkdir -p /models \
   && curl -fsSL -o /models/en_US-ryan-medium.onnx \

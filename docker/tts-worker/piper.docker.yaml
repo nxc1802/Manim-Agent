@@ -1,5 +1,5 @@
 # Baked into the TTS worker image as `ai_engine/config/piper.local.yaml`.
-binary: /usr/local/bin/piper
+binary: /opt/piper/piper
 voice_model_path: /models/en_US-ryan-medium.onnx
 noise_scale: 0.667
 length_scale: 1.0
