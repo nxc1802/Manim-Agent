@@ -43,7 +43,7 @@ make dev
 
 ## Hugging Face Spaces + GitHub Actions
 
-The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): **exactly three jobs** (API, Render worker, TTS worker) — no separate “changes” job; each job runs its own path filter. On **push to `main`**, a job **skips** the Hugging Face sync when its paths did not change (see path lists in `.github/workflows/deploy-hf-spaces.yml`). Checkouts use **`fetch-depth: 0`** so `dorny/paths-filter` can diff pushes reliably; without it, worker jobs sometimes never saw `worker/**` changes. **workflow_dispatch** deploys **all three** Spaces. Space commits are tagged `[API]` / `[Render]` / `[TTS]` with SHA and run id. `scripts/sync_hf_spaces.py` uses **`HF_SYNC_TARGET`** for a single Space per job.
+The only workflow is [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml): **three jobs** (API, Render, TTS). Each job copies a bundle from [`deploy/huggingface/`](deploy/huggingface/) (`Dockerfile.in` → `Dockerfile`, `README.template.md` → `README.md` after substituting `__GHCR_IMAGE__` / `__GITHUB_REPOSITORY__`), then runs [`scripts/push_hf_space.sh`](scripts/push_hf_space.sh): **temp dir + `git push --force`** to `https://huggingface.co/spaces/<HF_SPACE_*>` — no `huggingface_hub` Python client. Path filters + **`fetch-depth: 0`** apply on push to `main`; **workflow_dispatch** updates all three Spaces. Worker Spaces stay **Running** via **FastAPI** on `PORT` in [`worker/worker_health.py`](worker/worker_health.py) inside the container image.
 
 You need **one** Hugging Face token plus **three Space repo ids** (use **Variables** for the ids).
 

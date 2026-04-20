@@ -60,7 +60,7 @@ Services: `redis`, `api` (port `8000` → container `7860`), `worker`.
 
 ### GitHub Actions — deploy Hugging Face Spaces
 
-Single workflow: [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). On **push to `main`** (or manual run), it syncs **three** Space repos (`HF_SPACE_*` variables) with a `Dockerfile` that starts `FROM ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:<tag>`.
+Single workflow: [`.github/workflows/deploy-hf-spaces.yml`](.github/workflows/deploy-hf-spaces.yml). On **push to `main`** (or manual run), each Space is updated by staging [`deploy/huggingface/`](deploy/huggingface/) bundles and **`git push --force`** to the matching Hugging Face Space repo (`HF_TOKEN` + `HF_SPACE_*` variables), producing a thin `Dockerfile` with `FROM ghcr.io/<owner>/manim-agent-{api,worker,tts-worker}:<tag>`.
 
 Build and push those images to GHCR yourself (see **Local image builds** below), then set Space **secrets** on Hugging Face (e.g. `REDIS_URL`, Celery URLs, Supabase keys) so containers can run.
 

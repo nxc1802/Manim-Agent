@@ -1,11 +1,10 @@
-# Three jobs only (one per Hugging Face Space). Each job runs paths-filter locally — no extra "changes" job.
-# workflow_dispatch always deploys that Space; push to main deploys only when paths match.
+# Three jobs (one per Space). Each push to main runs paths-filter; matching jobs stage
+# deploy/huggingface/<bundle>/ (Dockerfile.in + README.template.md), render placeholders,
+# then git push --force to https://huggingface.co/spaces/<repo> (no huggingface_hub / Python SDK).
 #
-# Checkout uses fetch-depth: 0 so paths-filter can diff push events reliably (default depth=1 often misses files).
-# Worker Spaces: docker/worker|tts-worker, worker/** (incl. worker_health.py, celery, tasks), shared backend/ai_engine deps.
+# Worker Spaces stay "Running" via FastAPI on PORT in worker_health.py (image built from this repo).
 #
-# Secrets: HF_TOKEN
-# Variables: HF_SPACE_* , optional HF_IMAGE_TAG
+# Secrets: HF_TOKEN  |  Variables: HF_SPACE_* , optional HF_IMAGE_TAG
 
 name: Deploy Hugging Face Spaces
 
@@ -23,13 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_SPACE_API_REPO: ${{ vars.HF_SPACE_API_REPO }}
+      HF_SPACE_REPO: ${{ vars.HF_SPACE_API_REPO }}
+      HF_BUNDLE: deploy/huggingface/api
       HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_SHA: ${{ github.sha }}
-      GITHUB_RUN_ID: ${{ github.run_id }}
-      HF_SYNC_TARGET: api
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +48,8 @@ jobs:
               - 'requirements.txt'
               - 'README.md'
               - 'CONTRIBUTING.md'
-              - 'scripts/sync_hf_spaces.py'
+              - 'deploy/huggingface/**'
+              - 'scripts/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -68,29 +66,29 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping API Space — no matching file changes on this push."
 
-      - uses: actions/setup-python@v5
+      - name: Stage bundle and git push --force to Space
         if: steps.should_run.outputs.deploy == 'true'
-        with:
-          python-version: "3.12"
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python -m pip install -U pip huggingface_hub
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python scripts/sync_hf_spaces.py
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          chmod +x scripts/push_hf_space.sh
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          TAG="${HF_IMAGE_TAG:-latest}"
+          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-api:${TAG}"
+          export COMMIT_MESSAGE="[API] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
+          bash scripts/push_hf_space.sh
 
   deploy-render:
     name: HF Space — Render worker
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_SPACE_MANIM_WORKER_REPO: ${{ vars.HF_SPACE_MANIM_WORKER_REPO }}
+      HF_SPACE_REPO: ${{ vars.HF_SPACE_MANIM_WORKER_REPO }}
+      HF_BUNDLE: deploy/huggingface/render-worker
       HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_SHA: ${{ github.sha }}
-      GITHUB_RUN_ID: ${{ github.run_id }}
-      HF_SYNC_TARGET: worker
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,7 +113,8 @@ jobs:
               - 'requirements.txt'
               - 'README.md'
               - 'CONTRIBUTING.md'
-              - 'scripts/sync_hf_spaces.py'
+              - 'deploy/huggingface/**'
+              - 'scripts/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -132,29 +131,29 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping Render worker Space — no matching file changes on this push."
 
-      - uses: actions/setup-python@v5
+      - name: Stage bundle and git push --force to Space
         if: steps.should_run.outputs.deploy == 'true'
-        with:
-          python-version: "3.12"
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python -m pip install -U pip huggingface_hub
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python scripts/sync_hf_spaces.py
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          chmod +x scripts/push_hf_space.sh
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          TAG="${HF_IMAGE_TAG:-latest}"
+          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-worker:${TAG}"
+          export COMMIT_MESSAGE="[Render] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
+          bash scripts/push_hf_space.sh
 
   deploy-tts:
     name: HF Space — TTS worker
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_SPACE_TTS_WORKER_REPO: ${{ vars.HF_SPACE_TTS_WORKER_REPO }}
+      HF_SPACE_REPO: ${{ vars.HF_SPACE_TTS_WORKER_REPO }}
+      HF_BUNDLE: deploy/huggingface/tts-worker
       HF_IMAGE_TAG: ${{ vars.HF_IMAGE_TAG }}
-      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
       GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_SHA: ${{ github.sha }}
-      GITHUB_RUN_ID: ${{ github.run_id }}
-      HF_SYNC_TARGET: tts-worker
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -176,7 +175,8 @@ jobs:
               - 'requirements.txt'
               - 'README.md'
               - 'CONTRIBUTING.md'
-              - 'scripts/sync_hf_spaces.py'
+              - 'deploy/huggingface/**'
+              - 'scripts/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -193,13 +193,15 @@ jobs:
         if: steps.should_run.outputs.deploy != 'true'
         run: echo "Skipping TTS worker Space — no matching file changes on this push."
 
-      - uses: actions/setup-python@v5
+      - name: Stage bundle and git push --force to Space
         if: steps.should_run.outputs.deploy == 'true'
-        with:
-          python-version: "3.12"
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python -m pip install -U pip huggingface_hub
-
-      - if: steps.should_run.outputs.deploy == 'true'
-        run: python scripts/sync_hf_spaces.py
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          chmod +x scripts/push_hf_space.sh
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          TAG="${HF_IMAGE_TAG:-latest}"
+          export GHCR_IMAGE="ghcr.io/${OWNER}/manim-agent-tts-worker:${TAG}"
+          export COMMIT_MESSAGE="[TTS] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
+          bash scripts/push_hf_space.sh
