@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import struct
@@ -21,7 +22,8 @@ from backend.services.supabase_voice_rest import patch_scene_audio_row, patch_vo
 from backend.services.tts.segment_alignment import segment_time_alignment
 from backend.services.voice_job_store import RedisVoiceJobStore
 from shared.pipeline_log import get_pipeline_trace_id, pipeline_event
-from shared.schemas.voice_segments import VoiceSegmentTimestamps
+from shared.schemas.planner_output import PlannerOutput
+from shared.schemas.voice_segments import SegmentSpan, VoiceSegmentTimestamps
 
 from worker.supabase_storage import upload_voice_artifact_if_configured
 
@@ -95,6 +97,23 @@ def _run_piper(cfg: PiperRuntimeConfig, text: str, out_wav: Path) -> None:
     )
 
 
+def _concat_wavs(paths: list[Path], out_wav: Path) -> None:
+    if not paths:
+        return
+    if len(paths) == 1:
+        shutil.copy(paths[0], out_wav)
+        return
+
+    # Use ffmpeg concat filter to combine WAVs
+    filter_complex = "".join([f"[{i}:a]" for i in range(len(paths))])
+    filter_complex += f"concat=n={len(paths)}:v=0:a=1[a]"
+    cmd = ["ffmpeg", "-y"]
+    for p in paths:
+        cmd.extend(["-i", str(p)])
+    cmd.extend(["-filter_complex", filter_complex, "-map", "[a]", str(out_wav)])
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
 def execute_voice_job(job_id: UUID) -> None:
     tid = get_pipeline_trace_id()
     vstore = RedisVoiceJobStore(get_redis())
@@ -124,6 +143,14 @@ def execute_voice_job(job_id: UUID) -> None:
         return
     patch_voice_job_row(job)
 
+    scene = cstore.get_scene(job.scene_id)
+    planner_output = None
+    if scene and scene.planner_output:
+        try:
+            planner_output = PlannerOutput.model_validate(scene.planner_output)
+        except Exception:
+            logger.warning("Failed to parse planner_output for scene_id=%s", job.scene_id)
+
     text_raw = job.metadata.get("synthesis_text")
     text = text_raw.strip() if isinstance(text_raw, str) else ""
     if not text:
@@ -145,34 +172,76 @@ def execute_voice_job(job_id: UUID) -> None:
         trace_id=tid,
         project_id=str(job.project_id),
         scene_id=str(job.scene_id),
-        details={"text_chars": len(text), "voice_engine": job.voice_engine},
+        details={"text_chars": len(text), "voice_engine": job.voice_engine, "has_planner": bool(planner_output)},
     )
 
     piper_cfg = load_piper_runtime_config()
     tmpdir = Path(tempfile.mkdtemp(prefix="tts_"))
     out_wav = tmpdir / "speech.wav"
+    
     try:
         model = Path(piper_cfg.voice_model_path)
         bin_path = Path(piper_cfg.binary)
         bin_ok = bin_path.is_file() if bin_path.is_absolute() else shutil.which(piper_cfg.binary)
-        if not bin_ok:
-            msg = f"Piper binary not found: {piper_cfg.binary}"
-            raise RuntimeError(msg)
-        if not model.is_file():
-            msg = f"Piper voice model not found: {model}"
-            raise RuntimeError(msg)
-        _run_piper(piper_cfg, text, out_wav)
-        logs = "Piper synthesis completed."
+        
+        spans: list[SegmentSpan] = []
+        beat_durations: dict[str, float] = {}
+
+        if not bin_ok or not model.is_file():
+            logger.warning("Piper binary or model missing; falling back to silent mock for local testing.")
+            if planner_output:
+                t = 0.0
+                for beat in planner_output.beats:
+                    b_txt = beat.narration_hint.strip()
+                    if not b_txt:
+                        continue
+                    dur = max(len(b_txt) / 15.0, 0.5)
+                    beat_durations[beat.step_label] = dur
+                    spans.append(SegmentSpan(text=b_txt, start=t, end=t + dur))
+                    t += dur
+                duration_f = t
+                _write_silent_wav(out_wav, duration_f)
+            else:
+                duration_f = max(len(text) / 15.0, 1.0)
+                _write_silent_wav(out_wav, duration_f)
+            logs = f"Mock TTS synthesis completed (duration={duration_f:.1f}s)."
+        else:
+            if planner_output:
+                beat_wavs: list[Path] = []
+                t = 0.0
+                for i, beat in enumerate(planner_output.beats):
+                    b_txt = beat.narration_hint.strip()
+                    if not b_txt:
+                        continue
+                    b_wav = tmpdir / f"beat_{i}.wav"
+                    _run_piper(piper_cfg, b_txt, b_wav)
+                    dur = _audio_duration_seconds(b_wav)
+                    beat_durations[beat.step_label] = dur
+                    spans.append(SegmentSpan(text=b_txt, start=t, end=t + dur))
+                    t += dur
+                    beat_wavs.append(b_wav)
+                
+                _concat_wavs(beat_wavs, out_wav)
+                duration_f = _audio_duration_seconds(out_wav)
+                logs = "Piper beat-based synthesis completed."
+            else:
+                _run_piper(piper_cfg, text, out_wav)
+                logs = "Piper full-text synthesis completed."
+                duration_f = _audio_duration_seconds(out_wav)
+
         pipeline_event(
             "worker.tts",
             "piper_done",
-            "Piper wrote WAV",
+            "WAV generated (mock or real)",
             voice_job_id=str(job_id),
             trace_id=tid,
         )
-
-        duration_f = _audio_duration_seconds(out_wav)
-        ts = segment_time_alignment(text, total_duration_seconds=duration_f)
+        
+        if planner_output:
+            ts = VoiceSegmentTimestamps(segments=spans)
+        else:
+            ts = segment_time_alignment(text, total_duration_seconds=duration_f)
+            
         VoiceSegmentTimestamps.model_validate(ts.model_dump())
 
         remote_url = upload_voice_artifact_if_configured(
@@ -193,6 +262,7 @@ def execute_voice_job(job_id: UUID) -> None:
         meta: dict[str, Any] = {
             **job.metadata,
             "timestamps": ts.model_dump(mode="json"),
+            "beat_durations": beat_durations,
             "audio_format": "wav",
             "granularity": "segment",
             "duration_seconds": duration_f,
@@ -216,9 +286,14 @@ def execute_voice_job(job_id: UUID) -> None:
             "timestamps": ts_payload,
             "duration_seconds": Decimal(str(round(duration_f, 3))),
         }
+        # Store beat_durations in scene for Manim Worker to consume
+        if beat_durations:
+            scene_updates["sync_segments"] = beat_durations
+
         override = job.metadata.get("voice_script_override")
         if isinstance(override, str) and override.strip():
             scene_updates["voice_script"] = override.strip()
+            
         updated = cstore.update_scene(job.scene_id, **scene_updates)
         if updated is None:
             logger.error("scene missing for voice job scene_id=%s", job.scene_id)
@@ -232,6 +307,7 @@ def execute_voice_job(job_id: UUID) -> None:
                 voice_script=vs if isinstance(vs, str) else None,
                 update_voice_script="voice_script" in scene_updates,
             )
+        
         insert_worker_service_audit_row(
             audit_id=uuid4(),
             project_id=job.project_id,
@@ -245,6 +321,7 @@ def execute_voice_job(job_id: UUID) -> None:
                 "engine": "piper",
                 "asset_url": asset_url,
                 "voice_engine": job.voice_engine,
+                "beat_durations": beat_durations,
             },
         )
         pipeline_event(

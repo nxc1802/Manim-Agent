@@ -105,31 +105,37 @@ def execute_render_job(job_id: UUID) -> None:
             job_id=str(job_id),
             trace_id=tid,
         )
-        insert_worker_service_audit_row(
-            audit_id=uuid4(),
-            project_id=job.project_id,
-            scene_id=job.scene_id,
-            worker_kind="manim",
-            worker_name=settings.worker_name,
-            render_job_id=job_id,
-            payload={
-                "status": "completed",
-                "command": result.command,
-                "stdout_tail": result.stdout_tail,
-                "stderr_tail": result.stderr_tail,
-                "asset_url": asset_url,
-                "video_path": str(video_path),
-            },
-        )
+        try:
+            insert_worker_service_audit_row(
+                audit_id=uuid4(),
+                project_id=job.project_id,
+                scene_id=job.scene_id,
+                worker_kind="manim",
+                worker_name=settings.worker_name,
+                render_job_id=job_id,
+                payload={
+                    "status": "completed",
+                    "command": result.command,
+                    "stdout_tail": result.stdout_tail,
+                    "stderr_tail": result.stderr_tail,
+                    "asset_url": asset_url,
+                    "video_path": str(video_path),
+                },
+            )
+        except Exception:
+            logger.exception("Audit insertion failed for job_id=%s (non-fatal)", job_id)
 
         if job.webhook_url:
-            _post_webhook(
-                job.webhook_url,
-                job_id=job_id,
-                job_status="completed",
-                asset_url=asset_url,
-                error=None,
-            )
+            try:
+                _post_webhook(
+                    job.webhook_url,
+                    job_id=job_id,
+                    job_status="completed",
+                    asset_url=asset_url,
+                    error=None,
+                )
+            except Exception:
+                logger.exception("Webhook failed for job_id=%s (non-fatal)", job_id)
     except Exception as exc:  # noqa: BLE001 — surface failure to job record
         logger.exception("Render failed job_id=%s", job_id)
         pipeline_event(

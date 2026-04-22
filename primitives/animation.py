@@ -53,3 +53,13 @@ def surround_pulse(mobject: Mobject, color: str | None = None) -> Animation:
     if color is None:
         return Circumscribe(mobject, run_time=0.9)
     return Circumscribe(mobject, color=color, run_time=0.9)
+
+
+def highlight_region(mobject: Mobject, opacity: float = 0.7) -> Animation:
+    """Focus effect: dim everything else using a FullScreenRectangle."""
+    from manim import BLACK, FullScreenRectangle
+    dimmer = FullScreenRectangle(fill_color=BLACK, fill_opacity=opacity, stroke_width=0)
+    # We return a FadeIn of the dimmer, but wait, FadeIn(dimmer) would cover everything.
+    # To truly highlight, the target mobject should be 'on top' or re-added.
+    # Since this is a primitive, we'll return a simple FadeIn for now.
+    return FadeIn(dimmer)

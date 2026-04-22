@@ -1,10 +1,9 @@
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from shared.schemas.review import ReviewResult
+from shared.schemas.scene import Scene
 
 
 class ReviewRoundRequest(BaseModel):
@@ -38,10 +37,28 @@ class ReviewRoundResponse(BaseModel):
 class BuilderReviewLoopRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    mode: Literal["auto", "hitl"] = Field(
+        default="hitl",
+        description="Dual mode: 'auto' for straight approval/fail, 'hitl' for manual gates on failure.",
+    )
     preview_poll_timeout_seconds: float | None = Field(
         default=None,
         description="Override preview job poll timeout from runtime_limits YAML.",
     )
+
+
+class HitlReviewLoopAckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["revert", "continue", "stop"]
+    extra_rounds: int | None = Field(default=None, ge=1, le=10)
+
+
+class HitlReviewLoopAckResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene: Scene
+    message: str | None = None
 
 
 class BuilderReviewLoopResponse(BaseModel):

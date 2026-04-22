@@ -8,6 +8,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 StoryboardStatus = Literal["missing", "pending_review", "approved"]
+PlanStatus = Literal["missing", "pending_review", "approved"]
+VoiceScriptStatus = Literal["missing", "pending_review", "approved"]
 ReviewLoopStatus = Literal["idle", "running", "completed", "hitl_pending", "failed"]
 
 
@@ -37,6 +39,8 @@ class Scene(BaseModel):
     audio_url: str | None = None
     timestamps: dict[str, Any] | list[Any] | None = None
     duration_seconds: Decimal | None = None
+    plan_status: PlanStatus = "missing"
+    voice_script_status: VoiceScriptStatus = "missing"
     review_loop_status: ReviewLoopStatus = "idle"
     created_at: datetime
     updated_at: datetime
@@ -48,6 +52,10 @@ class Scene(BaseModel):
             out = dict(data)
             if "storyboard_status" not in out:
                 out["storyboard_status"] = "missing"
+            if "plan_status" not in out:
+                out["plan_status"] = "missing"
+            if "voice_script_status" not in out:
+                out["voice_script_status"] = "missing"
             if "review_loop_status" not in out:
                 out["review_loop_status"] = "idle"
             return out

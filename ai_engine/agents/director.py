@@ -1,8 +1,7 @@
 from __future__ import annotations
-
 from ai_engine.llm_client import LLMClient
 from ai_engine.prompts import PROMPT_VERSION_DIRECTOR, load_prompt_text
-
+from shared.pipeline_log import pipeline_debug
 
 def run_director(
     *,
@@ -23,6 +22,14 @@ def run_director(
     if extra_brief:
         user_parts.append(f"Additional brief:\n{extra_brief}")
     user = "\n".join(user_parts)
+    
+    pipeline_debug(
+        "ai_engine.director",
+        "llm_input",
+        "Director LLM Inputs",
+        details={"model": model, "system": system, "user": user}
+    )
+    
     text = llm.complete(
         model=model,
         system=system,
@@ -31,4 +38,12 @@ def run_director(
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    
+    pipeline_debug(
+        "ai_engine.director",
+        "llm_output",
+        "Director LLM Output",
+        details={"text": text}
+    )
+    
     return text.strip(), PROMPT_VERSION_DIRECTOR

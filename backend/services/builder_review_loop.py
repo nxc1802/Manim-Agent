@@ -27,6 +27,21 @@ from backend.services.job_store import RedisRenderJobStore
 from backend.services.job_wait import wait_for_render_job
 from backend.services.supabase_pipeline_rest import insert_pipeline_run_row
 
+
+def revert_to_checkpoint(scene_id: UUID, store: RedisContentStore) -> Scene:
+    """Unlock checkpoint: reset review_loop to idle, unblock plan/voice for edits."""
+    updated = store.update_scene(
+        scene_id,
+        review_loop_status="idle",
+        plan_status="pending_review",
+        voice_script_status="pending_review",
+        manim_code_version=1,
+    )
+    if updated is None:
+        msg = f"Failed to revert scene: {scene_id}"
+        raise ValueError(msg)
+    return updated
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +67,8 @@ def run_builder_review_loop(
     yaml_data: dict[str, Any],
     runtime_limits: RuntimeLimitsConfig,
     preview_poll_timeout_seconds: float,
+    mode: Literal["auto", "hitl"] = "hitl",
+    extra_rounds: int | None = None,
 ) -> tuple[Scene, dict[str, Any]]:
     """Run Builder → preview render → Code + Visual review for up to ``max_rounds`` rounds."""
     scene = store.get_scene(scene_id)
@@ -73,13 +90,21 @@ def run_builder_review_loop(
     updated = store.update_scene(scene_id, review_loop_status="running")
     assert updated is not None
     scene = updated
+    chat_history: list[dict[str, str]] = []
     final_status = "failed"
     feedback: str | None = None
 
-    n_rounds = max(1, review_cfg.max_rounds)
+    # Handle extra_rounds if we are continuing a previous run
+    n_rounds = extra_rounds if extra_rounds else max(1, review_cfg.max_rounds)
     try:
         for round_idx in range(1, n_rounds + 1):
             tr = time.perf_counter()
+            pipeline_event(
+                "builder.review_loop",
+                "round_start",
+                f"Starting round {round_idx}/{n_rounds}",
+                scene_id=scene_id,
+            )
             code, _pv_b, b_met = run_builder(
                 llm=llm,
                 model=builder_llm.model,
@@ -89,8 +114,10 @@ def run_builder_review_loop(
                 sync_segments=scene.sync_segments,
                 storyboard_excerpt=excerpt,
                 review_feedback=feedback,
+                chat_history=chat_history,
                 request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
             )
+            chat_history.append({"role": "assistant", "content": code})
             builder_block: dict[str, Any] = {
                 "prompt_version": _pv_b,
                 "duration_ms": b_met.get("duration_ms"),
@@ -149,21 +176,21 @@ def run_builder_review_loop(
             )
             preview_wait_ms = int((time.perf_counter() - tw0) * 1000)
 
-            if job.status != "completed":
-                rounds.append(
-                    {
-                        "round": round_idx,
-                        "builder": builder_block,
-                        "preview_job_id": str(job_id),
-                        "preview_wait_ms": preview_wait_ms,
-                        "preview_status": job.status,
-                        "error": "preview_render_failed",
-                    },
+            # BRANCHING LOGIC: Success vs Failure
+            mp4 = None
+            error_logs = None
+            if job.status == "completed":
+                mp4 = _local_mp4_from_job(job.asset_url)
+            else:
+                # Get last logs from job store - usually contains the stderr of manim crash
+                error_logs = job.logs or "Render job failed without logs"
+                pipeline_event(
+                    "builder.review_loop",
+                    "render_failed_triggering_recovery",
+                    "Render failed, calling Code Reviewer with logs",
+                    job_id=str(job_id),
+                    logs_len=len(error_logs),
                 )
-                final_status = "failed"
-                break
-
-            mp4 = _local_mp4_from_job(job.asset_url)
 
             review = run_single_review_round(
                 llm=llm,
@@ -174,6 +201,7 @@ def run_builder_review_loop(
                 sandbox_limits=limits,
                 preview_video_path=mp4,
                 extract_preview_frame=extract_end_of_play_jpeg_frame,
+                error_logs=error_logs,
                 runtime_limits=runtime_limits,
             )
 
@@ -196,6 +224,7 @@ def run_builder_review_loop(
                     "builder": builder_block,
                     "preview_job_id": str(job_id),
                     "preview_wait_ms": preview_wait_ms,
+                    "preview_status": job.status,
                     "review": review.model_dump(mode="json"),
                     "vr_preview": vr_meta,
                 },
@@ -205,12 +234,21 @@ def run_builder_review_loop(
                 final_status = "completed"
                 break
 
-            fb_parts = ["### code_reviewer", _issues_text(review.code_review)]
+            # Feedback synthesis for next round
+            fb_parts = []
+            if not review.code_review_passed:
+                fb_parts.extend(["### code_reviewer (Critical Fix Needed)", _issues_text(review.code_review)])
+            
             if review.visual_review is not None:
                 fb_parts.extend(["### visual_reviewer", _issues_text(review.visual_review)])
+            
             feedback = "\n".join(fb_parts)
+            # Update history with Reviewer's feedback for next round
+            chat_history.append({"role": "user", "content": f"Feedback for previous version: {feedback}"})
         else:
-            if review_cfg.on_max_rounds_exceeded == "hitl_or_fail":
+            if mode == "auto":
+                final_status = "failed"
+            elif review_cfg.on_max_rounds_exceeded == "hitl_or_fail":
                 final_status = "hitl_pending"
             else:
                 final_status = "failed"

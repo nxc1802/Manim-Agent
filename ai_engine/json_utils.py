@@ -14,9 +14,50 @@ def strip_json_fence(text: str) -> str:
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
+    """Tries to extract and parse a JSON object from text with high resilience."""
+    # 1. Strip markdown fences
     raw = strip_json_fence(text)
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        msg = "Expected JSON object"
-        raise ValueError(msg)
-    return data
+    
+    # 2. Try simple load first
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {"beats": data}
+    except Exception:
+        pass
+    
+    # 3. Locate the first { and last }
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1:
+        snippet = raw[start : end + 1]
+        try:
+            # Basic cleanup: remove trailing commas before } or ]
+            snippet = re.sub(r",\s*([}\]])", r"\1", snippet)
+            data = json.loads(snippet)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+            
+    # 4. If it's a list [ ... ]
+    start_l = raw.find("[")
+    end_l = raw.rfind("]")
+    if start_l != -1 and end_l != -1:
+        snippet_l = raw[start_l : end_l + 1]
+        try:
+            snippet_l = re.sub(r",\s*([}\]])", r"\1", snippet_l)
+            data_l = json.loads(snippet_l)
+            if isinstance(data_l, list):
+                return {"beats": data_l}
+        except Exception:
+            pass
+
+    # Final attempt at raw loads
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        msg = f"Failed to parse resilient JSON: {exc}. Original: {text[:200]}..."
+        raise ValueError(msg) from exc

@@ -65,12 +65,13 @@ def run_single_review_round(
     sandbox_limits: SandboxLimits,
     preview_video_path: Path | None,
     extract_preview_frame: Callable[[Path], bytes],
+    error_logs: str | None = None,
     runtime_limits: RuntimeLimitsConfig | None = None,
 ) -> ReviewRoundResponse:
-    """Phase 8 — single round: static + Code Reviewer first; Visual only after code passes.
-
-    Early stop is **true** only when both code and visual branches pass configured criteria
-    (AND). If code fails or preview is missing, visual review is skipped.
+    """Phase 8 — single round: branched logic based on render success/failure.
+    
+    Path A (Failure): If error_logs is present, run Code Reviewer for repair. Skip Visual.
+    Path B (Success): If error_logs is None, run Visual Reviewer for quality assessment.
     """
     rt = runtime_limits or RuntimeLimitsConfig(
         worker_man_render_timeout_seconds=3600,
@@ -80,77 +81,78 @@ def run_single_review_round(
         llm_timeout_default_seconds=600,
         llm_timeouts={},
     )
+    
+    # Static checks always run to ensure basic safety/syntax before any LLM review
     syntax_ok, policy_ok, _err = static_check_split(manim_code, limits=sandbox_limits)
+    
     empty = ReviewResult(issues=[])
     metrics: dict[str, Any] = {}
-    if not manim_code.strip():
-        return ReviewRoundResponse(
-            static_parse_ok=syntax_ok,
-            static_imports_ok=policy_ok,
-            code_review=empty,
-            code_review_passed=False,
-            visual_review=None,
-            visual_review_skipped_reason="empty_code",
-            visual_review_passed=None,
-            early_stop=False,
-            metrics=metrics,
-        )
-
-    code_review, _pv, cm = run_code_reviewer(
-        llm=llm,
-        model=code_llm.model,
-        temperature=code_llm.temperature,
-        max_tokens=code_llm.max_tokens,
-        manim_code=manim_code,
-        request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
-    )
-    metrics["code_reviewer"] = cm
-    code_passed = _code_review_passed(
-        cfg=review_cfg,
-        syntax_ok=syntax_ok,
-        policy_ok=policy_ok,
-        agent_result=code_review,
-    )
-
+    
+    code_review = empty
+    code_passed = True
     visual_review: ReviewResult | None = None
     visual_passed: bool | None = None
     skip_reason: str | None = None
 
-    if not code_passed:
-        skip_reason = "code_review_not_passed"
-    elif preview_video_path is None or not preview_video_path.is_file():
-        skip_reason = "no_preview_video"
+    # BRANCH 1: RENDER FAILURE or STATIC FAILURE
+    if error_logs or not syntax_ok or not policy_ok:
+        code_review, _pv, cm = run_code_reviewer(
+            llm=llm,
+            model=code_llm.model,
+            temperature=code_llm.temperature,
+            max_tokens=code_llm.max_tokens,
+            manim_code=manim_code,
+            error_logs=error_logs or _err,
+            request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
+        )
+        metrics["code_reviewer"] = cm
+        code_passed = False # Force false to continue loop if there was an error
+        skip_reason = "render_failed_or_static_error"
+        early_stop = False
+    
+    # BRANCH 2: RENDER SUCCESS
     else:
-        try:
-            frame_jpeg = extract_preview_frame(preview_video_path)
-            visual_review, _pv2, vm = run_visual_reviewer(
-                llm=llm,
-                model=visual_llm.model,
-                temperature=visual_llm.temperature,
-                max_tokens=visual_llm.max_tokens,
-                frame_jpeg=frame_jpeg,
-                context=(
-                    "Frame is the last decoded frame of the preview (approx. Scene.play() end)."
-                ),
-                request_timeout_seconds=rt.llm_timeout_seconds("visual_reviewer"),
-            )
-            metrics["visual_reviewer"] = vm
-            visual_passed = _visual_review_passed(cfg=review_cfg, agent_result=visual_review)
-        except Exception:
-            logger.exception("Visual review failed")
-            visual_review = ReviewResult(
-                issues=[
-                    ReviewIssue(
-                        severity="error",
-                        code="visual_pipeline_error",
-                        message="Visual review raised an exception",
-                    ),
-                ],
-            )
+        # We might still run code review for style/best practices if configured,
+        # but the primary focus in success branch is visual review.
+        # For now, let's skip code review on success to match user request of "Ngược lại... visual reviewer"
+        code_review = empty
+        code_passed = True
+        
+        if preview_video_path is None or not preview_video_path.is_file():
+            skip_reason = "no_preview_video"
             visual_passed = False
-            skip_reason = "visual_review_error"
+        else:
+            try:
+                frame_jpeg = extract_preview_frame(preview_video_path)
+                visual_review, _pv2, vm = run_visual_reviewer(
+                    llm=llm,
+                    model=visual_llm.model,
+                    temperature=visual_llm.temperature,
+                    max_tokens=visual_llm.max_tokens,
+                    frame_jpeg=frame_jpeg,
+                    context=(
+                        "Frame is the last decoded frame of the preview (approx. Scene.play() end)."
+                    ),
+                    request_timeout_seconds=rt.llm_timeout_seconds("visual_reviewer"),
+                )
+                metrics["visual_reviewer"] = vm
+                visual_passed = _visual_review_passed(cfg=review_cfg, agent_result=visual_review)
+            except Exception:
+                logger.exception("Visual review failed")
+                visual_review = ReviewResult(
+                    issues=[
+                        ReviewIssue(
+                            severity="error",
+                            code="visual_pipeline_error",
+                            message="Visual review raised an exception",
+                        ),
+                    ],
+                )
+                visual_passed = False
+                skip_reason = "visual_review_error"
 
-    early_stop = bool(code_passed and visual_passed is True)
+        early_stop = bool(code_passed and visual_passed is True)
+
     return ReviewRoundResponse(
         static_parse_ok=syntax_ok,
         static_imports_ok=policy_ok,

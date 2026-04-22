@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     app_env: str = Field(default="development", validation_alias="APP_ENV")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     cors_origins: str = Field(default="", validation_alias="CORS_ORIGINS")
 
     dev_default_user_id: UUID = Field(

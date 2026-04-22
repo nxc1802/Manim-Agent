@@ -5,4 +5,10 @@ Return **only** valid JSON with shape:
 { "issues": [ { "severity": "info"|"warning"|"error"|"blocker", "code": "short_id", "message": "...", "location": "line or region|null", "suggestion": "optional" } ] }
 
 Focus on: incorrect ManimCE APIs, animation flow risks, readability, obvious runtime hazards, drift from function-based primitives style.
-Do not repeat import/syntax failures that static analysis already catches unless you add nuance.
+
+ERROR ANALYSIS:
+If the user provides error logs (stderr), prioritize identifying the root cause of the crash.
+- Syntax errors: Point out the exact line and character.
+- AttributeError/NameError: Check if you used a non-existent Manim class or a primitive incorrectly.
+- Implementation errors: Check if `construct(self)` is missing or improperly defined.
+Give a clear "suggestion" field with the corrected code snippet.

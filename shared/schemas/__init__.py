@@ -17,7 +17,6 @@ from shared.schemas.review import ReviewIssue, ReviewResult
 from shared.schemas.review_pipeline import ReviewRoundRequest, ReviewRoundResponse
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 from shared.schemas.storage_api import SignedVideoUrlResponse
-from shared.schemas.sync_api import SyncEngineResponse
 from shared.schemas.voice_api import (
     VoiceEnqueueResponse,
     VoiceJobStatusResponse,
@@ -52,7 +51,6 @@ __all__ = [
     "ReviewResult",
     "ReviewRoundRequest",
     "ReviewRoundResponse",
-    "SyncEngineResponse",
     "VoiceEnqueueResponse",
     "VoiceJob",
     "VoiceJobStatusResponse",

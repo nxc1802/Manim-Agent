@@ -1,0 +1,55 @@
+defaults:
+  temperature: 0.4
+  max_tokens: 4096
+
+stable_model: &stable openrouter/openai/gpt-4o-mini
+
+agents:
+  director:
+    model: *stable
+    temperature: 0.7
+    max_tokens: 8192
+  planner:
+    model: *stable
+  voice:
+    model: *stable
+  builder:
+    model: *stable
+    temperature: 0.2
+    max_tokens: 16384
+  code_reviewer:
+    model: *stable
+    temperature: 0.1
+    max_tokens: 8192
+  visual_reviewer:
+    model: *stable
+    temperature: 0.1
+    max_tokens: 4096
+
+builder_review_loop:
+  max_rounds: 3
+  early_stop:
+    require_all:
+      - code_review_passed
+      - visual_review_passed
+  pass_criteria:
+    code_review_passed:
+      agent_blocking_issues_empty: true
+      static_ast_parse_ok: true
+      static_forbidden_imports_ok: true
+    visual_review_passed:
+      agent_blocking_issues_empty: true
+  blocking_severity_min: warning
+  stop_when_only_info_severity: false
+  on_max_rounds_exceeded: hitl_or_fail
+
+runtime_limits:
+  worker:
+    manim_render_timeout_seconds: 3600
+    tts_subprocess_timeout_seconds: 900
+  preview_poll:
+    timeout_seconds: 900
+    interval_seconds: 0.5
+  llm_request_timeout_seconds:
+    default: 300
+    builder: 600

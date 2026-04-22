@@ -8,16 +8,13 @@ ReviewSeverity = Literal["info", "warning", "error", "blocker"]
 
 
 class ReviewIssue(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
+    code: str
+    message: str
     severity: ReviewSeverity = "warning"
-    code: str = Field(default="generic", min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=8000)
-    location: str | None = Field(default=None, max_length=1024)
-    suggestion: str | None = Field(default=None, max_length=8000)
-
-
+    line_number: int | None = None
 class ReviewResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     issues: list[ReviewIssue] = Field(default_factory=list)

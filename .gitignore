@@ -15,3 +15,6 @@ build/
 
 output/
 media/
+*.log
+dump.rdb
+logs/

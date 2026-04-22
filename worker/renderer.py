@@ -1,3 +1,4 @@
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -65,8 +66,23 @@ def render_manim_scene_to_disk(
             logger.error(msg)
             raise RuntimeError(msg)
             
+        # Inject metadata: durations for Dynamic Template
+        durations_json = json.dumps(scene.sync_segments or {}, ensure_ascii=False)
+        metadata_injection = f"\n# Dynamic Template Metadata\nBEAT_DURATIONS = {durations_json}\n\n"
+        
         scene_file = (job_dir / "generated_scene.py").resolve()
-        scene_file.write_text(scene.manim_code, encoding="utf-8")
+        # Ensure __future__ imports are at the very top (SyntaxError if BEAT_DURATIONS is before them)
+        lines = mcode.splitlines(keepends=True)
+        future_lines = []
+        other_lines = []
+        for line in lines:
+            if "__future__" in line and ("import" in line or "from" in line):
+                future_lines.append(line)
+            else:
+                other_lines.append(line)
+        
+        full_code = "".join(future_lines) + metadata_injection + "".join(other_lines)
+        scene_file.write_text(full_code, encoding="utf-8")
         scene_class = settings.generated_scene_class
     else:
         scene_file = (repo_root / settings.manim_scene_file).resolve()

@@ -49,6 +49,27 @@ class LLMClient(Protocol):
         request_timeout_seconds: int | None,
     ) -> LLMCompletion: ...
 
+    def complete_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+    ) -> str: ...
+
+    def complete_chat_ex(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        request_timeout_seconds: int | None,
+    ) -> LLMCompletion: ...
+
     def complete_with_images(
         self,
         *,
@@ -157,6 +178,43 @@ class FakeLLMClient:
             usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
         )
 
+    def complete_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        return self.complete_chat_ex(
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+        ).text
+
+    def complete_chat_ex(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        request_timeout_seconds: int | None,
+    ) -> LLMCompletion:
+        _ = (model, temperature, max_tokens, request_timeout_seconds)
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        text = self._fake_text(system=system, user=user, json_mode=json_mode)
+        return LLMCompletion(
+            text=text,
+            usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
+        )
+
     def complete_with_images(
         self,
         *,
@@ -243,6 +301,46 @@ class LiteLLMClient:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
+        return self.complete_chat_ex(
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=request_timeout_seconds,
+        )
+
+    def complete_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        return self.complete_chat_ex(
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+        ).text
+
+    def complete_chat_ex(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        request_timeout_seconds: int | None,
+    ) -> LLMCompletion:
+        import litellm
+
+        t0 = time.monotonic()
         timeout = float(request_timeout_seconds or 600)
         kwargs: dict[str, Any] = {
             "model": model,

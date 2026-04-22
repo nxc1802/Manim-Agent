@@ -10,7 +10,6 @@ from shared.code_utils import extract_python_code
 from ai_engine.agents.builder import run_builder
 from ai_engine.agents.director import run_director
 from ai_engine.agents.planner import run_planner
-from ai_engine.agents.sync_engine import run_sync_engine
 from ai_engine.config import (
     default_agent_models_path,
     load_agent_models_yaml,
@@ -28,11 +27,12 @@ from shared.schemas.render_job import RenderJob
 from shared.schemas.review_pipeline import (
     BuilderReviewLoopRequest,
     BuilderReviewLoopResponse,
+    HitlReviewLoopAckRequest,
+    HitlReviewLoopAckResponse,
     ReviewRoundRequest,
     ReviewRoundResponse,
 )
 from shared.schemas.scene import Scene
-from shared.schemas.sync_api import SyncEngineResponse
 from shared.schemas.voice_api import VoiceEnqueueResponse, VoiceSynthesizeBody
 from worker.tasks import render_manim_scene
 from worker.tts_tasks import synthesize_voice
@@ -198,7 +198,63 @@ def run_scene_planner(
     updated = store.update_scene(
         scene_id,
         planner_output=plan.model_dump(mode="json"),
+        plan_status="pending_review",
+        voice_script_status="pending_review",
     )
+    assert updated is not None
+    return updated
+
+
+@router.post(
+    "/{scene_id}/approve-plan",
+    response_model=Scene,
+    summary="HITL: approve planner_output",
+)
+def approve_plan(
+    scene_id: UUID,
+    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
+    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+) -> Scene:
+    scene = store.get_scene(scene_id)
+    if scene is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scene not found: {scene_id}",
+        )
+    project_readable_by_user(store, scene.project_id, user_id)
+    if scene.plan_status != "pending_review":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scene is not awaiting plan approval (status={scene.plan_status})",
+        )
+    updated = store.update_scene(scene_id, plan_status="approved")
+    assert updated is not None
+    return updated
+
+
+@router.post(
+    "/{scene_id}/approve-voice-script",
+    response_model=Scene,
+    summary="HITL: approve voice_script",
+)
+def approve_voice_script(
+    scene_id: UUID,
+    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
+    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+) -> Scene:
+    scene = store.get_scene(scene_id)
+    if scene is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scene not found: {scene_id}",
+        )
+    project_readable_by_user(store, scene.project_id, user_id)
+    if scene.voice_script_status != "pending_review":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scene is not awaiting voice script approval (status={scene.voice_script_status})",
+        )
+    updated = store.update_scene(scene_id, voice_script_status="approved")
     assert updated is not None
     return updated
 
@@ -347,6 +403,11 @@ def enqueue_scene_voice(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Storyboard must be approved before voice synthesis",
         )
+    if scene.voice_script_status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Voice script must be approved before synthesis",
+        )
     text = (opts.voice_script_override or scene.voice_script or scene.storyboard_text or "").strip()
     if not text:
         raise HTTPException(
@@ -410,55 +471,6 @@ def enqueue_scene_voice(
     )
 
 
-@router.post(
-    "/{scene_id}/sync-timeline",
-    response_model=SyncEngineResponse,
-    summary="Phase 8: Sync Engine merges voice timestamps + planner (API LLM).",
-)
-def run_sync_timeline(
-    scene_id: UUID,
-    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
-    llm: LLMClient = Depends(get_llm_client),  # noqa: B008
-) -> SyncEngineResponse:
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Scene not found: {scene_id}",
-        )
-    project_readable_by_user(store, scene.project_id, user_id)
-    if scene.planner_output is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="planner_output is required",
-        )
-    if not scene.timestamps:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="timestamps are required (run voice synthesis first)",
-        )
-    text = (scene.voice_script or scene.storyboard_text or "").strip()
-    if not text:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="voice_script or storyboard_text is required for sync",
-        )
-    params = get_agent_llm_params("sync_engine")
-    rt = get_runtime_limits()
-    sync_obj, _pv, _sm = run_sync_engine(
-        llm=llm,
-        model=params.model,
-        temperature=params.temperature,
-        max_tokens=params.max_tokens,
-        planner_output=scene.planner_output,
-        voice_timestamps=scene.timestamps,
-        voice_script=text,
-        request_timeout_seconds=rt.llm_timeout_seconds("sync_engine"),
-    )
-    updated = store.update_scene(scene_id, sync_segments=sync_obj)
-    assert updated is not None
-    return SyncEngineResponse(scene=updated, sync_segments=sync_obj)
 
 
 @router.post(
@@ -576,6 +588,7 @@ def builder_review_loop_endpoint(
         yaml_data=yaml_data,
         runtime_limits=rt,
         preview_poll_timeout_seconds=poll_timeout,
+        mode=opts.mode,
     )
     return BuilderReviewLoopResponse(
         scene_id=str(updated.id),
@@ -587,14 +600,17 @@ def builder_review_loop_endpoint(
 
 @router.post(
     "/{scene_id}/hitl-ack-builder-review",
-    response_model=Scene,
-    summary="Clear hitl_pending after human edits; sets review_loop_status to idle",
+    response_model=HitlReviewLoopAckResponse,
+    summary="HITL: Ack review loop with revert, continue, or stop.",
 )
 def hitl_ack_builder_review(
     scene_id: UUID,
+    body: HitlReviewLoopAckRequest,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: RedisContentStore = Depends(get_content_store),  # noqa: B008
-) -> Scene:
+    job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
+    llm: LLMClient = Depends(get_llm_client),  # noqa: B008
+) -> HitlReviewLoopAckResponse:
     scene = store.get_scene(scene_id)
     if scene is None:
         raise HTTPException(
@@ -605,8 +621,34 @@ def hitl_ack_builder_review(
     if scene.review_loop_status != "hitl_pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Scene is not awaiting HITL for builder review",
+            detail=f"Scene is not awaiting HITL for builder review (status={scene.review_loop_status})",
         )
-    updated = store.update_scene(scene_id, review_loop_status="idle")
-    assert updated is not None
-    return updated
+
+    if body.action == "stop":
+        updated = store.update_scene(scene_id, review_loop_status="failed")
+        assert updated is not None
+        return HitlReviewLoopAckResponse(scene=updated, message="Loop stopped.")
+
+    if body.action == "revert":
+        from backend.services.builder_review_loop import revert_to_checkpoint
+        updated = revert_to_checkpoint(scene_id, store)
+        return HitlReviewLoopAckResponse(scene=updated, message="Reverted to checkpoint.")
+
+    if body.action == "continue":
+        from backend.services.builder_review_loop import run_builder_review_loop
+        yaml_data = load_agent_models_yaml(_agent_models_path())
+        rt = get_runtime_limits()
+        updated, _report = run_builder_review_loop(
+            scene_id=scene_id,
+            store=store,
+            job_store=job_store,
+            llm=llm,
+            yaml_data=yaml_data,
+            runtime_limits=rt,
+            preview_poll_timeout_seconds=rt.preview_poll_timeout_seconds,
+            mode="hitl",
+            extra_rounds=body.extra_rounds,
+        )
+        return HitlReviewLoopAckResponse(scene=updated, message=f"Continued for {body.extra_rounds} rounds.")
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown action")

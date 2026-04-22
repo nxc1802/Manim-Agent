@@ -275,6 +275,68 @@ _PRIMITIVES: list[PrimitiveEntry] = [
         example="scale_to_width(figure, width=10)",
         tags=["layout"],
     ),
+    _e(
+        name="get_data_chart",
+        module="primitives.visual",
+        description="Simple bar chart using rectangles and text labels.",
+        parameters=[
+            _p("values", "list"),
+            _p("labels", "list", required=False, default=None),
+            _p("max_height", "float", required=False, default="4.0"),
+            _p("width", "float", required=False, default="8.0"),
+            _p("color", "str", required=False, default="BLUE"),
+        ],
+        example='get_data_chart([10, 20, 30], labels=["A", "B", "C"])',
+        tags=["visual", "math", "chart"],
+    ),
+    _e(
+        name="get_geometric_diagram",
+        module="primitives.visual",
+        description="Basic geometric shapes (circle, square, triangle) with optional center label.",
+        parameters=[
+            _p("shape_type", "str", required=False, default="triangle"),
+            _p("size", "float", required=False, default="2.0"),
+            _p("color", "str", required=False, default="WHITE"),
+            _p("label", "str", required=False, default=None),
+        ],
+        example='get_geometric_diagram("circle", size=3, label="Core")',
+        tags=["visual", "geometry"],
+    ),
+    _e(
+        name="dynamic_pointer",
+        module="primitives.visual",
+        description="Arrow pointing at a target mobject with a label.",
+        parameters=[
+            _p("target", "mobject"),
+            _p("label", "str", required=False, default="Note"),
+            _p("direction", "list", required=False, default="UP"),
+        ],
+        example="dynamic_pointer(box, label='Highlight', direction=RIGHT)",
+        tags=["visual", "diagram"],
+    ),
+    _e(
+        name="highlight_region",
+        module="primitives.animation",
+        description="Focus effect: dim everything else in the scene.",
+        parameters=[
+            _p("mobject", "mobject"),
+            _p("opacity", "float", required=False, default="0.7"),
+        ],
+        example="self.play(highlight_region(important_obj))",
+        tags=["animation"],
+    ),
+    _e(
+        name="get_matrix_block",
+        module="primitives.visual",
+        description="A 2D grid of elements with square brackets (no-LaTeX).",
+        parameters=[
+            _p("matrix_data", "list"),
+            _p("color", "str", required=False, default="WHITE"),
+            _p("cell_font_size", "float", required=False, default="28"),
+        ],
+        example='get_matrix_block([[1, 0], [0, 1]], color=BLUE)',
+        tags=["visual", "math", "matrix"],
+    ),
 ]
 
 
