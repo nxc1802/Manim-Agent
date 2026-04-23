@@ -108,6 +108,12 @@ def generate_storyboard(
         )
 
     params = get_agent_llm_params("director")
+    pipeline_event(
+        "api.scenes",
+        "storyboard_start",
+        "Director: generating storyboard",
+        scene_id=str(scene_id),
+    )
     text, _prompt_version = run_director(
         llm=llm,
         model=params.model,
@@ -121,6 +127,12 @@ def generate_storyboard(
         scene_id,
         storyboard_text=text,
         storyboard_status="pending_review",
+    )
+    pipeline_event(
+        "api.scenes",
+        "storyboard_ok",
+        "Director: storyboard generated",
+        scene_id=str(scene_id),
     )
     assert updated is not None
     return updated
@@ -188,6 +200,12 @@ def run_scene_planner(
         )
 
     params = get_agent_llm_params("planner")
+    pipeline_event(
+        "api.scenes",
+        "plan_start",
+        "Planner: generating execution plan",
+        scene_id=str(scene_id),
+    )
     plan, _prompt_version = run_planner(
         llm=llm,
         model=params.model,
@@ -200,6 +218,12 @@ def run_scene_planner(
         planner_output=plan.model_dump(mode="json"),
         plan_status="pending_review",
         voice_script_status="pending_review",
+    )
+    pipeline_event(
+        "api.scenes",
+        "plan_ok",
+        "Planner: plan generated",
+        scene_id=str(scene_id),
     )
     assert updated is not None
     return updated

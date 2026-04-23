@@ -52,7 +52,11 @@ class ConnectionManager:
                     try:
                         payload = json.loads(data)
                         scene_id = payload.get("scene_id")
+                        # Debug log to see what's coming in
+                        logger.info(f"WS Listener received: scene_id={scene_id}, active={list(self.active_connections.keys())}")
+                        
                         if scene_id and scene_id in self.active_connections:
+                            logger.info(f"Broadcasting to scene {scene_id}: {payload.get('message')}")
                             await self.broadcast_to_scene(scene_id, payload)
                     except Exception:
                         logger.exception("Failed to broadcast WebSocket message")

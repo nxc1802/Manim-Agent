@@ -18,6 +18,7 @@ import redis
 LOG = logging.getLogger("manim.pipeline")
 
 pipeline_trace_id_var: ContextVar[str | None] = ContextVar("pipeline_trace_id", default=None)
+pipeline_scene_id_var: ContextVar[str | None] = ContextVar("pipeline_scene_id", default=None)
 
 # Global Redis client for event broadcasting
 _BROADCAST_REDIS: redis.Redis | None = None
@@ -91,6 +92,7 @@ def _pipeline_payload(
     **fields: Any,
 ) -> dict[str, Any]:
     tid = trace_id if trace_id is not None else get_pipeline_trace_id()
+    sid = pipeline_scene_id_var.get()
     payload: dict[str, Any] = {
         "ts": datetime.now(tz=UTC).isoformat(),
         "component": component,
@@ -99,6 +101,8 @@ def _pipeline_payload(
     }
     if tid:
         payload["trace_id"] = tid
+    if sid:
+        payload["scene_id"] = sid
     if details:
         payload["details"] = details
     for key, value in fields.items():
