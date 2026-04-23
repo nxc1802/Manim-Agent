@@ -339,40 +339,50 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
+        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-        t0 = time.monotonic()
-        timeout = float(request_timeout_seconds or 600)
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "timeout": timeout,
-        }
-        if self._api_key:
-            kwargs["api_key"] = self._api_key
-        if self._api_base:
-            kwargs["api_base"] = self._api_base
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        resp = litellm.completion(**kwargs)
-        msg = resp.choices[0].message
-        content = getattr(msg, "content", None)
-        text = content.strip() if isinstance(content, str) else ""
-        if not text:
-            logger.error("LiteLLM returned empty content (model=%s)", model)
-            raise RuntimeError("LLM returned empty content")
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        usage_obj = getattr(resp, "usage", None)
-        pt = getattr(usage_obj, "prompt_tokens", None) if usage_obj is not None else None
-        ct = getattr(usage_obj, "completion_tokens", None) if usage_obj is not None else None
-        usage = LLMUsage(
-            prompt_tokens=pt,
-            completion_tokens=ct,
-            duration_ms=duration_ms,
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            retry=retry_if_exception_type((litellm.APIError, litellm.Timeout, litellm.ServiceUnavailableError, RuntimeError, Exception)),
+            reraise=True,
         )
-        return LLMCompletion(text=text, usage=usage)
+        def _call_with_retry() -> LLMCompletion:
+            t0 = time.monotonic()
+            timeout = float(request_timeout_seconds or 600)
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout,
+            }
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            resp = litellm.completion(**kwargs)
+            msg = resp.choices[0].message
+            content = getattr(msg, "content", None)
+            text = content.strip() if isinstance(content, str) else ""
+            if not text:
+                logger.error("LiteLLM returned empty content (model=%s)", model)
+                raise RuntimeError("LLM returned empty content")
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            usage_obj = getattr(resp, "usage", None)
+            pt = getattr(usage_obj, "prompt_tokens", None) if usage_obj is not None else None
+            ct = getattr(usage_obj, "completion_tokens", None) if usage_obj is not None else None
+            usage = LLMUsage(
+                prompt_tokens=pt,
+                completion_tokens=ct,
+                duration_ms=duration_ms,
+            )
+            return LLMCompletion(text=text, usage=usage)
+
+        return _call_with_retry()
 
     def complete_with_images(
         self,
@@ -409,48 +419,58 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
+        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-        t0 = time.monotonic()
-        b64 = base64.standard_b64encode(image_jpeg).decode("ascii")
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                ],
-            },
-        ]
-        timeout = float(request_timeout_seconds or 600)
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "timeout": timeout,
-        }
-        if self._api_key:
-            kwargs["api_key"] = self._api_key
-        if self._api_base:
-            kwargs["api_base"] = self._api_base
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        resp = litellm.completion(**kwargs)
-        msg = resp.choices[0].message
-        content = getattr(msg, "content", None)
-        text = content.strip() if isinstance(content, str) else ""
-        if not text:
-            logger.error("LiteLLM vision returned empty content (model=%s)", model)
-            raise RuntimeError("LLM returned empty content")
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        usage_obj = getattr(resp, "usage", None)
-        pt = getattr(usage_obj, "prompt_tokens", None) if usage_obj is not None else None
-        ct = getattr(usage_obj, "completion_tokens", None) if usage_obj is not None else None
-        usage = LLMUsage(
-            prompt_tokens=pt,
-            completion_tokens=ct,
-            duration_ms=duration_ms,
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            retry=retry_if_exception_type((litellm.APIError, litellm.Timeout, litellm.ServiceUnavailableError, RuntimeError, Exception)),
+            reraise=True,
         )
-        return LLMCompletion(text=text, usage=usage)
+        def _call_with_retry() -> LLMCompletion:
+            t0 = time.monotonic()
+            b64 = base64.standard_b64encode(image_jpeg).decode("ascii")
+            messages: list[dict[str, Any]] = [
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    ],
+                },
+            ]
+            timeout = float(request_timeout_seconds or 600)
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout,
+            }
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            resp = litellm.completion(**kwargs)
+            msg = resp.choices[0].message
+            content = getattr(msg, "content", None)
+            text = content.strip() if isinstance(content, str) else ""
+            if not text:
+                logger.error("LiteLLM vision returned empty content (model=%s)", model)
+                raise RuntimeError("LLM returned empty content")
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            usage_obj = getattr(resp, "usage", None)
+            pt = getattr(usage_obj, "prompt_tokens", None) if usage_obj is not None else None
+            ct = getattr(usage_obj, "completion_tokens", None) if usage_obj is not None else None
+            usage = LLMUsage(
+                prompt_tokens=pt,
+                completion_tokens=ct,
+                duration_ms=duration_ms,
+            )
+            return LLMCompletion(text=text, usage=usage)
+            
+        return _call_with_retry()
