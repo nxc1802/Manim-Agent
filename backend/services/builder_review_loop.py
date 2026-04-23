@@ -21,14 +21,14 @@ from worker.tasks import render_manim_scene
 
 from backend.core.config import settings
 from backend.services.code_sandbox import SandboxLimits, SandboxValidationError, validate_manim_code
-from backend.services.content_store import RedisContentStore
+from backend.services.content_store import get_content_store
 from backend.services.frame_info import extract_end_of_play_jpeg_frame
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.job_wait import wait_for_render_job
 from backend.services.supabase_pipeline_rest import insert_pipeline_run_row
 
 
-def revert_to_checkpoint(scene_id: UUID, store: RedisContentStore) -> Scene:
+def revert_to_checkpoint(scene_id: UUID, store: Any) -> Scene:
     """Unlock checkpoint: reset review_loop to idle, unblock plan/voice for edits."""
     updated = store.update_scene(
         scene_id,
@@ -61,7 +61,7 @@ def _issues_text(res: ReviewResult) -> str:
 def run_builder_review_loop(
     *,
     scene_id: UUID,
-    store: RedisContentStore,
+    store: Any,
     job_store: RedisRenderJobStore,
     llm: LLMClient,
     yaml_data: dict[str, Any],

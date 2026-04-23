@@ -159,3 +159,12 @@ class RedisContentStore:
         self.add_scene_to_project_index(scene)
         self.touch_project(project_id)
         return scene
+def get_content_store() -> SupabaseContentStore | RedisContentStore:
+    """Prefer Supabase for project/scene persistence if configured; fallback to Redis."""
+    from backend.core.config import settings
+    from backend.services.redis_client import get_redis
+    from backend.services.supabase_content_store import SupabaseContentStore
+    
+    if settings.supabase_url and settings.supabase_service_role_key:
+        return SupabaseContentStore()
+    return RedisContentStore(get_redis())

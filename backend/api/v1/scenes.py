@@ -51,7 +51,7 @@ from backend.core.config import settings
 from backend.core.correlation import get_request_id
 from backend.services.builder_review_loop import run_builder_review_loop
 from backend.services.code_sandbox import SandboxLimits, SandboxValidationError, validate_manim_code
-from backend.services.content_store import RedisContentStore
+from typing import Any
 from backend.services.frame_info import extract_end_of_play_jpeg_frame
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.supabase_voice_rest import insert_voice_job_row
@@ -91,7 +91,7 @@ def generate_storyboard(
     scene_id: UUID,
     body: GenerateStoryboardBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
@@ -134,7 +134,7 @@ def generate_storyboard(
 def approve_storyboard(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -166,7 +166,7 @@ def approve_storyboard(
 def run_scene_planner(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
@@ -213,7 +213,7 @@ def run_scene_planner(
 def approve_plan(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -240,7 +240,7 @@ def approve_plan(
 def approve_voice_script(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -268,7 +268,7 @@ def generate_scene_code(
     scene_id: UUID,
     body: GenerateCodeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
 ) -> GenerateCodeResponse:
@@ -387,7 +387,7 @@ def enqueue_scene_voice(
     scene_id: UUID,
     body: VoiceSynthesizeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     vstore: RedisVoiceJobStore = Depends(get_voice_job_store),  # noqa: B008
 ) -> VoiceEnqueueResponse:
     opts = body or VoiceSynthesizeBody()
@@ -482,7 +482,7 @@ def run_review_round(
     scene_id: UUID,
     body: ReviewRoundRequest | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> ReviewRoundResponse:
@@ -555,7 +555,7 @@ def builder_review_loop_endpoint(
     scene_id: UUID,
     body: BuilderReviewLoopRequest | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> BuilderReviewLoopResponse:
@@ -607,7 +607,7 @@ def hitl_ack_builder_review(
     scene_id: UUID,
     body: HitlReviewLoopAckRequest,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> HitlReviewLoopAckResponse:

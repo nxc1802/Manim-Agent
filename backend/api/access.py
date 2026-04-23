@@ -9,7 +9,7 @@ from backend.services.content_store import RedisContentStore
 
 
 def project_readable_by_user(
-    store: RedisContentStore,
+    store: Any,
     project_id: UUID,
     user_id: UUID,
 ) -> Project:

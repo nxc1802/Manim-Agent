@@ -6,7 +6,7 @@ from typing import NamedTuple
 from uuid import UUID
 
 from backend.core.config import settings
-from backend.services.content_store import RedisContentStore
+from backend.services.content_store import get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from shared.pipeline_log import get_pipeline_trace_id, pipeline_debug, pipeline_event
@@ -51,7 +51,7 @@ def render_manim_scene_to_disk(
         raise RuntimeError(msg)
 
     if job.scene_id is not None:
-        content = RedisContentStore(get_redis())
+        content = get_content_store()
         scene = content.get_scene(job.scene_id)
         if scene is None:
             msg = f"Scene {job.scene_id} not found in content store for job {job_id}"

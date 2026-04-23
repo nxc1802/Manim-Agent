@@ -8,7 +8,7 @@ from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_request_user_id
-from backend.services.content_store import RedisContentStore
+from typing import Any
 
 router = APIRouter(tags=["projects"])
 
@@ -22,7 +22,7 @@ router = APIRouter(tags=["projects"])
 def create_project(
     body: ProjectCreate,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Project:
     return store.create_project(
         project_id=uuid4(),
@@ -37,7 +37,7 @@ def create_project(
 @router.get("", response_model=list[Project], summary="List projects")
 def list_projects(
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> list[Project]:
     return store.list_projects_for_user(user_id)
 
@@ -46,7 +46,7 @@ def list_projects(
 def get_project(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Project:
     return project_readable_by_user(store, project_id, user_id)
 
@@ -55,7 +55,7 @@ def get_project(
 def list_project_scenes(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> list[Scene]:
     project_readable_by_user(store, project_id, user_id)
     return store.list_scenes_for_project(project_id)
@@ -71,7 +71,7 @@ def create_scene(
     project_id: UUID,
     body: SceneCreate,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     project_readable_by_user(store, project_id, user_id)
     storyboard_status: StoryboardStatus = (
@@ -95,7 +95,7 @@ def create_scene(
 def approve_project_storyboard(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: RedisContentStore = Depends(get_content_store),  # noqa: B008
+    store: Any = Depends(get_content_store),  # noqa: B008
 ) -> list[Scene]:
     project_readable_by_user(store, project_id, user_id)
     scenes = store.list_scenes_for_project(project_id)

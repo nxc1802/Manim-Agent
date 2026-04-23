@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from ai_engine.piper_config import PiperRuntimeConfig, load_piper_runtime_config
 from backend.core.config import settings
-from backend.services.content_store import RedisContentStore
+from backend.services.content_store import get_content_store
 from backend.services.redis_client import get_redis
 from backend.services.supabase_pipeline_rest import insert_worker_service_audit_row
 from backend.services.supabase_voice_rest import patch_scene_audio_row, patch_voice_job_row
@@ -117,7 +117,7 @@ def _concat_wavs(paths: list[Path], out_wav: Path) -> None:
 def execute_voice_job(job_id: UUID) -> None:
     tid = get_pipeline_trace_id()
     vstore = RedisVoiceJobStore(get_redis())
-    cstore = RedisContentStore(get_redis())
+    cstore = get_content_store()
     job = vstore.get(job_id)
     if job is None:
         logger.error("voice job missing: %s", job_id)

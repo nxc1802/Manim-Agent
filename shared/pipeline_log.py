@@ -13,9 +13,27 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
+import redis
+
 LOG = logging.getLogger("manim.pipeline")
 
 pipeline_trace_id_var: ContextVar[str | None] = ContextVar("pipeline_trace_id", default=None)
+
+# Global Redis client for event broadcasting
+_BROADCAST_REDIS: redis.Redis | None = None
+
+def _get_broadcast_redis() -> redis.Redis | None:
+    global _BROADCAST_REDIS
+    if _BROADCAST_REDIS is not None:
+        return _BROADCAST_REDIS
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        return None
+    try:
+        _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)
+        return _BROADCAST_REDIS
+    except Exception:
+        return None
 
 
 def get_pipeline_trace_id() -> str | None:
@@ -162,6 +180,15 @@ def pipeline_event(
         **fields,
     )
     LOG.info(json.dumps(payload, default=str, ensure_ascii=False))
+    
+    # Broadcast to Redis Pub/Sub
+    r = _get_broadcast_redis()
+    if r:
+        try:
+            r.publish("manim_agent:events", json.dumps(payload, default=str))
+        except Exception:
+            pass
+
     # Even in INFO mode, if it's an important event, show a summary
     if LOG.isEnabledFor(logging.DEBUG):
         _emit_human_readable(component, phase, message, details)
@@ -186,4 +213,13 @@ def pipeline_debug(
         **fields,
     )
     LOG.debug(json.dumps(payload, default=str, ensure_ascii=False))
+    
+    # Broadcast to Redis Pub/Sub
+    r = _get_broadcast_redis()
+    if r:
+        try:
+            r.publish("manim_agent:events", json.dumps(payload, default=str))
+        except Exception:
+            pass
+            
     _emit_human_readable(component, phase, message, details)
