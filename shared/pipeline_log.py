@@ -29,11 +29,15 @@ def _get_broadcast_redis() -> redis.Redis | None:
         return _BROADCAST_REDIS
     url = os.environ.get("REDIS_URL")
     if not url:
+        # LOG.warning("REDIS_URL not set; pipeline events will NOT be broadcasted.")
+        print("DEBUG: REDIS_URL not set in pipeline_log", flush=True)
         return None
     try:
         _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)
+        print(f"DEBUG: Redis broadcast client initialized with {url}", flush=True)
         return _BROADCAST_REDIS
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: Redis broadcast client initialization FAILED: {e}", flush=True)
         return None
 
 
@@ -189,6 +193,7 @@ def pipeline_event(
     r = _get_broadcast_redis()
     if r:
         try:
+            print(f"DEBUG: Publishing to Redis: {payload.get('message')}", flush=True)
             r.publish("manim_agent:events", json.dumps(payload, default=str))
         except Exception:
             pass
@@ -222,6 +227,7 @@ def pipeline_debug(
     r = _get_broadcast_redis()
     if r:
         try:
+            # print(f"DEBUG: Debug-Publishing to Redis: {payload.get('message')}", flush=True)
             r.publish("manim_agent:events", json.dumps(payload, default=str))
         except Exception:
             pass

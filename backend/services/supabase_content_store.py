@@ -151,8 +151,17 @@ class SupabaseContentStore:
 
     def update_scene(self, scene_id: UUID, **kwargs: Any) -> Scene | None:
         if not self._headers: return None
+        from decimal import Decimal
+        # Sanitize kwargs to be JSON serializable (e.g. Decimal -> float)
+        sanitized = {}
+        for k, v in kwargs.items():
+            if isinstance(v, Decimal):
+                sanitized[k] = float(v)
+            else:
+                sanitized[k] = v
+        
         url = f"{self._base_url}/rest/v1/scenes?id=eq.{scene_id}"
         with self._get_client() as client:
-            r = client.patch(url, json=kwargs)
+            r = client.patch(url, json=sanitized)
             r.raise_for_status()
             return self.get_scene(scene_id)

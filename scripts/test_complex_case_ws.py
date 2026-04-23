@@ -6,8 +6,8 @@ import httpx
 import time
 import sys
 
-# API_BASE = "http://localhost:8000"
-API_BASE = "https://Cuong2004-Manim-Agent.hf.space"
+API_BASE = "http://localhost:8000"
+# API_BASE = "https://Cuong2004-Manim-Agent.hf.space"
 WS_BASE = API_BASE.replace("https://", "wss://").replace("http://", "ws://")
 
 def log(msg):
