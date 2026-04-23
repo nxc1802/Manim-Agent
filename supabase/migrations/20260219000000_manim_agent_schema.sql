@@ -1,9 +1,9 @@
 -- Manim Agent — consolidated schema (single migration for new Supabase projects).
--- Prerequisites: Supabase Auth (`auth.users`). Apply via Supabase SQL Editor or `supabase db push`.
+-- Prerequisites: Apply via Supabase SQL Editor or `supabase db push`.
 
 CREATE TABLE public.projects (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL, -- Constraint relaxed to allow easier integration
   title TEXT NOT NULL,
   description TEXT,
   source_language TEXT DEFAULT 'en',
@@ -26,6 +26,10 @@ CREATE TABLE public.scenes (
     CHECK (storyboard_status IN ('missing', 'pending_review', 'approved')),
   storyboard_text TEXT,
   voice_script TEXT,
+  plan_status TEXT NOT NULL DEFAULT 'missing'
+    CHECK (plan_status IN ('missing', 'pending_review', 'approved')),
+  voice_script_status TEXT NOT NULL DEFAULT 'missing'
+    CHECK (voice_script_status IN ('missing', 'pending_review', 'approved')),
   planner_output JSONB,
   sync_segments JSONB,
   manim_code TEXT,
@@ -42,6 +46,8 @@ CREATE TABLE public.scenes (
 
 CREATE INDEX idx_scenes_project_id ON public.scenes (project_id);
 CREATE INDEX idx_scenes_project_order ON public.scenes (project_id, scene_order);
+CREATE INDEX idx_scenes_plan_status ON public.scenes (plan_status);
+CREATE INDEX idx_scenes_voice_script_status ON public.scenes (voice_script_status);
 
 CREATE TABLE public.render_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
