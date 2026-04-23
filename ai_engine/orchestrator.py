@@ -1,20 +1,52 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Type, TypeVar
+from uuid import UUID, uuid4
 
-from backend.services.code_sandbox import SandboxLimits, static_check_split
+from pydantic import BaseModel
+
+from backend.core.config import settings
+from backend.services.code_sandbox import (
+    SandboxLimits,
+    SandboxValidationError,
+    static_check_split,
+    validate_manim_code,
+)
+from backend.services.frame_info import extract_end_of_play_jpeg_frame
+from backend.services.job_wait import wait_for_render_job
+from backend.services.supabase_pipeline_rest import insert_pipeline_run_row
+from shared.pipeline_log import pipeline_event
+from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.review import ReviewIssue, ReviewResult
 from shared.schemas.review_pipeline import ReviewRoundResponse
+from shared.schemas.scene import Scene
+from worker.tasks import render_manim_scene
 
+from ai_engine.agents.builder import run_builder
 from ai_engine.agents.code_reviewer import run_code_reviewer
+from ai_engine.agents.director import run_director
+from ai_engine.agents.planner import run_planner
 from ai_engine.agents.visual_reviewer import run_visual_reviewer
-from ai_engine.config import AgentLLMParams, BuilderReviewLoopConfig, RuntimeLimitsConfig
+from ai_engine.config import (
+    AgentLLMParams,
+    BuilderReviewLoopConfig,
+    RuntimeLimitsConfig,
+    load_builder_review_loop,
+    resolve_agent_params,
+)
+from ai_engine.json_utils import parse_json_object
 from ai_engine.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound="BaseModel")
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "blocker": 3}
 
@@ -55,6 +87,112 @@ def _visual_review_passed(*, cfg: BuilderReviewLoopConfig, agent_result: ReviewR
     return not _agent_has_blocking(agent_result.issues, cfg)
 
 
+def _run_agent_with_self_correction(
+    agent_name: str,
+    call_fn: Callable[..., Any],
+    schema: type[T] | None,
+    max_retries: int = 3,
+    **kwargs: Any
+) -> Any:
+    """Helper to retry agent calls if they produce invalid JSON or fail validation."""
+    history: list[dict[str, str]] = []
+    last_error: str | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if "chat_history" in kwargs:
+                kwargs["chat_history"] = history
+            
+            if last_error:
+                if agent_name == "planner":
+                    kwargs["storyboard_text"] = (
+                        f"{kwargs.get('storyboard_text', '')}\n\n"
+                        "[SELF-CORRECTION] Previous output was invalid: {last_error}. "
+                        "Please fix the JSON structure and ensure it matches the schema."
+                    )
+                elif agent_name == "director":
+                    kwargs["extra_brief"] = (
+                        f"{kwargs.get('extra_brief') or ''}\n\n"
+                        "[SELF-CORRECTION] Previous output was invalid: {last_error}. "
+                        "Please fix and retry."
+                    )
+
+            result, version = call_fn(**kwargs)
+            
+            if schema is None:
+                return result, version
+
+            if isinstance(result, str):
+                data = parse_json_object(result)
+                validated = schema.model_validate(data)
+                return validated, version
+            else:
+                if isinstance(result, schema):
+                    return result, version
+                validated = schema.model_validate(result)
+                return validated, version
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Self-correction triggered for {agent_name} (attempt {attempt}/{max_retries}): {last_error}")
+            pipeline_event(
+                f"ai_engine.{agent_name}",
+                "self_correction_triggered",
+                f"Agent output invalid, retrying ({attempt}/{max_retries})",
+                details={"error": last_error}
+            )
+            if attempt == max_retries:
+                raise
+
+    raise RuntimeError(f"Agent {agent_name} failed after {max_retries} attempts")
+
+
+def run_storyboard_phase(
+    *,
+    llm: LLMClient,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    project_title: str,
+    project_description: str | None,
+    extra_brief: str | None = None,
+) -> tuple[str, str]:
+    """Phase 1: Storyboard generation via Director Agent."""
+    return _run_agent_with_self_correction(
+        "director",
+        run_director,
+        schema=None, 
+        llm=llm,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        project_title=project_title,
+        project_description=project_description,
+        extra_brief=extra_brief,
+    )
+
+
+def run_planning_phase(
+    *,
+    llm: LLMClient,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    storyboard_text: str,
+) -> tuple[PlannerOutput, str]:
+    """Phase 2: Execution plan generation via Planner Agent."""
+    return _run_agent_with_self_correction(
+        "planner",
+        run_planner,
+        schema=PlannerOutput,
+        llm=llm,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        storyboard_text=storyboard_text,
+    )
+
+
 def run_single_review_round(
     *,
     llm: LLMClient,
@@ -68,11 +206,7 @@ def run_single_review_round(
     error_logs: str | None = None,
     runtime_limits: RuntimeLimitsConfig | None = None,
 ) -> ReviewRoundResponse:
-    """Phase 8 — single round: branched logic based on render success/failure.
-    
-    Path A (Failure): If error_logs is present, run Code Reviewer for repair. Skip Visual.
-    Path B (Success): If error_logs is None, run Visual Reviewer for quality assessment.
-    """
+    """Phase 8 — single round: branched logic based on render success/failure."""
     rt = runtime_limits or RuntimeLimitsConfig(
         worker_man_render_timeout_seconds=3600,
         worker_tts_subprocess_timeout_seconds=900,
@@ -82,7 +216,6 @@ def run_single_review_round(
         llm_timeouts={},
     )
     
-    # Static checks always run to ensure basic safety/syntax before any LLM review
     syntax_ok, policy_ok, _err = static_check_split(manim_code, limits=sandbox_limits)
     
     empty = ReviewResult(issues=[])
@@ -94,7 +227,6 @@ def run_single_review_round(
     visual_passed: bool | None = None
     skip_reason: str | None = None
 
-    # BRANCH 1: RENDER FAILURE or STATIC FAILURE
     if error_logs or not syntax_ok or not policy_ok:
         code_review, _pv, cm = run_code_reviewer(
             llm=llm,
@@ -106,15 +238,11 @@ def run_single_review_round(
             request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
         )
         metrics["code_reviewer"] = cm
-        code_passed = False # Force false to continue loop if there was an error
+        code_passed = False 
         skip_reason = "render_failed_or_static_error"
         early_stop = False
     
-    # BRANCH 2: RENDER SUCCESS
     else:
-        # We might still run code review for style/best practices if configured,
-        # but the primary focus in success branch is visual review.
-        # For now, let's skip code review on success to match user request of "Ngược lại... visual reviewer"
         code_review = empty
         code_passed = True
         
@@ -164,3 +292,213 @@ def run_single_review_round(
         early_stop=early_stop,
         metrics=metrics,
     )
+
+
+def run_builder_loop_phase(
+    *,
+    scene_id: UUID,
+    store: Any,
+    job_store: Any,
+    llm: LLMClient,
+    yaml_data: dict[str, Any],
+    runtime_limits: RuntimeLimitsConfig,
+    preview_poll_timeout_seconds: float,
+    mode: Literal["auto", "hitl"] = "hitl",
+    extra_rounds: int | None = None,
+) -> tuple[Scene, dict[str, Any]]:
+    """Phase 3: The nested Builder-Reviewer loop coordination."""
+    scene = store.get_scene(scene_id)
+    if scene is None:
+        raise ValueError(f"Scene not found: {scene_id}")
+
+    run_id = uuid4()
+    t_all = time.perf_counter()
+    rounds: list[dict[str, Any]] = []
+    review_cfg = load_builder_review_loop(yaml_data)
+    builder_llm = resolve_agent_params(yaml_data, "builder")
+    code_rev_llm = resolve_agent_params(yaml_data, "code_reviewer")
+    visual_rev_llm = resolve_agent_params(yaml_data, "visual_reviewer")
+    limits = SandboxLimits(max_bytes=settings.max_manim_code_bytes)
+    plan = PlannerOutput.model_validate(scene.planner_output)
+    excerpt = scene.storyboard_text[:4000] if scene.storyboard_text else None
+
+    store.update_scene(scene_id, review_loop_status="running")
+    chat_history: list[dict[str, str]] = []
+    final_status = "failed"
+    feedback: str | None = None
+
+    n_rounds = extra_rounds if extra_rounds else max(1, review_cfg.max_rounds)
+    try:
+        for round_idx in range(1, n_rounds + 1):
+            tr = time.perf_counter()
+            pipeline_event(
+                "builder.review_loop",
+                "round_start",
+                f"Starting round {round_idx}/{n_rounds}",
+                scene_id=str(scene_id),
+            )
+            code, _pv_b, b_met = run_builder(
+                llm=llm,
+                model=builder_llm.model,
+                temperature=builder_llm.temperature,
+                max_tokens=builder_llm.max_tokens,
+                planner=plan,
+                sync_segments=scene.sync_segments,
+                storyboard_excerpt=excerpt,
+                review_feedback=feedback,
+                chat_history=chat_history,
+                request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
+            )
+            chat_history.append({"role": "assistant", "content": code})
+            builder_block: dict[str, Any] = {
+                "prompt_version": _pv_b,
+                "duration_ms": b_met.get("duration_ms"),
+                "prompt_tokens": b_met.get("prompt_tokens"),
+                "completion_tokens": b_met.get("completion_tokens"),
+            }
+
+            try:
+                validate_manim_code(code, limits=limits)
+            except SandboxValidationError as exc:
+                rounds.append({
+                    "round": round_idx,
+                    "error": "sandbox_validation",
+                    "detail": str(exc),
+                    "builder": builder_block,
+                })
+                final_status = "failed"
+                break
+
+            prev = (scene.manim_code or "").strip()
+            stripped = code.strip()
+            bumped = stripped != prev
+            next_ver = scene.manim_code_version + (1 if bumped else 0)
+            scene = store.update_scene(scene_id, manim_code=stripped, manim_code_version=next_ver)
+            assert scene is not None
+
+            job_id = uuid4()
+            job_store.create_queued_job(
+                job_id=job_id,
+                project_id=scene.project_id,
+                scene_id=scene_id,
+                job_type="preview",
+                render_quality="720p",
+                webhook_url=None,
+                docker_image_tag=settings.worker_image_tag,
+            )
+            pipeline_event(
+                "builder.review_loop",
+                "preview_job_queued",
+                "Builder loop enqueued preview render",
+                job_id=str(job_id),
+                scene_id=str(scene_id),
+                project_id=str(scene.project_id),
+            )
+            render_manim_scene.apply_async(args=[str(job_id)])
+
+            tw0 = time.perf_counter()
+            job = wait_for_render_job(
+                job_store,
+                job_id,
+                timeout_seconds=preview_poll_timeout_seconds,
+                poll_interval_seconds=runtime_limits.preview_poll_interval_seconds,
+            )
+            preview_wait_ms = int((time.perf_counter() - tw0) * 1000)
+
+            mp4 = None
+            error_logs = None
+            if job.status == "completed":
+                u = job.asset_url or ""
+                if u.startswith("file://"):
+                    p = Path(u.replace("file://", "", 1))
+                    if p.is_file():
+                        mp4 = p
+            else:
+                error_logs = job.logs or "Render job failed without logs"
+                pipeline_event(
+                    "builder.review_loop",
+                    "render_failed_triggering_recovery",
+                    "Render failed, calling Code Reviewer with logs",
+                    job_id=str(job_id),
+                    logs_len=len(error_logs),
+                )
+
+            review = run_single_review_round(
+                llm=llm,
+                review_cfg=review_cfg,
+                code_llm=code_rev_llm,
+                visual_llm=visual_rev_llm,
+                manim_code=stripped,
+                sandbox_limits=limits,
+                preview_video_path=mp4,
+                extract_preview_frame=extract_end_of_play_jpeg_frame,
+                error_logs=error_logs,
+                runtime_limits=runtime_limits,
+            )
+
+            vr_meta: dict[str, Any] = {}
+            if mp4 is not None:
+                try:
+                    fb = extract_end_of_play_jpeg_frame(mp4)
+                    h = hashlib.sha256(fb).hexdigest()
+                    vr_meta = {"sha256": h, "bytes": len(fb)}
+                    if len(fb) <= 70_000:
+                        vr_meta["jpeg_base64"] = base64.standard_b64encode(fb).decode("ascii")
+                except Exception:
+                    logger.exception("VR preview frame extract failed")
+                    vr_meta["error"] = True
+
+            rounds.append({
+                "round": round_idx,
+                "wall_ms": int((time.perf_counter() - tr) * 1000),
+                "builder": builder_block,
+                "preview_job_id": str(job_id),
+                "preview_wait_ms": preview_wait_ms,
+                "preview_status": job.status,
+                "review": review.model_dump(mode="json"),
+                "vr_preview": vr_meta,
+            })
+
+            if review.early_stop:
+                final_status = "completed"
+                break
+
+            lines = [f"[{i.severity}] {i.code}: {i.message}" for i in (review.code_review.issues or [])[:80]]
+            if review.visual_review and review.visual_review.issues:
+                lines.extend([f"[{i.severity}] {i.code}: {i.message}" for i in review.visual_review.issues[:80]])
+            
+            feedback = "\n".join(lines) if lines else "(no issues)"
+            chat_history.append({"role": "user", "content": f"Feedback for previous version: {feedback}"})
+        else:
+            if mode == "auto":
+                final_status = "failed"
+            elif review_cfg.on_max_rounds_exceeded == "hitl_or_fail":
+                final_status = "hitl_pending"
+            else:
+                final_status = "failed"
+
+    except Exception as exc:
+        logger.exception("builder_review_loop failed scene_id=%s", scene_id)
+        rounds.append({"fatal": str(exc)})
+        final_status = "failed"
+
+    total_ms = int((time.perf_counter() - t_all) * 1000)
+    report = {
+        "run_id": str(run_id),
+        "scene_id": str(scene_id),
+        "max_rounds": n_rounds,
+        "final_status": final_status,
+        "total_duration_ms": total_ms,
+        "rounds": rounds,
+        "finished_at": datetime.now(tz=UTC).isoformat(),
+    }
+    insert_pipeline_run_row(
+        run_id=run_id,
+        project_id=scene.project_id,
+        scene_id=scene_id,
+        status=final_status,
+        report=report,
+    )
+    out = store.update_scene(scene_id, review_loop_status=final_status)
+    assert out is not None
+    return out, report

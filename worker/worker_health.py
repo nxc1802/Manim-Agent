@@ -13,7 +13,7 @@ import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from shared.pipeline_log import setup_pipeline_logging
 
 setup_pipeline_logging()
