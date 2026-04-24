@@ -41,7 +41,6 @@ case "${HF_DEPLOY_FLAVOR}" in
     ;;
   render)
     cp -a "${REPO_ROOT}/primitives" "${STAGE}/"
-    cp -a "${REPO_ROOT}/examples" "${STAGE}/"
     cp -a "${REPO_ROOT}/docs" "${STAGE}/"
     cp "${REPO_ROOT}/docker/worker/Dockerfile" "${STAGE}/Dockerfile"
     readme_template="${REPO_ROOT}/deploy/huggingface/render-worker/README.template.md"

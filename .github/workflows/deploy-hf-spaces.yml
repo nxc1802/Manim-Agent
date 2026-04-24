@@ -99,7 +99,6 @@ jobs:
               - 'ai_engine/**'
               - 'worker/**'
               - 'worker/worker_health.py'
-              - 'examples/**'
               - 'docs/**'
               - 'pyproject.toml'
               - 'requirements.txt'

@@ -22,7 +22,6 @@ COPY backend /app/backend
 COPY shared /app/shared
 COPY primitives /app/primitives
 COPY worker /app/worker
-COPY examples /app/examples
 COPY docs /app/docs
 COPY ai_engine /app/ai_engine
 
