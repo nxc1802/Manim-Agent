@@ -17,7 +17,7 @@ set -euo pipefail
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-Deploy Hugging Face Space}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 STAGE="$(mktemp -d)"
 cleanup() { rm -rf "${STAGE}"; }

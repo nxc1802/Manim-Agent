@@ -33,7 +33,7 @@ test:
 	pytest tests/unit -q
 
 smoke-hf:
-	bash scripts/smoke_hf_spaces.sh
+	bash scripts/ops/smoke_hf_spaces.sh
 
 test-e2e:
 	$(PYTHON) -m pytest tests/e2e -m e2e -q --tb=short
