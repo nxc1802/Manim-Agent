@@ -2,7 +2,7 @@ defaults:
   temperature: 0.4
   max_tokens: 4096
 
-stable_model: &stable openrouter/nvidia/nemotron-3-super-120b-a12b:free
+stable_model: &stable openrouter/google/gemma-4-31b-it:free
 
 agents:
   director:

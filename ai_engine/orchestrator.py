@@ -231,8 +231,8 @@ def run_single_review_round(
     visual_llm: AgentLLMParams,
     manim_code: str,
     sandbox_limits: SandboxLimits,
-    preview_video_path: Path | None,
-    extract_preview_frame: Callable[[Path, float | None], bytes],
+    preview_video_path: str | None,
+    extract_preview_frame: Callable[[str, float | None], bytes],
     sync_segments: dict[str, Any] | None = None,
     error_logs: str | None = None,
     runtime_limits: RuntimeLimitsConfig | None = None,
@@ -288,8 +288,8 @@ def run_single_review_round(
     # 2. Visual Review (Parallel if render succeeded)
     # Case B: Render Success -> Run Visual Reviewer regardless of Code Review results
     if not error_logs and syntax_ok and policy_ok:
-        if preview_video_path is None or not preview_video_path.is_file():
-            skip_reason = "no_preview_video"
+        if not preview_video_path:
+            skip_reason = "no_preview_video_url"
             visual_passed = False
         else:
             try:
@@ -474,14 +474,10 @@ def run_builder_loop_phase(
             )
             preview_wait_ms = int((time.perf_counter() - tw0) * 1000)
 
-            mp4 = None
+            mp4_url = None
             error_logs = None
             if job.status == "completed":
-                u = job.asset_url or ""
-                if u.startswith("file://"):
-                    p = Path(u.replace("file://", "", 1))
-                    if p.is_file():
-                        mp4 = p
+                mp4_url = job.asset_url
             else:
                 error_logs = job.logs or "Render job failed without logs"
                 pipeline_event(
@@ -494,11 +490,11 @@ def run_builder_loop_phase(
 
             # Phase 5: Post-process Sync Validation
             sync_report = None
-            if mp4 and scene.duration_seconds:
+            if mp4_url and scene.duration_seconds:
                 # Use ffprobe to get actual video duration
                 try:
                     from worker.tts_runtime import _ffprobe_duration_seconds
-                    video_dur = _ffprobe_duration_seconds(mp4)
+                    video_dur = _ffprobe_duration_seconds(mp4_url)
                     sync_report = validate_sync_duration(
                         video_duration=video_dur,
                         audio_duration=scene.duration_seconds
@@ -521,7 +517,7 @@ def run_builder_loop_phase(
                 visual_llm=visual_rev_llm,
                 manim_code=stripped,
                 sandbox_limits=limits,
-                preview_video_path=mp4,
+                preview_video_path=mp4_url,
                 extract_preview_frame=extract_frame_at_timestamp,
                 sync_segments=scene.sync_segments,
                 error_logs=error_logs,
@@ -529,10 +525,10 @@ def run_builder_loop_phase(
             )
 
             vr_meta: dict[str, Any] = {}
-            if mp4 is not None:
+            if mp4_url is not None:
                 try:
                     convergence_t = _get_convergence_timestamp(scene.sync_segments)
-                    fb = extract_frame_at_timestamp(mp4, convergence_t)
+                    fb = extract_frame_at_timestamp(mp4_url, convergence_t)
                     h = hashlib.sha256(fb).hexdigest()
                     vr_meta = {"sha256": h, "bytes": len(fb), "timestamp": convergence_t}
                     

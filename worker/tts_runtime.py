@@ -34,7 +34,7 @@ from worker.supabase_storage import upload_voice_artifact_if_configured
 logger = logging.getLogger(__name__)
 
 
-def _ffprobe_duration_seconds(path: Path) -> float:
+def _ffprobe_duration_seconds(path: str | Path) -> float:
     proc = subprocess.run(
         [
             "ffprobe",
@@ -54,7 +54,7 @@ def _ffprobe_duration_seconds(path: Path) -> float:
     return max(float(proc.stdout.strip()), 0.05)
 
 
-def _audio_duration_seconds(path: Path) -> float:
+def _audio_duration_seconds(path: str | Path) -> float:
     """Prefer ffprobe; fall back to WAV header when ffprobe is unavailable (e.g. CI slim images)."""
     try:
         return _ffprobe_duration_seconds(path)

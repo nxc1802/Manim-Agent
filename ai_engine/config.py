@@ -44,7 +44,7 @@ def resolve_agent_params(data: dict[str, Any], agent: AgentName) -> AgentLLMPara
     defaults = cast(dict[str, Any], data.get("defaults") or {})
     agents = cast(dict[str, Any], data.get("agents") or {})
     agent_cfg = cast(dict[str, Any], agents.get(agent) or {})
-    model = str(agent_cfg.get("model") or "openrouter/nvidia/nemotron-3-super-120b-a12b:free")
+    model = str(agent_cfg.get("model") or "openrouter/google/gemma-4-31b-it:free")
     temperature = float(
         agent_cfg.get("temperature", defaults.get("temperature", 0.4)),
     )

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def extract_end_of_play_jpeg_frame(
-    video: Path, 
+    video: str, 
     timestamp: float | None = None, 
     *, 
     jpeg_width: int = 1024
@@ -16,7 +16,7 @@ def extract_end_of_play_jpeg_frame(
 
 
 def extract_frame_at_timestamp(
-    video: Path, 
+    video: str, 
     timestamp: float | None = None, 
     *, 
     jpeg_width: int = 1024
@@ -59,7 +59,7 @@ def extract_frame_at_timestamp(
 
 
 def extract_info_richest_jpeg_frame(
-    video: Path,
+    video: str,
     *,
     timestamp: float | None = None,
     num_samples: int = 13,
@@ -71,7 +71,7 @@ def extract_info_richest_jpeg_frame(
 
 
 def extract_info_richest_jpeg_frame_to_temp(
-    video: Path,
+    video: str,
     *,
     timestamp: float | None = None,
     num_samples: int = 13,
