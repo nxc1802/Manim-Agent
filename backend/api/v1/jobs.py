@@ -9,7 +9,7 @@ from shared.schemas.storage_api import SignedVideoUrlResponse
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_job_store, get_request_user_id
 from backend.core.config import settings
-from typing import Any
+from backend.db.base import ContentStore
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.supabase_storage_rest import sign_storage_object_read_url
 
@@ -25,7 +25,7 @@ def get_job_signed_video_url(
     job_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
-    content: Any = Depends(get_content_store),  # noqa: B008
+    content: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> SignedVideoUrlResponse:
     job = store.get(job_id)
     if job is None:
@@ -55,7 +55,7 @@ def get_job(
     job_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
-    content: Any = Depends(get_content_store),  # noqa: B008
+    content: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> RenderJobStatusResponse:
     job = store.get(job_id)
     if job is None:

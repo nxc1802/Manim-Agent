@@ -14,7 +14,7 @@ from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_job_store, get_request_user_id
 from backend.core.config import settings
 from backend.core.correlation import get_request_id
-from typing import Any
+from backend.db.base import ContentStore
 from backend.services.job_store import RedisRenderJobStore
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ def enqueue_render(
     project_id: UUID,
     body: RenderEnqueueBody,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    content: Any = Depends(get_content_store),  # noqa: B008
+    content: ContentStore = Depends(get_content_store),  # noqa: B008
     store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
 ) -> JSONResponse:
     """Create a render job in Redis and enqueue Celery (Manim runs in worker only)."""

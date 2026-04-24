@@ -134,17 +134,23 @@ class FakeLLMClient:
 
     def _fake_text(self, *, system: str, user: str, json_mode: bool) -> str:
         _ = user
+        s = system.lower()
         if json_mode:
-            s = system.lower()
             if "planner agent" in s:
                 return self._planner_json
             if "sync engine" in s:
                 return self._sync_json
             if "code reviewer" in s:
                 return self._code_review_json
+            if "visual reviewer" in s:
+                return self._visual_review_json
             return self._planner_json
-        if "Builder agent" in system:
+        if "builder agent" in s:
             return self._builder_code
+        if "visual reviewer" in s:
+             return self._visual_review_json
+        if "code reviewer" in s:
+             return self._code_review_json
         return self._director_text
 
     def complete(
@@ -294,7 +300,6 @@ class LiteLLMClient:
         max_tokens: int,
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
-        import litellm
 
         t0 = time.monotonic()
         messages: list[dict[str, str]] = [
@@ -339,7 +344,7 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
-        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+        from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
         @retry(
             stop=stop_after_attempt(3),
@@ -419,7 +424,7 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
-        from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+        from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
         @retry(
             stop=stop_after_attempt(3),

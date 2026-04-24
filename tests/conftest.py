@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+from backend.core.config import settings
 from backend.services.redis_client import configure_redis
 from fakeredis import FakeRedis
+
+from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
 
 
 def _load_tests_env_file() -> None:
@@ -39,16 +44,71 @@ def _disable_supabase_http_side_effects(monkeypatch: pytest.MonkeyPatch) -> None
     import backend.services.supabase_pipeline_rest as sp
     import backend.services.supabase_voice_rest as sv
 
+    # Mock DB interactions
     monkeypatch.setattr(sv, "insert_voice_job_row", lambda *a, **k: None)
     monkeypatch.setattr(sv, "patch_voice_job_row", lambda *a, **k: None)
     monkeypatch.setattr(sv, "patch_scene_audio_row", lambda *a, **k: None)
     monkeypatch.setattr(sp, "insert_worker_service_audit_row", lambda *a, **k: None)
     monkeypatch.setattr(sp, "insert_pipeline_run_row", lambda *a, **k: None)
 
+    # Mock storage uploads to return None by default (fallback to local file:// in tests)
+    monkeypatch.setattr("worker.tts_runtime.upload_voice_artifact_if_configured", lambda **k: None)
+    monkeypatch.setattr("worker.runtime.upload_render_artifact_if_configured", lambda **k: None)
+
 
 @pytest.fixture(autouse=True)
-def _isolate_redis_client_between_tests() -> None:
-    """Every test gets a fresh in-memory Redis (no local daemon required)."""
+def _isolate_redis_client_between_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test gets a fresh in-memory Redis and no real Supabase."""
+    from backend.core.config import settings
+    monkeypatch.setattr(settings, "supabase_url", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "")
+    
     configure_redis(FakeRedis(decode_responses=True))
     yield
     configure_redis(None)
+
+
+@pytest.fixture()
+def llm_client() -> LLMClient:
+    """Smart fixture: returns FakeLLMClient unless USE_REAL_LLM is set."""
+    if os.getenv("USE_REAL_LLM") == "true":
+        key = settings.openrouter_api_key or "fake_key"
+        return LiteLLMClient(api_key=key)
+    return FakeLLMClient()
+
+
+@pytest.fixture()
+def celery_config() -> dict[str, Any]:
+    """Configure Celery for testing. Default is eager (sync)."""
+    return {
+        "broker_url": "memory://",
+        "result_backend": "cache+memory://",
+        "task_always_eager": True,
+        "task_eager_propagates": True,
+    }
+
+
+@pytest.fixture()
+def mock_supabase() -> MagicMock:
+    """Mock Supabase client for testing."""
+    mock = MagicMock()
+    # Add common chain calls if needed
+    mock.table.return_value.select.return_value.execute.return_value.data = []
+    return mock
+
+
+@pytest.fixture()
+def api_client() -> TestClient:
+    """Yields a FastAPI TestClient with dependencies overridden for offline testing."""
+    from backend.main import app
+    from backend.api.deps import get_llm_client, get_content_store
+    from backend.db.content_store import RedisContentStore
+    from backend.services.redis_client import get_redis
+    from ai_engine.llm_client import FakeLLMClient
+    from fastapi.testclient import TestClient
+    
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
+    app.dependency_overrides[get_content_store] = lambda: RedisContentStore(get_redis())
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()

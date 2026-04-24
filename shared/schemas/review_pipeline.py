@@ -1,4 +1,5 @@
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,7 +10,7 @@ from shared.schemas.scene import Scene
 class ReviewRoundRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    preview_job_id: str | None = Field(
+    preview_job_id: UUID | None = Field(
         default=None,
         description="Completed render job whose asset is a local file:// preview mp4 (dev/CI).",
     )
@@ -64,7 +65,7 @@ class HitlReviewLoopAckResponse(BaseModel):
 class BuilderReviewLoopResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scene_id: str
+    scene_id: UUID
     review_loop_status: str
     report: dict[str, Any] = Field(default_factory=dict)
     rounds: list[dict[str, Any]] = Field(default_factory=list)

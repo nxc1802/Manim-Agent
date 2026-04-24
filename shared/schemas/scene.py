@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -42,8 +42,8 @@ class Scene(BaseModel):
     plan_status: PlanStatus = "missing"
     voice_script_status: VoiceScriptStatus = "missing"
     review_loop_status: ReviewLoopStatus = "idle"
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @model_validator(mode="before")
     @classmethod

@@ -1,9 +1,12 @@
 from __future__ import annotations
+
+from shared.pipeline_log import pipeline_debug
 from shared.schemas.review import ReviewResult
+
 from ai_engine.json_utils import parse_json_object
 from ai_engine.llm_client import LLMClient
 from ai_engine.prompts import PROMPT_VERSION_CODE_REVIEWER, load_prompt_text
-from shared.pipeline_log import pipeline_debug
+
 
 def run_code_reviewer(
     *,

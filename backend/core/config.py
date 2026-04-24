@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     )
 
     redis_url: str = Field(default="redis://localhost:6379/0", validation_alias="REDIS_URL")
+    redis_prefix: str = Field(default="manim_agent", validation_alias="REDIS_PREFIX")
     celery_broker_url: str | None = Field(default=None, validation_alias="CELERY_BROKER_URL")
     celery_result_backend: str | None = Field(
         default=None,
@@ -91,6 +92,25 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return v.strip()
         return v
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> Settings:
+        # Guard against AUTH_MODE=off in production
+        is_prod = self.app_env.lower() in ("production", "prod", "staging")
+        if is_prod and self.auth_mode == "off":
+            msg = f"AUTH_MODE cannot be 'off' when APP_ENV is '{self.app_env}'. Set AUTH_MODE=jwt."
+            raise ValueError(msg)
+        
+        # Guard against wildcard CORS in production
+        if is_prod and self.cors_origins == "*":
+            # We allow it for now but maybe we should log a warning or be stricter.
+            # For Hugging Face Spaces, sometimes * is needed if the UI is separate,
+            # but ideally we want specific domains.
+            import logging
+            logging.getLogger("manim.security").warning(
+                "CRITICAL SECURITY WARNING: CORS_ORIGINS is set to '*' in production environment!"
+            )
+        return self
 
     @cached_property
     def cors_origins_list(self) -> list[str]:

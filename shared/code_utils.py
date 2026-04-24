@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+
 def extract_python_code(text: str) -> str:
     """Extract code from ```python ... ``` or return the original text if no blocks found."""
     # Try to find a python code block

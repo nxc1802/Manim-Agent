@@ -5,11 +5,11 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from shared.schemas.project import Project
 
-from backend.services.content_store import RedisContentStore
+from backend.db.base import ContentStore
 
 
 def project_readable_by_user(
-    store: Any,
+    store: ContentStore,
     project_id: UUID,
     user_id: UUID,
 ) -> Project:

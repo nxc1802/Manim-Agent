@@ -1,0 +1,128 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.11, pytest-8.4.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+cachedir: .pytest_cache
+rootdir: /Volumes/WorkSpace/Project/Manim_Agent
+configfile: pyproject.toml
+plugins: anyio-4.12.1, timeout-2.4.0, cov-6.3.0
+collecting ... collected 1 item
+
+tests/e2e/test_api_to_video_flow.py::test_api_to_video_flow_mocked FAILED [100%]
+
+=================================== FAILURES ===================================
+________________________ test_api_to_video_flow_mocked _________________________
+
+api_client = <starlette.testclient.TestClient object at 0x1102c6f90>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ea23490>
+tmp_path = PosixPath('/private/var/folders/4l/l8mn16sj5kg9sylmsyyz6_200000gn/T/pytest-of-nxc/pytest-86/test_api_to_video_flow_mocked0')
+
+    def test_api_to_video_flow_mocked(
+        api_client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Full flow mock: Create -> Storyboard -> Approve -> Plan -> Voice -> Render."""
+    
+        # Mock LLM and Worker tasks to avoid network/IO
+        from ai_engine.llm_client import FakeLLMClient
+    
+        # 1. Create Project
+        resp = api_client.post("/v1/projects", json={
+            "title": "E2E Demo",
+            "source_language": "vi"
+        })
+        assert resp.status_code == 201
+        project_id = resp.json()["id"]
+    
+        # 2. Add Scene
+        resp = api_client.post(f"/v1/projects/{project_id}/scenes", json={
+            "scene_order": 0
+        })
+        assert resp.status_code == 201
+        scene_id = resp.json()["id"]
+    
+        # 3. Generate Storyboard
+        resp = api_client.post(f"/v1/scenes/{scene_id}/generate-storyboard", json={})
+        assert resp.status_code == 200
+    
+        # 4. Approve Storyboard
+        resp = api_client.post(f"/v1/scenes/{scene_id}/approve-storyboard")
+        assert resp.status_code == 200
+    
+        # 5. Plan
+        resp = api_client.post(f"/v1/scenes/{scene_id}/plan")
+        assert resp.status_code == 200
+    
+        # 6. Enqueue Voice
+        # Mock synthesize_voice task
+        with patch("backend.api.v1.scenes.synthesize_voice") as mock_voice_task:
+            resp = api_client.post(f"/v1/scenes/{scene_id}/voice", json={})
+            assert resp.status_code == 202
+            voice_job_id = resp.json()["voice_job_id"]
+            assert mock_voice_task.apply_async.called
+    
+        # 7. Start Render Review Loop
+        # Mock orchestrator to skip actual loop and return completed
+        with patch("ai_engine.orchestrator.run_builder_loop_phase") as mock_loop:
+            from shared.schemas.scene import Scene
+            # Create a mock Scene instance that behaves like a Pydantic model
+            m_scene = MagicMock(spec=Scene)
+            m_scene.id = UUID(scene_id)
+            m_scene.review_loop_status = "completed"
+    
+            mock_loop.return_value = (m_scene, {"final_status": "completed"})
+    
+            resp = api_client.post(f"/v1/scenes/{scene_id}/review-round", json={})
+            assert resp.status_code == 200
+>           assert resp.json()["final_status"] == "completed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'final_status'
+
+tests/e2e/test_api_to_video_flow.py:69: KeyError
+------------------------------ Captured log setup ------------------------------
+INFO     backend.main:main.py:20 Initialized pipeline logging with level: DEBUG
+INFO     backend.main:main.py:21 Backend started with LOG_LEVEL=DEBUG
+----------------------------- Captured stdout call -----------------------------
+{"ts": "2026-04-24T03:17:46.178107+00:00", "component": "api.scenes", "phase": "storyboard_start", "message": "Director: generating storyboard", "trace_id": "89a1472b-d6fe-4990-a6f8-4732a5ed5b5f", "scene_id": "f15a2a3b-0399-498b-b780-990690801848"}
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+{"ts": "2026-04-24T03:17:46.559929+00:00", "component": "api.scenes", "phase": "storyboard_ok", "message": "Director: storyboard generated", "trace_id": "89a1472b-d6fe-4990-a6f8-4732a5ed5b5f", "scene_id": "f15a2a3b-0399-498b-b780-990690801848"}
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+{"ts": "2026-04-24T03:17:48.991473+00:00", "component": "api.scenes", "phase": "plan_start", "message": "Planner: generating execution plan", "trace_id": "b3d10b1e-6dff-4516-9d7e-b6ffa1522c35", "scene_id": "f15a2a3b-0399-498b-b780-990690801848"}
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+{"ts": "2026-04-24T03:17:49.500132+00:00", "component": "api.scenes", "phase": "plan_ok", "message": "Planner: plan generated", "trace_id": "b3d10b1e-6dff-4516-9d7e-b6ffa1522c35", "scene_id": "f15a2a3b-0399-498b-b780-990690801848"}
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.
+------------------------------ Captured log call -------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects "HTTP/1.1 201 Created"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/projects "HTTP/1.1 201 Created"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes "HTTP/1.1 201 Created"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/projects/fdf160df-ab69-4589-b14b-c962c95a3862/scenes "HTTP/1.1 201 Created"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/scenes/f15a2a3b-0399-498b-b780-990690801848/generate-storyboard "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/scenes/f15a2a3b-0399-498b-b780-990690801848/approve-storyboard "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/scenes/f15a2a3b-0399-498b-b780-990690801848/plan "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/scenes/f15a2a3b-0399-498b-b780-990690801848/voice "HTTP/1.1 202 Accepted"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/scenes?id=eq.f15a2a3b-0399-498b-b780-990690801848 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET https://dhjrdecirpbwfcztdxjg.supabase.co/rest/v1/projects?id=eq.fdf160df-ab69-4589-b14b-c962c95a3862 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/v1/scenes/f15a2a3b-0399-498b-b780-990690801848/review-round "HTTP/1.1 200 OK"
+=========================== short test summary info ============================
+FAILED tests/e2e/test_api_to_video_flow.py::test_api_to_video_flow_mocked - KeyError: 'final_status'
+============================== 1 failed in 5.77s ===============================

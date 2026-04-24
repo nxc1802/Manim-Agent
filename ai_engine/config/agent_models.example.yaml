@@ -1,47 +1,33 @@
-# Copy to agent_models.yaml and tune (do not put API keys here — use OPENROUTER_API_KEY in env).
-# LiteLLM + OpenRouter: model ids use the `openrouter/...` prefix.
-# Agent prompts use English only.
-
 defaults:
   temperature: 0.4
   max_tokens: 4096
 
-nemotron: &nemotron openrouter/nvidia/nemotron-3-super-120b-a12b:free
+stable_model: &stable openrouter/nvidia/nemotron-3-super-120b-a12b:free
 
 agents:
   director:
-    model: *nemotron
+    model: *stable
     temperature: 0.7
     max_tokens: 8192
   planner:
-    model: *nemotron
+    model: *stable
   voice:
-    model: *nemotron
+    model: *stable
   builder:
-    model: *nemotron
+    model: *stable
     temperature: 0.2
     max_tokens: 16384
   code_reviewer:
-    model: *nemotron
+    model: *stable
     temperature: 0.1
     max_tokens: 8192
   visual_reviewer:
-    model: *nemotron
+    model: openrouter/google/gemma-4-31b-it:free
     temperature: 0.1
     max_tokens: 4096
 
-sync_engine:
-  model: *nemotron
-  temperature: 0.0
-  max_tokens: 4096
-
 builder_review_loop:
   max_rounds: 3
-  each_round_order:
-    - builder_revise
-    - code_review
-    - render_preview_if_needed
-    - visual_review
   early_stop:
     require_all:
       - code_review_passed
@@ -65,11 +51,5 @@ runtime_limits:
     timeout_seconds: 900
     interval_seconds: 0.5
   llm_request_timeout_seconds:
-    default: 600
-    director: 180
-    planner: 240
-    builder: 900
-    code_reviewer: 300
-    visual_reviewer: 300
-    sync_engine: 240
-    voice: 240
+    default: 300
+    builder: 600

@@ -17,7 +17,8 @@ from fastapi import Header, HTTPException, status
 
 from backend.core.config import settings
 from backend.core.supabase_jwt import JwtValidationError, user_id_from_supabase_jwt
-from backend.services.content_store import RedisContentStore, get_content_store
+from backend.db.base import ContentStore
+from backend.db.content_store import get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from backend.services.voice_job_store import RedisVoiceJobStore

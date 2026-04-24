@@ -29,15 +29,14 @@ def _get_broadcast_redis() -> redis.Redis | None:
         return _BROADCAST_REDIS
     url = os.environ.get("REDIS_URL")
     if not url:
-        # LOG.warning("REDIS_URL not set; pipeline events will NOT be broadcasted.")
-        print("DEBUG: REDIS_URL not set in pipeline_log", flush=True)
+        LOG.warning("REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.")
         return None
     try:
         _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)
-        print(f"DEBUG: Redis broadcast client initialized with {url}", flush=True)
+        LOG.debug(f"Redis broadcast client initialized with {url}")
         return _BROADCAST_REDIS
     except Exception as e:
-        print(f"DEBUG: Redis broadcast client initialization FAILED: {e}", flush=True)
+        LOG.error(f"Redis broadcast client initialization FAILED: {e}")
         return None
 
 
@@ -62,7 +61,7 @@ def setup_pipeline_logging(level: str | int | None = None) -> None:
     else:
         level = _pipeline_log_level()
 
-    print(f"--- SETUP PIPELINE LOGGING: LEVEL={level} (DEBUG={logging.DEBUG}) ---", flush=True)
+    LOG.debug(f"--- SETUP PIPELINE LOGGING: LEVEL={level} (DEBUG={logging.DEBUG}) ---")
 
     LOG.setLevel(level)
     LOG.propagate = False
@@ -77,13 +76,16 @@ def setup_pipeline_logging(level: str | int | None = None) -> None:
     LOG.addHandler(handler)
     
     # Optional: If in DEBUG mode, add a human-readable stream for easier console reading
-    if level == logging.DEBUG:
-        console = logging.StreamHandler(sys.stderr) # Use stderr for human readable stuff to separate from JSON stdout
-        console.setLevel(logging.DEBUG)
-        fmt = logging.Formatter("\033[94m[%(levelname)s][%(name)s]\033[0m %(message)s")
-        console.setFormatter(fmt)
-        logging.getLogger("manim.human").addHandler(console)
-        logging.getLogger("manim.human").setLevel(logging.DEBUG)
+    if level <= logging.DEBUG:
+        human_logger = logging.getLogger("manim.human")
+        if not human_logger.handlers:
+            console = logging.StreamHandler(sys.stderr) # Use stderr for human readable stuff
+            console.setLevel(logging.DEBUG)
+            fmt = logging.Formatter("\033[94m[%(levelname)s][%(name)s]\033[0m %(message)s")
+            console.setFormatter(fmt)
+            human_logger.addHandler(console)
+            human_logger.setLevel(logging.DEBUG)
+            human_logger.propagate = False
 
 
 def _pipeline_payload(
@@ -117,31 +119,29 @@ def _pipeline_payload(
 
 def _emit_human_readable(component: str, phase: str, message: str, details: dict[str, Any] | None) -> None:
     """Helper to print a beautiful block for developers in debug mode."""
-    # Check if we should emit based on LOG level
+    human_logger = logging.getLogger("manim.human")
     if LOG.level > logging.DEBUG:
         return
         
     separator = "═" * 80
     header = f" {component.upper()} | {phase.upper()} "
     
-    # Use print for guaranteed visibility in console/nohup logs
-    print(f"\n{separator}", file=sys.stderr)
-    print(f"║{header:^78}║", file=sys.stderr)
-    print(f"║ {message:<77}║", file=sys.stderr)
-    print(f"{separator}", file=sys.stderr)
+    human_logger.debug("\n" + separator)
+    human_logger.debug(f"║{header:^78}║")
+    human_logger.debug(f"║ {message:<77}║")
+    human_logger.debug(separator)
     
     if details:
         for k, v in details.items():
             val_str = str(v)
             if len(val_str) > 1000:
                 val_str = val_str[:1000] + "... [TRUNCATED]"
-            print(f"  ● {k.upper()}:", file=sys.stderr)
+            human_logger.debug(f"  ● {k.upper()}:")
             # Indent multi-line content
             lines = val_str.splitlines()
             for line in lines:
-                print(f"    {line}", file=sys.stderr)
-    print(f"{separator}\n", file=sys.stderr)
-    sys.stderr.flush()
+                human_logger.debug(f"    {line}")
+    human_logger.debug(separator + "\n")
 
 
 def trace_id_from_celery_request(request: object | None) -> str | None:
@@ -193,7 +193,7 @@ def pipeline_event(
     r = _get_broadcast_redis()
     if r:
         try:
-            print(f"DEBUG: Publishing to Redis: {payload.get('message')}", flush=True)
+            LOG.debug(f"Publishing to Redis: {payload.get('message')}")
             r.publish("manim_agent:events", json.dumps(payload, default=str))
         except Exception:
             pass
@@ -233,3 +233,36 @@ def pipeline_debug(
             pass
             
     _emit_human_readable(component, phase, message, details)
+
+
+def pipeline_error(
+    component: str,
+    phase: str,
+    message: str,
+    *,
+    trace_id: str | None = None,
+    details: dict[str, Any] | None = None,
+    **fields: Any,
+) -> None:
+    """Critical failures; emitted at **ERROR** level and always published to Redis."""
+    payload = _pipeline_payload(
+        component,
+        phase,
+        message,
+        trace_id=trace_id,
+        details=details,
+        **fields,
+    )
+    LOG.error(json.dumps(payload, default=str, ensure_ascii=False))
+    
+    # Broadcast to Redis Pub/Sub
+    r = _get_broadcast_redis()
+    if r:
+        try:
+            r.publish("manim_agent:events", json.dumps(payload, default=str))
+        except Exception:
+            pass
+            
+    # Always show human readable block for errors in console if it's not totally suppressed
+    if LOG.level <= logging.ERROR:
+        _emit_human_readable(component, phase, message, details)

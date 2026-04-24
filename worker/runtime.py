@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
@@ -9,7 +10,11 @@ from backend.core.config import settings
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from backend.services.supabase_pipeline_rest import insert_worker_service_audit_row
-from shared.pipeline_log import get_pipeline_trace_id, pipeline_event
+from shared.pipeline_log import (
+    get_pipeline_trace_id,
+    pipeline_error,
+    pipeline_event,
+)
 
 from worker.renderer import render_manim_scene_to_disk
 from worker.supabase_storage import upload_render_artifact_if_configured
@@ -51,6 +56,7 @@ def execute_render_job(job_id: UUID) -> None:
         logs="Starting Manim render...",
     )
 
+    job_dir: Path | None = None
     try:
         quality = job.render_quality or "720p"
         pipeline_event(
@@ -67,6 +73,8 @@ def execute_render_job(job_id: UUID) -> None:
             quality=quality,
         )
         video_path = result.video_path
+        job_dir = result.job_dir
+        
         pipeline_event(
             "worker.render",
             "manim_done",
@@ -80,7 +88,7 @@ def execute_render_job(job_id: UUID) -> None:
             project_id=job.project_id,
             job_id=job_id,
         )
-        asset_url = remote_url or video_path.resolve().as_uri()
+        asset_url = remote_url if remote_url else f"file://{video_path}"
         pipeline_event(
             "worker.render",
             "artifact_ready",
@@ -138,7 +146,7 @@ def execute_render_job(job_id: UUID) -> None:
                 logger.exception("Webhook failed for job_id=%s (non-fatal)", job_id)
     except Exception as exc:  # noqa: BLE001 — surface failure to job record
         logger.exception("Render failed job_id=%s", job_id)
-        pipeline_event(
+        pipeline_error(
             "worker.render",
             "job_failed",
             "Render pipeline raised",
@@ -170,6 +178,11 @@ def execute_render_job(job_id: UUID) -> None:
                 asset_url=None,
                 error=str(exc),
             )
+    finally:
+        if job_dir and job_dir.exists():
+            import shutil
+            logger.info("Cleaning up job_dir: %s", job_dir)
+            shutil.rmtree(job_dir, ignore_errors=True)
 
 
 def _post_webhook(

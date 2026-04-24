@@ -15,9 +15,9 @@ from backend.core.errors import register_exception_handlers
 from backend.services.redis_client import get_redis
 
 setup_pipeline_logging(level=settings.log_level)
-print(f"DEBUG: Initialized pipeline logging with level: {settings.log_level}")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
+logger.info(f"Initialized pipeline logging with level: {settings.log_level}")
 logger.info(f"Backend started with LOG_LEVEL={settings.log_level}")
 
 app = FastAPI(

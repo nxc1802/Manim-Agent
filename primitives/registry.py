@@ -74,7 +74,7 @@ _PRIMITIVES: list[PrimitiveEntry] = [
     _e(
         name="get_code_box",
         module="primitives.visual",
-        description="Syntax-highlighted code block.",
+        description="Syntax-highlighted code block with Monokai theme. Falls back to dark box if fonts missing.",
         parameters=[
             _p("code_string", "str"),
             _p("language", "str", required=False, default="python"),
@@ -104,7 +104,7 @@ _PRIMITIVES: list[PrimitiveEntry] = [
     _e(
         name="get_equation_block",
         module="primitives.visual",
-        description="Equation: uses MathTex when `latex` exists, otherwise Text fallback.",
+        description="Equation block: Automatically falls back to standard Text (no-LaTeX) to ensure CI compatibility.",
         parameters=[_p("latex", "str")],
         example=r'get_equation_block(r"\\int_0^1 x\\,dx")',
         tags=["visual", "math"],
@@ -163,6 +163,17 @@ _PRIMITIVES: list[PrimitiveEntry] = [
             _p("duration", "float", required=False, default="0.75"),
         ],
         example="self.play(cinematic_fade_out(title))",
+        tags=["animation"],
+    ),
+    _e(
+        name="cinematic_entrance",
+        module="primitives.animation",
+        description="3B1B-style entrance: FadeIn + Shift UP.",
+        parameters=[
+            _p("mobject", "mobject"),
+            _p("duration", "float", required=False, default="0.8"),
+        ],
+        example="self.play(cinematic_entrance(title))",
         tags=["animation"],
     ),
     _e(
@@ -305,25 +316,25 @@ _PRIMITIVES: list[PrimitiveEntry] = [
     _e(
         name="dynamic_pointer",
         module="primitives.visual",
-        description="Arrow pointing at a target mobject with a label.",
+        description="Arrow pointing at a target mobject with a label. Supports 'UP', 'DOWN', 'LEFT', 'RIGHT'.",
         parameters=[
             _p("target", "mobject"),
             _p("label", "str", required=False, default="Note"),
-            _p("direction", "list", required=False, default="UP"),
+            _p("direction", "object", required=False, default="UP"),
         ],
-        example="dynamic_pointer(box, label='Highlight', direction=RIGHT)",
+        example="dynamic_pointer(box, label='Highlight', direction='RIGHT')",
         tags=["visual", "diagram"],
     ),
     _e(
         name="highlight_region",
         module="primitives.animation",
-        description="Focus effect: dim everything else in the scene.",
+        description="Returns a Cutout dimmer. Usage: dimmer = highlight_region(obj); self.play(FadeIn(dimmer))",
         parameters=[
             _p("mobject", "mobject"),
             _p("opacity", "float", required=False, default="0.7"),
         ],
-        example="self.play(highlight_region(important_obj))",
-        tags=["animation"],
+        example="dimmer = highlight_region(box); self.play(FadeIn(dimmer))",
+        tags=["animation", "focus"],
     ),
     _e(
         name="get_matrix_block",
@@ -336,6 +347,29 @@ _PRIMITIVES: list[PrimitiveEntry] = [
         ],
         example='get_matrix_block([[1, 0], [0, 1]], color=BLUE)',
         tags=["visual", "math", "matrix"],
+    ),
+    _e(
+        name="get_math_grid",
+        module="primitives.visual",
+        description="3B1B-style NumberPlane with subtle grid lines.",
+        parameters=[
+            _p("x_range", "list", required=False, default="(-8, 8, 1)"),
+            _p("y_range", "list", required=False, default="(-5, 5, 1)"),
+        ],
+        example="get_math_grid()",
+        tags=["visual", "math", "grid"],
+    ),
+    _e(
+        name="get_vector_arrow",
+        module="primitives.visual",
+        description="Vector arrow with coordinate label. Use label='auto' for (x,y).",
+        parameters=[
+            _p("coords", "list"),
+            _p("label", "str", required=False, default=None),
+            _p("color", "str", required=False, default="YELLOW"),
+        ],
+        example='get_vector_arrow([2, 3], label="auto")',
+        tags=["visual", "math", "vector"],
     ),
 ]
 

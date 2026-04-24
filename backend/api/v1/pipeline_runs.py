@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from uuid import UUID
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_request_user_id
 from backend.core.config import settings
-import httpx
+from backend.db.base import ContentStore
 
 router = APIRouter(tags=["pipeline-runs"])
 
@@ -15,7 +17,7 @@ router = APIRouter(tags=["pipeline-runs"])
 def list_project_pipeline_runs(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),
-    store: Any = Depends(get_content_store),
+    store: ContentStore = Depends(get_content_store),
 ) -> list[dict[str, Any]]:
     project_readable_by_user(store, project_id, user_id)
     

@@ -4,11 +4,12 @@ import json
 from typing import Any
 
 from primitives.registry import build_primitives_catalog
+from shared.pipeline_log import pipeline_debug
 from shared.schemas.planner_output import PlannerOutput
 
 from ai_engine.llm_client import LLMClient
 from ai_engine.prompts import PROMPT_VERSION_BUILDER, load_prompt_text
-from shared.pipeline_log import pipeline_debug
+
 
 def run_builder(
     *,
@@ -24,23 +25,29 @@ def run_builder(
     request_timeout_seconds: int | None = None,
 ) -> tuple[str, str, dict[str, int | None]]:
     """Return (python_source, prompt_version, llm_metrics)."""
-    system = load_prompt_text("builder_system.txt")
+    system_base = load_prompt_text("builder_system.txt")
     catalog = build_primitives_catalog().model_dump(mode="json")
-    user_obj: dict[str, Any] = {
-        "primitives_catalog": catalog,
+    
+    # Original Goal: Fixed context for all rounds
+    goal = {
         "planner_output": planner.model_dump(mode="json"),
         "sync_segments": sync_segments,
         "storyboard_excerpt": storyboard_excerpt,
-        "prior_review_feedback": review_feedback,
     }
-    user = json.dumps(user_obj, ensure_ascii=False, indent=2)
+    
+    system = (
+        f"{system_base}\n\n"
+        f"### 📦 PRIMITIVES_CATALOG\n{json.dumps(catalog, indent=2)}\n\n"
+        f"### 🎯 ORIGINAL_GOAL\n{json.dumps(goal, indent=2)}"
+    )
 
     if chat_history:
-        messages = [{"role": "system", "content": system}] + chat_history + [{"role": "user", "content": f"New Plan/Refinement: {user}"}]
+        # chat_history already contains [Assistant(vN-1), User(feedback_vN-1)]
+        messages = [{"role": "system", "content": system}] + chat_history
     else:
         messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "user", "content": "Generate the first version of the Manim code based on the ORIGINAL_GOAL."},
         ]
     
     pipeline_debug(

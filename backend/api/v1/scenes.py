@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid4
 
 from ai_engine.agents.builder import run_builder
@@ -49,10 +48,11 @@ from backend.api.deps import (
     get_voice_job_store,
 )
 from backend.core.config import settings
+from backend.db.base import ContentStore
 from backend.services.code_sandbox import SandboxLimits, validate_manim_code
-from backend.services.frame_info import extract_end_of_play_jpeg_frame
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.supabase_voice_rest import insert_voice_job_row
+from backend.services.sync_engine_logic import align_beats_to_audio
 from backend.services.voice_job_store import RedisVoiceJobStore
 
 logger = logging.getLogger(__name__)
@@ -66,12 +66,6 @@ def _agent_models_path() -> Path:
     return default_agent_models_path()
 
 
-def _local_mp4_from_render_job(job: RenderJob) -> Path | None:
-    u = job.asset_url or ""
-    if not u.startswith("file://"):
-        return None
-    p = Path(u.replace("file://", "", 1))
-    return p if p.is_file() else None
 
 
 class GenerateStoryboardBody(BaseModel):
@@ -89,7 +83,7 @@ def generate_storyboard(
     scene_id: UUID,
     body: GenerateStoryboardBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
@@ -102,7 +96,7 @@ def generate_storyboard(
     params = get_agent_llm_params("director")
     pipeline_event("api.scenes", "storyboard_start", "Director: generating storyboard", scene_id=str(scene_id))
     
-    text, _pv = run_storyboard_phase(
+    text, _pv, _metrics = run_storyboard_phase(
         llm=llm,
         model=params.model,
         temperature=params.temperature,
@@ -124,7 +118,7 @@ def generate_storyboard(
 def approve_storyboard(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -132,6 +126,17 @@ def approve_storyboard(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
         )
     project_readable_by_user(store, scene.project_id, user_id)
+    if scene.storyboard_status != "pending_review":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Scene is not awaiting storyboard approval (status={scene.storyboard_status})",
+        )
+    if not (scene.storyboard_text and scene.storyboard_text.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Scene has empty storyboard text",
+        )
+
     updated = store.update_scene(scene_id, storyboard_status="approved")
     assert updated is not None
     return updated
@@ -141,7 +146,7 @@ def approve_storyboard(
 def run_scene_planner(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
@@ -154,7 +159,7 @@ def run_scene_planner(
     params = get_agent_llm_params("planner")
     pipeline_event("api.scenes", "plan_start", "Planner: generating execution plan", scene_id=str(scene_id))
     
-    plan, _pv = run_planning_phase(
+    plan, _pv, _metrics = run_planning_phase(
         llm=llm,
         model=params.model,
         temperature=params.temperature,
@@ -177,7 +182,7 @@ def run_scene_planner(
 def approve_plan(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -192,7 +197,7 @@ def approve_plan(
 def approve_voice_script(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
@@ -203,12 +208,41 @@ def approve_voice_script(
     return updated
 
 
+@router.post("/{scene_id}/sync-timeline", response_model=Scene)
+def sync_timeline_endpoint(
+    scene_id: UUID,
+    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
+) -> Scene:
+    """Run deterministic Sync Engine to align beats to audio timestamps."""
+    scene = store.get_scene(scene_id)
+    if scene is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+    project_readable_by_user(store, scene.project_id, user_id)
+    
+    if not scene.planner_output:
+        raise HTTPException(status_code=400, detail="Missing execution plan for synchronization")
+    if not scene.timestamps:
+        raise HTTPException(status_code=400, detail="Missing voice timestamps for synchronization. Please run TTS first.")
+        
+    from shared.schemas.voice_segments import VoiceSegmentTimestamps
+    plan = PlannerOutput.model_validate(scene.planner_output)
+    ts = VoiceSegmentTimestamps.model_validate(scene.timestamps)
+    
+    sync_segments = align_beats_to_audio(plan, ts)
+    
+    updated = store.update_scene(scene_id, sync_segments=sync_segments)
+    pipeline_event("api.scenes", "sync_ok", "Sync: beats aligned to audio", scene_id=str(scene_id))
+    assert updated is not None
+    return updated
+
+
 @router.post("/{scene_id}/generate-code", response_model=GenerateCodeResponse)
 def generate_scene_code(
     scene_id: UUID,
     body: GenerateCodeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
 ) -> GenerateCodeResponse:
@@ -248,7 +282,8 @@ def generate_scene_code(
         job_id = uuid4()
         job_store.create_queued_job(
             job_id=job_id, project_id=scene.project_id, scene_id=scene_id,
-            job_type="preview", render_quality="720p", docker_image_tag=settings.worker_image_tag
+            job_type="preview", render_quality="720p", webhook_url=None,
+            docker_image_tag=settings.worker_image_tag
         )
         render_manim_scene.apply_async(args=[str(job_id)])
         preview_job_id = job_id
@@ -261,7 +296,7 @@ def enqueue_scene_voice(
     scene_id: UUID,
     body: VoiceSynthesizeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     vstore: RedisVoiceJobStore = Depends(get_voice_job_store),  # noqa: B008
 ) -> VoiceEnqueueResponse:
     opts = body or VoiceSynthesizeBody()
@@ -269,12 +304,20 @@ def enqueue_scene_voice(
     if scene is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
     project_readable_by_user(store, scene.project_id, user_id)
-    
+    if scene.storyboard_status != "approved":
+        raise HTTPException(status_code=400, detail="Storyboard not approved")
+
     text = (opts.voice_script_override or scene.voice_script or scene.storyboard_text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing synthesis text (script or storyboard)")
     job_id = uuid4()
+    metadata: dict[str, Any] = {"synthesis_text": text}
+    if opts.voice_script_override:
+        metadata["voice_script_override"] = opts.voice_script_override.strip()
+
     job = vstore.create_queued_job(
         job_id=job_id, project_id=scene.project_id, scene_id=scene_id,
-        metadata={"synthesis_text": text}, voice_engine="piper",
+        metadata=metadata, voice_engine="piper",
         docker_image_tag=settings.tts_worker_image_tag
     )
     insert_voice_job_row(job)
@@ -287,7 +330,7 @@ def run_review_round_endpoint(
     scene_id: UUID,
     body: ReviewRoundRequest | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> ReviewRoundResponse:
@@ -299,12 +342,13 @@ def run_review_round_endpoint(
     
     preview_path: Path | None = None
     if opts.preview_job_id:
-        job = job_store.get(UUID(opts.preview_job_id))
+        job = job_store.get(opts.preview_job_id)
         if job and job.status == "completed":
-            preview_path = _local_mp4_from_render_job(job)
+            preview_path = store.resolve_asset_local_path(job.asset_url)
 
     yaml_data = load_agent_models_yaml(_agent_models_path())
     review_cfg = load_builder_review_loop(yaml_data)
+    from backend.services.frame_info import extract_frame_at_timestamp
     return run_single_review_round(
         llm=llm, review_cfg=review_cfg,
         code_llm=get_agent_llm_params("code_reviewer"),
@@ -312,7 +356,8 @@ def run_review_round_endpoint(
         manim_code=(scene.manim_code or "").strip(),
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
         preview_video_path=preview_path,
-        extract_preview_frame=extract_end_of_play_jpeg_frame,
+        extract_preview_frame=extract_frame_at_timestamp,
+        sync_segments=scene.sync_segments,
         runtime_limits=get_runtime_limits()
     )
 
@@ -322,7 +367,7 @@ def builder_review_loop_endpoint(
     scene_id: UUID,
     body: BuilderReviewLoopRequest | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> BuilderReviewLoopResponse:
@@ -353,7 +398,7 @@ def hitl_ack_builder_review(
     scene_id: UUID,
     body: HitlReviewLoopAckRequest,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: Any = Depends(get_content_store),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
     llm: LLMClient = Depends(get_llm_client),  # noqa: B008
 ) -> HitlReviewLoopAckResponse:

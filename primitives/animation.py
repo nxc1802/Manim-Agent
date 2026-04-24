@@ -8,13 +8,23 @@ from manim import (
     Flash,
     Indicate,
     Transform,
+    ReplacementTransform,
     Write,
+    UP,
 )
 from manim.mobject.mobject import Mobject
 
 
 def cinematic_fade_in(mobject: Mobject, duration: float = 0.75) -> Animation:
     return FadeIn(mobject, run_time=duration)
+
+
+
+
+def cinematic_entrance(mobject: Mobject, duration: float = 0.8) -> Animation:
+    """3B1B-style entrance: FadeIn + Shift up."""
+    from manim import smooth
+    return FadeIn(mobject, shift=UP * 0.3, run_time=duration, rate_func=smooth)
 
 
 def cinematic_fade_out(mobject: Mobject, duration: float = 0.75) -> Animation:
@@ -26,7 +36,8 @@ def smooth_transform(
     mobject_to: Mobject,
     duration: float = 0.9,
 ) -> Animation:
-    return Transform(mobject_from, mobject_to, run_time=duration)
+    """ReplacementTransform for cleaner mobject management."""
+    return ReplacementTransform(mobject_from, mobject_to, run_time=duration)
 
 
 def focus_highlight(mobject: Mobject, scale_factor: float = 1.08) -> Animation:
@@ -55,11 +66,21 @@ def surround_pulse(mobject: Mobject, color: str | None = None) -> Animation:
     return Circumscribe(mobject, color=color, run_time=0.9)
 
 
-def highlight_region(mobject: Mobject, opacity: float = 0.7) -> Animation:
-    """Focus effect: dim everything else using a FullScreenRectangle."""
-    from manim import BLACK, FullScreenRectangle
-    dimmer = FullScreenRectangle(fill_color=BLACK, fill_opacity=opacity, stroke_width=0)
-    # We return a FadeIn of the dimmer, but wait, FadeIn(dimmer) would cover everything.
-    # To truly highlight, the target mobject should be 'on top' or re-added.
-    # Since this is a primitive, we'll return a simple FadeIn for now.
-    return FadeIn(dimmer)
+def highlight_region(mobject: Mobject, opacity: float = 0.7) -> Mobject:
+    """Focus effect: returns a Cutout (dimmer) mobject.
+    
+    Builder must call self.play(FadeIn(dimmer)) and can later remove it.
+    """
+    from manim import BLACK, Cutout, FullScreenRectangle, Rectangle
+    
+    hole = Rectangle(
+        width=mobject.width + 0.6,
+        height=mobject.height + 0.6,
+        stroke_width=0,
+        fill_opacity=0
+    ).move_to(mobject)
+    
+    background = FullScreenRectangle(fill_color=BLACK, fill_opacity=opacity, stroke_width=0)
+    dimmer = Cutout(background, hole, fill_color=BLACK, fill_opacity=opacity, stroke_width=0)
+    
+    return dimmer

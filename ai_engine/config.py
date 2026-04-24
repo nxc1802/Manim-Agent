@@ -12,7 +12,6 @@ AgentName = Literal[
     "builder",
     "code_reviewer",
     "visual_reviewer",
-    "sync_engine",
     "voice",
 ]
 
@@ -42,8 +41,6 @@ def load_agent_models_yaml(path: Path) -> dict[str, Any]:
 
 
 def resolve_agent_params(data: dict[str, Any], agent: AgentName) -> AgentLLMParams:
-    if agent == "sync_engine":
-        return resolve_sync_engine_params(data)
     defaults = cast(dict[str, Any], data.get("defaults") or {})
     agents = cast(dict[str, Any], data.get("agents") or {})
     agent_cfg = cast(dict[str, Any], agents.get(agent) or {})
@@ -55,13 +52,6 @@ def resolve_agent_params(data: dict[str, Any], agent: AgentName) -> AgentLLMPara
     return AgentLLMParams(model=model, temperature=temperature, max_tokens=max_tokens)
 
 
-def resolve_sync_engine_params(data: dict[str, Any]) -> AgentLLMParams:
-    defaults = cast(dict[str, Any], data.get("defaults") or {})
-    sec = cast(dict[str, Any], data.get("sync_engine") or {})
-    model = str(sec.get("model") or "openrouter/nvidia/nemotron-3-super-120b-a12b:free")
-    temperature = float(sec.get("temperature", defaults.get("temperature", 0.4)))
-    max_tokens = int(sec.get("max_tokens", defaults.get("max_tokens", 4096)))
-    return AgentLLMParams(model=model, temperature=temperature, max_tokens=max_tokens)
 
 
 @dataclass(frozen=True)

@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from manim import DOWN, RIGHT, SMALL_BUFF, WHITE, SurroundingRectangle, VGroup
 from manim.mobject.mobject import Mobject
 
 
-def stack_horizontal(*mobjects: Mobject, buff: float = 0.35) -> VGroup:
-    """Arrange mobjects left-to-right."""
-    group = VGroup(*mobjects)
+def stack_horizontal(*mobjects: Mobject | Sequence[Mobject], buff: float = 0.35) -> VGroup:
+    """Arrange mobjects left-to-right. Supports both *args and a single list/tuple."""
+    if len(mobjects) == 1 and isinstance(mobjects[0], (list, tuple)):
+        objs = mobjects[0]
+    else:
+        objs = mobjects
+    group = VGroup(*objs)
     group.arrange(RIGHT, buff=buff)
     return group
 
 
-def stack_vertical(*mobjects: Mobject, buff: float = 0.35) -> VGroup:
-    """Arrange mobjects top-to-bottom."""
-    group = VGroup(*mobjects)
+def stack_vertical(*mobjects: Mobject | Sequence[Mobject], buff: float = 0.35) -> VGroup:
+    """Arrange mobjects top-to-bottom. Supports both *args and a single list/tuple."""
+    if len(mobjects) == 1 and isinstance(mobjects[0], (list, tuple)):
+        objs = mobjects[0]
+    else:
+        objs = mobjects
+    group = VGroup(*objs)
     group.arrange(DOWN, buff=buff)
     return group
 

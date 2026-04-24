@@ -15,8 +15,11 @@ from manim import (
     NumberLine,
     Text,
     VGroup,
+    NumberPlane,
+    Vector,
 )
 from manim.mobject.mobject import Mobject
+from primitives.theme import COLOR_3B1B_BLUE, COLOR_3B1B_YELLOW
 
 DEFAULT_FONT_SIZE = 40.0
 
@@ -45,13 +48,23 @@ def get_array_block(
     return group
 
 
-def get_code_box(code_string: str, language: str = "python") -> Code:
-    """Syntax-highlighted code block (Manim `Code`)."""
-    return Code(
-        code_string=code_string,
-        language=language,
-        add_line_numbers=False,
-    )
+def get_code_box(code_string: str, language: str = "python") -> Mobject:
+    """Syntax-highlighted code block with fallback for missing fonts/dependencies."""
+    from manim import BLACK, RoundedRectangle
+    try:
+        return Code(
+            code_string=code_string,
+            language=language,
+            add_line_numbers=False,
+            style="monokai"
+        )
+    except Exception:
+        # Fallback: Dark background + Text
+        bg = RoundedRectangle(corner_radius=0.1, fill_color=BLACK, fill_opacity=0.8, stroke_width=1)
+        txt = Text(code_string, font="Monospace", font_size=20)
+        bg.stretch_to_fit_width(txt.width + 0.5)
+        bg.stretch_to_fit_height(txt.height + 0.5)
+        return VGroup(bg, txt)
 
 
 def get_title_card(title: str, subtitle: str | None = None) -> VGroup:
@@ -74,14 +87,25 @@ def get_bulleted_list(items: Sequence[str]) -> VGroup:
 
 
 def get_equation_block(latex: str) -> Mobject:
-    """Equation rendering: `MathTex` when LaTeX is installed, otherwise `Text` fallback."""
+    """Equation rendering: `MathTex` when LaTeX is installed, otherwise `Text` fallback.
+    
+    NOTE: The AI system prompt currently specifies LaTeX is NOT installed. 
+    This primitive provides a safe fallback using Text mobjects.
+    """
     import shutil
 
-    from manim import MathTex
+    from manim import ITALIC, MathTex
 
-    if shutil.which("latex") is not None:
-        return MathTex(str(latex))
-    return Text(str(latex), font_size=36, slant="ITALIC")
+    # We only use MathTex if explicitly available, otherwise fallback to Text
+    if shutil.which("latex") is not None and shutil.which("dvips") is not None:
+        try:
+            return MathTex(str(latex))
+        except Exception:
+            # Fallback on render error
+            pass
+            
+    # Fallback: Use Text with a math-like slant
+    return Text(str(latex), font_size=36, slant=ITALIC)
 
 
 def get_labeled_arrow(label: str, buff: float = 0.15) -> VGroup:
@@ -92,16 +116,21 @@ def get_labeled_arrow(label: str, buff: float = 0.15) -> VGroup:
 
 
 def get_number_line(
-    x_range: tuple[float, float, float],
+    x_range: Sequence[float],
     length: float = 8.0,
     include_numbers: bool = False,
 ) -> NumberLine:
     """Number line with tick spacing from `x_range` (start, end, step).
-
-    Defaults to `include_numbers=False` to avoid requiring LaTeX locally/CI.
+    
+    Defaults to `include_numbers=False` as LaTeX is often unavailable in CI.
     """
     import shutil
-    start, end, step = x_range
+    if len(x_range) < 3:
+        # Prevent crash on malformed input
+        start, end, step = (x_range[0], x_range[1], 1.0) if len(x_range) == 2 else (0, 10, 1)
+    else:
+        start, end, step = x_range[:3]
+        
     # Safe fallback: if LaTeX is missing, force include_numbers=False to prevent crash.
     safe_include = include_numbers and (shutil.which("latex") is not None)
     return NumberLine(
@@ -177,11 +206,51 @@ def get_geometric_diagram(
     return res
 
 
-def dynamic_pointer(target: Mobject, label: str = "Note", direction: Sequence[float] = UP) -> VGroup:
-    """Arrow pointing at a target mobject with a label."""
-    arrow = Arrow(target.get_center() + direction * 1.5, target.get_center() + direction * 0.2, buff=0)
-    lbl = Text(label, font_size=24).next_to(arrow.get_start(), direction, buff=0.1)
+def dynamic_pointer(target: Mobject, label: str = "Note", direction: str | Sequence[float] | None = None) -> VGroup:
+    """Arrow pointing at a target mobject with a label. Handles string directions."""
+    import numpy as np
+    
+    # Map string directions to Manim vectors
+    dir_map = {"UP": UP, "DOWN": DOWN, "LEFT": LEFT, "RIGHT": RIGHT}
+    if isinstance(direction, str):
+        dir_vec = dir_map.get(direction.upper(), UP)
+    elif direction is not None:
+        dir_vec = np.array(direction)
+    else:
+        dir_vec = UP
+    
+    arrow = Arrow(target.get_center() + dir_vec * 1.5, target.get_center() + dir_vec * 0.2, buff=0)
+    lbl = Text(label, font_size=24).next_to(arrow.get_start(), dir_vec, buff=0.1)
     return VGroup(arrow, lbl)
+
+
+def get_math_grid(
+    x_range: Sequence[float] = (-8, 8, 1),
+    y_range: Sequence[float] = (-5, 5, 1),
+) -> NumberPlane:
+    """3B1B-style NumberPlane with subtle grid lines."""
+    return NumberPlane(
+        x_range=x_range,
+        y_range=y_range,
+        background_line_style={
+            "stroke_color": COLOR_3B1B_BLUE,
+            "stroke_width": 1,
+            "stroke_opacity": 0.1,
+        },
+        axis_config={"stroke_color": WHITE, "stroke_width": 2},
+    )
+
+
+def get_vector_arrow(coords: Sequence[float], label: str | None = None, color: str = COLOR_3B1B_YELLOW) -> VGroup:
+    """Vector arrow with optional label at the tip."""
+    import numpy as np
+    vec = Vector(coords, color=color)
+    res = VGroup(vec)
+    if label:
+        lbl = Text(f"({coords[0]}, {coords[1]})" if label == "auto" else label, font_size=20, color=color)
+        lbl.next_to(vec.get_end(), vec.get_vector(), buff=0.2)
+        res.add(lbl)
+    return res
 
 
 def get_matrix_block(

@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
+from backend.core.config import settings
 from redis import Redis
 from shared.schemas.voice_job import VoiceJob
 
 
 def _voice_job_key(job_id: UUID) -> str:
-    return f"manim_agent:voice_job:{job_id}"
+    return f"{settings.redis_prefix}:voice_job:{job_id}"
 
 
 class RedisVoiceJobStore:

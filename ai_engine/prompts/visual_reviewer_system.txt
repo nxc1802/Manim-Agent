@@ -5,3 +5,4 @@ Return **only** valid JSON:
 { "issues": [ { "severity": "info"|"warning"|"error"|"blocker", "code": "short_id", "message": "...", "location": "region|null", "suggestion": "optional" } ] }
 
 Look for: unreadable text, overlaps, cropping/clipping, poor contrast, empty margins dominating content, misleading diagrams.
+If a fix is obvious (e.g. "move title higher"), provide it in the "suggestion" field.

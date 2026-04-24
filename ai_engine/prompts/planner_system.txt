@@ -5,7 +5,8 @@ Rules:
 - The root object MUST have the key "beats" which is a LIST of objects.
 - version must be exactly "1".
 - Each beat must have: step_label, narration_hint, and primitives (a list).
-- primitives[].name must be a non-empty string; args is an object.
+- IMPORTANT: Only use primitive names and parameters found in the "AVAILABLE PRIMITIVES CATALOG" provided below.
+- Do NOT invent new primitives.
 - Output JSON only (no markdown fences, no commentary).
 
 Example Output:

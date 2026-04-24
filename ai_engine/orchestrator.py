@@ -7,10 +7,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Type, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import UUID, uuid4
-
-from pydantic import BaseModel
 
 from backend.core.config import settings
 from backend.services.code_sandbox import (
@@ -19,9 +17,14 @@ from backend.services.code_sandbox import (
     static_check_split,
     validate_manim_code,
 )
-from backend.services.frame_info import extract_end_of_play_jpeg_frame
+from backend.services.frame_info import (
+    extract_frame_at_timestamp,
+)
 from backend.services.job_wait import wait_for_render_job
 from backend.services.supabase_pipeline_rest import insert_pipeline_run_row
+from backend.services.supabase_storage_rest import upload_preview_frame_and_sign
+from backend.services.sync_engine_logic import validate_sync_duration
+from pydantic import BaseModel
 from shared.pipeline_log import pipeline_event
 from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.review import ReviewIssue, ReviewResult
@@ -87,16 +90,38 @@ def _visual_review_passed(*, cfg: BuilderReviewLoopConfig, agent_result: ReviewR
     return not _agent_has_blocking(agent_result.issues, cfg)
 
 
+def _get_convergence_timestamp(sync_segments: dict[str, Any] | None) -> float | None:
+    """Information Convergence Point: End of the last narration segment."""
+    if not sync_segments:
+        return None
+    try:
+        from shared.schemas.voice_segments import VoiceSegmentTimestamps
+        if isinstance(sync_segments, dict):
+            sync = VoiceSegmentTimestamps.model_validate(sync_segments)
+        else:
+            sync = sync_segments # type: ignore
+        
+        if sync.segments:
+            return sync.segments[-1].end
+    except Exception:
+        logger.warning("Failed to parse sync_segments for convergence point")
+    return None
+
+
 def _run_agent_with_self_correction(
     agent_name: str,
     call_fn: Callable[..., Any],
     schema: type[T] | None,
     max_retries: int = 3,
     **kwargs: Any
-) -> Any:
-    """Helper to retry agent calls if they produce invalid JSON or fail validation."""
+) -> tuple[Any, str, dict[str, Any]]:
+    """Helper to retry agent calls if they produce invalid JSON or fail validation.
+    
+    Returns: (result, prompt_version, total_metrics)
+    """
     history: list[dict[str, str]] = []
     last_error: str | None = None
+    total_metrics = {"prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0}
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -107,30 +132,35 @@ def _run_agent_with_self_correction(
                 if agent_name == "planner":
                     kwargs["storyboard_text"] = (
                         f"{kwargs.get('storyboard_text', '')}\n\n"
-                        "[SELF-CORRECTION] Previous output was invalid: {last_error}. "
+                        f"[SELF-CORRECTION] Previous output was invalid: {last_error}. "
                         "Please fix the JSON structure and ensure it matches the schema."
                     )
                 elif agent_name == "director":
                     kwargs["extra_brief"] = (
                         f"{kwargs.get('extra_brief') or ''}\n\n"
-                        "[SELF-CORRECTION] Previous output was invalid: {last_error}. "
+                        f"[SELF-CORRECTION] Previous output was invalid: {last_error}. "
                         "Please fix and retry."
                     )
 
-            result, version = call_fn(**kwargs)
+            result, version, metrics = call_fn(**kwargs)
             
+            # Accumulate metrics
+            total_metrics["prompt_tokens"] += metrics.get("prompt_tokens") or 0
+            total_metrics["completion_tokens"] += metrics.get("completion_tokens") or 0
+            total_metrics["duration_ms"] += metrics.get("duration_ms") or 0
+
             if schema is None:
-                return result, version
+                return result, version, total_metrics
 
             if isinstance(result, str):
                 data = parse_json_object(result)
                 validated = schema.model_validate(data)
-                return validated, version
+                return validated, version, total_metrics
             else:
                 if isinstance(result, schema):
-                    return result, version
+                    return result, version, total_metrics
                 validated = schema.model_validate(result)
-                return validated, version
+                return validated, version, total_metrics
 
         except Exception as e:
             last_error = str(e)
@@ -156,7 +186,7 @@ def run_storyboard_phase(
     project_title: str,
     project_description: str | None,
     extra_brief: str | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict[str, Any]]:
     """Phase 1: Storyboard generation via Director Agent."""
     return _run_agent_with_self_correction(
         "director",
@@ -179,7 +209,7 @@ def run_planning_phase(
     temperature: float,
     max_tokens: int,
     storyboard_text: str,
-) -> tuple[PlannerOutput, str]:
+) -> tuple[PlannerOutput, str, dict[str, Any]]:
     """Phase 2: Execution plan generation via Planner Agent."""
     return _run_agent_with_self_correction(
         "planner",
@@ -202,7 +232,8 @@ def run_single_review_round(
     manim_code: str,
     sandbox_limits: SandboxLimits,
     preview_video_path: Path | None,
-    extract_preview_frame: Callable[[Path], bytes],
+    extract_preview_frame: Callable[[Path, float | None], bytes],
+    sync_segments: dict[str, Any] | None = None,
     error_logs: str | None = None,
     runtime_limits: RuntimeLimitsConfig | None = None,
 ) -> ReviewRoundResponse:
@@ -227,6 +258,7 @@ def run_single_review_round(
     visual_passed: bool | None = None
     skip_reason: str | None = None
 
+    # 1. Code Review (Always runs if static checks pass, or if there's a render error)
     if error_logs or not syntax_ok or not policy_ok:
         code_review, _pv, cm = run_code_reviewer(
             llm=llm,
@@ -240,18 +272,31 @@ def run_single_review_round(
         metrics["code_reviewer"] = cm
         code_passed = False 
         skip_reason = "render_failed_or_static_error"
-        early_stop = False
-    
     else:
-        code_review = empty
-        code_passed = True
-        
+        # No render error, no static error -> Logical code review
+        code_review, _pv, cm = run_code_reviewer(
+            llm=llm,
+            model=code_llm.model,
+            temperature=code_llm.temperature,
+            max_tokens=code_llm.max_tokens,
+            manim_code=manim_code,
+            error_logs=None,
+            request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
+        )
+        metrics["code_reviewer"] = cm
+        code_passed = not _agent_has_blocking(code_review.issues, review_cfg)
+    # 2. Visual Review (Parallel if render succeeded)
+    # Case B: Render Success -> Run Visual Reviewer regardless of Code Review results
+    if not error_logs and syntax_ok and policy_ok:
         if preview_video_path is None or not preview_video_path.is_file():
             skip_reason = "no_preview_video"
             visual_passed = False
         else:
             try:
-                frame_jpeg = extract_preview_frame(preview_video_path)
+                # Information Convergence Point: use last segment's end timestamp
+                convergence_t = _get_convergence_timestamp(sync_segments)
+                frame_jpeg = extract_preview_frame(preview_video_path, convergence_t)
+                
                 visual_review, _pv2, vm = run_visual_reviewer(
                     llm=llm,
                     model=visual_llm.model,
@@ -259,12 +304,17 @@ def run_single_review_round(
                     max_tokens=visual_llm.max_tokens,
                     frame_jpeg=frame_jpeg,
                     context=(
-                        "Frame is the last decoded frame of the preview (approx. Scene.play() end)."
+                        f"Frame is at {convergence_t:.2f}s" if convergence_t else "Frame is at the end of the preview"
                     ),
                     request_timeout_seconds=rt.llm_timeout_seconds("visual_reviewer"),
                 )
                 metrics["visual_reviewer"] = vm
                 visual_passed = _visual_review_passed(cfg=review_cfg, agent_result=visual_review)
+                if not visual_passed:
+                    if skip_reason:
+                         skip_reason += ", visual_review_not_passed"
+                    else:
+                         skip_reason = "visual_review_not_passed"
             except Exception:
                 logger.exception("Visual review failed")
                 visual_review = ReviewResult(
@@ -279,7 +329,10 @@ def run_single_review_round(
                 visual_passed = False
                 skip_reason = "visual_review_error"
 
-        early_stop = bool(code_passed and visual_passed is True)
+    early_stop = bool(code_passed and visual_passed is not False)
+    if visual_passed is None and not error_logs:
+         # This shouldn't happen if logic is correct but for safety:
+         early_stop = code_passed
 
     return ReviewRoundResponse(
         static_parse_ok=syntax_ok,
@@ -337,37 +390,53 @@ def run_builder_loop_phase(
                 f"Starting round {round_idx}/{n_rounds}",
                 scene_id=str(scene_id),
             )
-            code, _pv_b, b_met = run_builder(
-                llm=llm,
-                model=builder_llm.model,
-                temperature=builder_llm.temperature,
-                max_tokens=builder_llm.max_tokens,
-                planner=plan,
-                sync_segments=scene.sync_segments,
-                storyboard_excerpt=excerpt,
-                review_feedback=feedback,
-                chat_history=chat_history,
-                request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
-            )
-            chat_history.append({"role": "assistant", "content": code})
-            builder_block: dict[str, Any] = {
-                "prompt_version": _pv_b,
-                "duration_ms": b_met.get("duration_ms"),
-                "prompt_tokens": b_met.get("prompt_tokens"),
-                "completion_tokens": b_met.get("completion_tokens"),
-            }
-
-            try:
-                validate_manim_code(code, limits=limits)
-            except SandboxValidationError as exc:
+            # 3a. Builder Agent with Self-Correction for Syntax/Sandbox
+            code = ""
+            builder_block: dict[str, Any] = {}
+            builder_success = False
+            
+            builder_history = list(chat_history)
+            for b_attempt in range(1, 4):
+                code, _pv_b, b_met = run_builder(
+                    llm=llm,
+                    model=builder_llm.model,
+                    temperature=builder_llm.temperature,
+                    max_tokens=builder_llm.max_tokens,
+                    planner=plan,
+                    sync_segments=scene.sync_segments,
+                    storyboard_excerpt=excerpt,
+                    review_feedback=feedback,
+                    chat_history=builder_history,
+                    request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
+                )
+                builder_block = {
+                    "prompt_version": _pv_b,
+                    "duration_ms": b_met.get("duration_ms"),
+                    "prompt_tokens": b_met.get("prompt_tokens"),
+                    "completion_tokens": b_met.get("completion_tokens"),
+                    "attempts": b_attempt,
+                }
+                
+                try:
+                    validate_manim_code(code, limits=limits)
+                    builder_success = True
+                    break
+                except SandboxValidationError as exc:
+                    err_msg = str(exc)
+                    logger.warning(f"Builder self-correction (round {round_idx} attempt {b_attempt}): {err_msg}")
+                    builder_history.append({"role": "assistant", "content": code})
+                    builder_history.append({"role": "user", "content": f"[SELF-CORRECTION] The code you generated failed validation: {err_msg}. Please fix it."})
+            
+            if not builder_success:
                 rounds.append({
                     "round": round_idx,
-                    "error": "sandbox_validation",
-                    "detail": str(exc),
+                    "error": "builder_failed_after_retries",
                     "builder": builder_block,
                 })
                 final_status = "failed"
                 break
+                
+            chat_history.append({"role": "assistant", "content": code})
 
             prev = (scene.manim_code or "").strip()
             stripped = code.strip()
@@ -423,6 +492,28 @@ def run_builder_loop_phase(
                     logs_len=len(error_logs),
                 )
 
+            # Phase 5: Post-process Sync Validation
+            sync_report = None
+            if mp4 and scene.duration_seconds:
+                # Use ffprobe to get actual video duration
+                try:
+                    from worker.tts_runtime import _ffprobe_duration_seconds
+                    video_dur = _ffprobe_duration_seconds(mp4)
+                    sync_report = validate_sync_duration(
+                        video_duration=video_dur,
+                        audio_duration=scene.duration_seconds
+                    )
+                    if sync_report["sync_issue"]:
+                        logger.warning(f"Sync issue detected: video={video_dur}s, audio={scene.duration_seconds}s")
+                        pipeline_event(
+                            "builder.review_loop",
+                            "sync_issue_detected",
+                            "Video and audio durations mismatch",
+                            details=sync_report
+                        )
+                except Exception:
+                    logger.exception("Failed to validate sync duration")
+
             review = run_single_review_round(
                 llm=llm,
                 review_cfg=review_cfg,
@@ -431,7 +522,8 @@ def run_builder_loop_phase(
                 manim_code=stripped,
                 sandbox_limits=limits,
                 preview_video_path=mp4,
-                extract_preview_frame=extract_end_of_play_jpeg_frame,
+                extract_preview_frame=extract_frame_at_timestamp,
+                sync_segments=scene.sync_segments,
                 error_logs=error_logs,
                 runtime_limits=runtime_limits,
             )
@@ -439,9 +531,21 @@ def run_builder_loop_phase(
             vr_meta: dict[str, Any] = {}
             if mp4 is not None:
                 try:
-                    fb = extract_end_of_play_jpeg_frame(mp4)
+                    convergence_t = _get_convergence_timestamp(scene.sync_segments)
+                    fb = extract_frame_at_timestamp(mp4, convergence_t)
                     h = hashlib.sha256(fb).hexdigest()
-                    vr_meta = {"sha256": h, "bytes": len(fb)}
+                    vr_meta = {"sha256": h, "bytes": len(fb), "timestamp": convergence_t}
+                    
+                    # Upload to Supabase and log URL for debugging
+                    signed_url = upload_preview_frame_and_sign(
+                        frame_bytes=fb,
+                        project_id=scene.project_id,
+                        scene_id=scene_id,
+                        round_idx=round_idx,
+                    )
+                    if signed_url:
+                        vr_meta["supabase_url"] = signed_url
+
                     if len(fb) <= 70_000:
                         vr_meta["jpeg_base64"] = base64.standard_b64encode(fb).decode("ascii")
                 except Exception:
@@ -457,18 +561,44 @@ def run_builder_loop_phase(
                 "preview_status": job.status,
                 "review": review.model_dump(mode="json"),
                 "vr_preview": vr_meta,
+                "sync_validation": sync_report,
             })
 
             if review.early_stop:
                 final_status = "completed"
                 break
 
-            lines = [f"[{i.severity}] {i.code}: {i.message}" for i in (review.code_review.issues or [])[:80]]
-            if review.visual_review and review.visual_review.issues:
-                lines.extend([f"[{i.severity}] {i.code}: {i.message}" for i in review.visual_review.issues[:80]])
+            # Phase 6: Consolidated Feedback (Architecture v2)
+            feedback_parts = [f"### 📝 Review Feedback (Round {round_idx})\nHệ thống phát hiện các vấn đề cần khắc phục:\n"]
             
-            feedback = "\n".join(lines) if lines else "(no issues)"
-            chat_history.append({"role": "user", "content": f"Feedback for previous version: {feedback}"})
+            # Code Reviewer Section
+            if review.code_review.issues:
+                feedback_parts.append("**[Code Reviewer]**")
+                for issue in review.code_review.issues[:20]:
+                    feedback_parts.append(f"- [{issue.severity}] {issue.code}: {issue.message}")
+                    if issue.suggestion:
+                        feedback_parts.append(f"- **Suggestion:** `{issue.suggestion}`")
+                feedback_parts.append("")
+
+            # Visual Reviewer Section
+            if review.visual_review and review.visual_review.issues:
+                feedback_parts.append("**[Visual Reviewer]**")
+                for issue in review.visual_review.issues[:20]:
+                    feedback_parts.append(f"- [{issue.severity}] {issue.code}: {issue.message}")
+                    if issue.suggestion:
+                        feedback_parts.append(f"- **Suggestion:** `{issue.suggestion}`")
+                feedback_parts.append("")
+
+            feedback = "\n".join(feedback_parts).strip()
+            if not (review.code_review.issues or (review.visual_review and review.visual_review.issues)):
+                feedback = "(no issues found, but early stop was not triggered)"
+
+            # Sliding Window History: Keep only the most recent interaction pair
+            # Structure: Assistant (previous code), User (latest feedback)
+            chat_history = [
+                {"role": "assistant", "content": code},
+                {"role": "user", "content": feedback},
+            ]
         else:
             if mode == "auto":
                 final_status = "failed"
@@ -483,12 +613,33 @@ def run_builder_loop_phase(
         final_status = "failed"
 
     total_ms = int((time.perf_counter() - t_all) * 1000)
+    
+    # Aggregate total token usage
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for r in rounds:
+        for agent in ["builder", "review"]:
+            if agent in r:
+                if agent == "builder":
+                    total_prompt_tokens += r[agent].get("prompt_tokens") or 0
+                    total_completion_tokens += r[agent].get("completion_tokens") or 0
+                else:
+                    # review is a dict with code_reviewer and visual_reviewer
+                    metrics = r[agent].get("metrics") or {}
+                    for m in metrics.values():
+                        total_prompt_tokens += m.get("prompt_tokens") or 0
+                        total_completion_tokens += m.get("completion_tokens") or 0
+
     report = {
         "run_id": str(run_id),
         "scene_id": str(scene_id),
         "max_rounds": n_rounds,
         "final_status": final_status,
         "total_duration_ms": total_ms,
+        "usage_summary": {
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+        },
         "rounds": rounds,
         "finished_at": datetime.now(tz=UTC).isoformat(),
     }

@@ -46,7 +46,7 @@ jobs:
               - 'README.md'
               - 'CONTRIBUTING.md'
               - 'deploy/huggingface/**'
-              - 'scripts/push_hf_space.sh'
+              - 'scripts/ops/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -69,9 +69,9 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          chmod +x scripts/push_hf_space.sh
+          chmod +x scripts/ops/push_hf_space.sh
           export COMMIT_MESSAGE="[API] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
-          bash scripts/push_hf_space.sh
+          bash scripts/ops/push_hf_space.sh
 
   deploy-render:
     name: HF Space — Render worker
@@ -106,7 +106,7 @@ jobs:
               - 'README.md'
               - 'CONTRIBUTING.md'
               - 'deploy/huggingface/**'
-              - 'scripts/push_hf_space.sh'
+              - 'scripts/ops/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -129,9 +129,9 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          chmod +x scripts/push_hf_space.sh
+          chmod +x scripts/ops/push_hf_space.sh
           export COMMIT_MESSAGE="[Render] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
-          bash scripts/push_hf_space.sh
+          bash scripts/ops/push_hf_space.sh
 
   deploy-tts:
     name: HF Space — TTS worker
@@ -163,7 +163,7 @@ jobs:
               - 'README.md'
               - 'CONTRIBUTING.md'
               - 'deploy/huggingface/**'
-              - 'scripts/push_hf_space.sh'
+              - 'scripts/ops/push_hf_space.sh'
               - '.github/workflows/deploy-hf-spaces.yml'
 
       - id: should_run
@@ -186,6 +186,6 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          chmod +x scripts/push_hf_space.sh
+          chmod +x scripts/ops/push_hf_space.sh
           export COMMIT_MESSAGE="[TTS] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
-          bash scripts/push_hf_space.sh
+          bash scripts/ops/push_hf_space.sh

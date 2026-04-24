@@ -1,15 +1,21 @@
 import json
 import logging
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
 
 from backend.core.config import settings
-from backend.services.content_store import get_content_store
+from backend.db.content_store import get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
-from shared.pipeline_log import get_pipeline_trace_id, pipeline_debug, pipeline_event
+from shared.pipeline_log import (
+    get_pipeline_trace_id,
+    pipeline_debug,
+    pipeline_error,
+    pipeline_event,
+)
 from shared.schemas.render_job import RenderJobType, RenderQuality
 
 logger = logging.getLogger(__name__)
@@ -17,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class RenderManimResult(NamedTuple):
     video_path: Path
+    job_dir: Path
     stdout_tail: str
     stderr_tail: str
     command: list[str]
@@ -40,9 +47,10 @@ def render_manim_scene_to_disk(
 ) -> RenderManimResult:
     """Run `manim render` into an isolated per-job output directory."""
     repo_root = Path(settings.repo_root).resolve()
-    job_dir = (repo_root / settings.output_dir / "jobs" / str(job_id)).resolve()
-    job_dir.mkdir(parents=True, exist_ok=True)
+    # Create a temporary directory for this job to ensure no local leakage
+    job_dir = Path(tempfile.mkdtemp(prefix=f"manim_job_{job_id}_")).resolve()
     media_dir = job_dir / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
 
     job_store = RedisRenderJobStore(get_redis())
     job = job_store.get(job_id)
@@ -119,29 +127,44 @@ def render_manim_scene_to_disk(
         job_id=str(job_id),
         details={"argv": cmd},
     )
-    proc = subprocess.run(
-        cmd,
-        cwd=str(repo_root),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    stdout_tail = (proc.stdout or "")[-8000:]
-    stderr_tail = (proc.stderr or "")[-8000:]
-    if proc.returncode != 0:
-        pipeline_event(
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1200,  # 20 minutes for render
+        )
+    except subprocess.TimeoutExpired as exc:
+        pipeline_error(
+            "worker.manim",
+            "subprocess_timeout",
+            "manim render timed out",
+            trace_id=tid,
+            job_id=str(job_id),
+            details={"timeout_seconds": 1200},
+        )
+        raise RuntimeError("Manim render timed out after 20 minutes") from exc
+    except subprocess.CalledProcessError as exc:
+        stdout_tail = (exc.stdout or "")[-8000:]
+        stderr_tail = (exc.stderr or "")[-8000:]
+        pipeline_error(
             "worker.manim",
             "subprocess_failed",
             "manim exited non-zero",
             trace_id=tid,
             job_id=str(job_id),
             details={
-                "returncode": proc.returncode,
+                "returncode": exc.returncode,
                 "stderr_tail": (stderr_tail or "")[:1500],
             },
         )
-        detail = (stderr_tail or stdout_tail or "").strip() or f"manim exit code {proc.returncode}"
-        raise RuntimeError(detail)
+        detail = (stderr_tail or stdout_tail or "").strip() or f"manim exit code {exc.returncode}"
+        raise RuntimeError(detail) from exc
+
+    stdout_tail = (proc.stdout or "")[-8000:]
+    stderr_tail = (proc.stderr or "")[-8000:]
 
     matches = sorted(media_dir.rglob(f"{scene_class}.mp4"))
     if not matches:
@@ -155,4 +178,4 @@ def render_manim_scene_to_disk(
         job_id=str(job_id),
         details={"mp4": str(matches[-1])},
     )
-    return RenderManimResult(matches[-1], stdout_tail, stderr_tail, cmd)
+    return RenderManimResult(matches[-1], job_dir, stdout_tail, stderr_tail, cmd)
