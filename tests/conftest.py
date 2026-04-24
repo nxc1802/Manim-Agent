@@ -15,24 +15,28 @@ from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
 
 def _load_tests_env_file() -> None:
     """Optional `tests/.env.test`: vars for integration tests only (not in ``Settings``)."""
-    path = Path(__file__).resolve().parent / ".env.test"
-    if not path.is_file():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
+    paths = [
+        Path(__file__).resolve().parent / ".env.test",
+        Path(__file__).resolve().parents[1] / ".env"
+    ]
+    for path in paths:
+        if not path.is_file():
             continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip().strip('"').strip("'")
-        if not key:
-            continue
-        if key not in os.environ:
-            os.environ[key] = val
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if not key:
+                continue
+            if key not in os.environ:
+                os.environ[key] = val
 
 
 _load_tests_env_file()
