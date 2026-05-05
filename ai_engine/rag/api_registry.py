@@ -95,6 +95,3 @@ class ManimAPIRegistry:
 
         # 3. Fuzzy match
         return self.find_similar(symbol)
-
-
-

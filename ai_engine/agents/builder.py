@@ -37,8 +37,10 @@ async def run_builder(
         else:
             system_base = load_prompt_text("builder_system_no_primitives.txt")
 
-    # 2. Append Catalog (only if primitives are enabled AND it's NOT fix mode, or as per requirement)
-    # Actually, in fix mode, it's better to keep catalog if using primitives to know what's available.
+    # 2. Append Catalog (only if primitives are enabled AND it's NOT fix mode,
+    # or as per requirement)
+    # Actually, in fix mode, it's better to keep catalog if using primitives
+    # to know what's available.
     catalog_str = ""
     if use_primitives:
         catalog = build_primitives_catalog().model_dump(mode="json")
@@ -56,7 +58,8 @@ async def run_builder(
         system = (
             f"{system_base}\n\n"
             f"{catalog_str}"
-            f"### 🎯 ORIGINAL_GOAL_SUMMARY\n{planner.model_dump_json()[:1000]}..."  # Compressed goal for fix mode
+            f"### 🎯 ORIGINAL_GOAL_SUMMARY\n{planner.model_dump_json()[:1000]}..."
+            # Compressed goal for fix mode
         )
         # We assume chat_history contains the [Assistant(code), User(feedback)]
         messages = [{"role": "system", "content": system}] + (chat_history or [])
@@ -67,7 +70,9 @@ async def run_builder(
             {"role": "system", "content": system},
             {
                 "role": "user",
-                "content": "Generate the first version of the Manim code based on the ORIGINAL_GOAL.",
+                "content": (
+                    "Generate the first version of the Manim code based on the ORIGINAL_GOAL."
+                ),
             },
         ]
 

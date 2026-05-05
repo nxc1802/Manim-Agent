@@ -49,8 +49,10 @@ def test_config_fallback():
     print(f"Default model from settings: {new_settings.default_agent_model}")
     assert new_settings.default_agent_model == "test/dummy-model"
 
-    # Check resolve_agent_params (mocking settings in ai_engine.config might be needed if it's already imported)
-    # But since we changed the code to use 'settings.default_agent_model', it should work if we monkeypatch it or if it re-evaluates.
+    # Check resolve_agent_params (mocking settings in ai_engine.config might be needed
+    # if it's already imported)
+    # But since we changed the code to use 'settings.default_agent_model',
+    # it should work if we monkeypatch it or if it re-evaluates.
     import ai_engine.config
 
     ai_engine.config.settings = new_settings

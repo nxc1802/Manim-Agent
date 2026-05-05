@@ -406,7 +406,8 @@ class LiteLLMClient:
             ds_key = self._provider_keys.get("dashscope")
             if ds_key:
                 kwargs["api_key"] = ds_key
-                # Use the compatible-mode base if it's an 'openai/' style call or we want to force it
+                # Use the compatible-mode base if it's an 'openai/' style call
+                # or we want to force it
                 if "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
                     kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
         elif "openrouter/" in lowered_model or "/" not in model:

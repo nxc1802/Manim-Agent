@@ -35,9 +35,6 @@ def test_get_scene_not_found(mock_store, mock_user):
     assert resp.status_code == 404
 
 
-
-
-
 def test_get_scene_success(mock_store, mock_user):
     sid = uuid4()
     pid = uuid4()

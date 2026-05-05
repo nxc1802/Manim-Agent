@@ -46,7 +46,10 @@ def get_pipeline_trace_id() -> str | None:
 
 
 def _pipeline_log_level() -> int:
-    """Read `LOG_LEVEL` (default `INFO`). Fallback to `PIPELINE_LOG_LEVEL` for backward compatibility."""
+    """
+    Read `LOG_LEVEL` (default `INFO`).
+    Fallback to `PIPELINE_LOG_LEVEL` for backward compatibility.
+    """
     raw = (
         (os.environ.get("LOG_LEVEL") or os.environ.get("PIPELINE_LOG_LEVEL") or "INFO")
         .strip()

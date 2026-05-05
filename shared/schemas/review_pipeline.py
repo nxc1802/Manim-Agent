@@ -40,7 +40,9 @@ class BuilderReviewLoopRequest(BaseModel):
 
     mode: Literal["auto", "hitl"] = Field(
         default="hitl",
-        description="Dual mode: 'auto' for straight approval/fail, 'hitl' for manual gates on failure.",
+        description=(
+            "Dual mode: 'auto' for straight approval/fail, 'hitl' for manual gates on failure."
+        ),
     )
     preview_poll_timeout_seconds: float | None = Field(
         default=None,

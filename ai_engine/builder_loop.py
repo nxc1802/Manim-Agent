@@ -171,7 +171,10 @@ async def run_single_review_round_ex(
     use_primitives: bool = True,
     runtime_limits: RuntimeLimitsConfig | None = None,
 ) -> tuple[ReviewRoundResponse, dict[str, dict[str, str]]]:
-    """Phase 8 — single round: branched logic based on render success/failure. Returns (response, prompts)."""
+    """
+    Phase 8 — single round: branched logic based on render success/failure.
+    Returns (response, prompts).
+    """
     rt = runtime_limits or RuntimeLimitsConfig(
         worker_man_render_timeout_seconds=3600,
         worker_tts_subprocess_timeout_seconds=900,

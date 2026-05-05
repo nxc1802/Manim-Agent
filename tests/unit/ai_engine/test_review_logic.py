@@ -190,6 +190,7 @@ class GeneratedScene(Scene):
     )
     assert rep.code_review_passed
     assert rep.visual_review_passed is None
-    # visual_review_passed is None, but pass_results treats it as True for requirement check if skipped?
+    # visual_review_passed is None, but pass_results treats it as True
+    # for requirement check if skipped?
     # No, my logic was: "visual_review_passed": visual_passed if visual_passed is not None else True
     assert rep.early_stop is True

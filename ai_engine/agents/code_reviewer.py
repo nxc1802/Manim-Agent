@@ -33,12 +33,16 @@ async def run_code_reviewer(
     system = load_prompt_text("code_reviewer_system.txt")
 
     user = (
-        "You are an expert Manim developer and code auditor. Review the following Manim Python code for:\n"
+        "You are an expert Manim developer and code auditor. "
+        "Review the following Manim Python code for:\n"
         "1. Logic and Manim-specific correctness.\n"
         "2. Render issues and syntax errors.\n"
-        "3. Security and Sandbox violations (e.g., forbidden imports like 'os', 'subprocess', 'sys', or file system access).\n\n"
-        "Analyze the code carefully. If the code failed to render, identify the root cause from the logs and suggest a fix. "
-        "Return issues in the specified JSON format. If there's a render error, you MUST return at least one issue describing the error.\n\n"
+        "3. Security and Sandbox violations (e.g., forbidden imports like "
+        "'os', 'subprocess', 'sys', or file system access).\n\n"
+        "Analyze the code carefully. If the code failed to render, "
+        "identify the root cause from the logs and suggest a fix. "
+        "Return issues in the specified JSON format. If there's a render error, "
+        "you MUST return at least one issue describing the error.\n\n"
         f"### 📝 MANIM_CODE\n```python\n{manim_code}\n```\n"
     )
 

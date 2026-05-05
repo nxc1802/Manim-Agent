@@ -52,7 +52,8 @@ def _format_api_reference(error: ParsedError, entries: list[dict]) -> str:
         if dep:
             lines.append("> [!IMPORTANT]")
             lines.append(
-                f"> `{error.symbol}` is DEPRECATED in Manim Community Edition. Use `{dep[0]}` instead."
+                f"> `{error.symbol}` is DEPRECATED in Manim Community Edition. "
+                f"Use `{dep[0]}` instead."
             )
             lines.append("")
 

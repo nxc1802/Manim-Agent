@@ -23,7 +23,8 @@ async def run_visual_reviewer(
     """Vision review on JPEG frame (default: last frame of preview ≈ end of Scene.play())."""
     system = load_prompt_text("visual_reviewer_system.txt")
     user_instruction = (
-        "You are an expert Manim developer. Review the following preview frame from an educational scene. "
+        "You are an expert Manim developer. "
+        "Review the following preview frame from an educational scene. "
         "Analyze the visuals for correctness, clarity, and alignment with the intended message. "
         "Return issues in the specified JSON format."
     )
