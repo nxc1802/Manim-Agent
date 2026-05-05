@@ -281,3 +281,79 @@ def get_matrix_block(
     r_bracket = l_bracket.copy().flip(RIGHT).next_to(grid, RIGHT, buff=0.2)
     
     return VGroup(grid, l_bracket, r_bracket)
+
+
+def get_info_box(text: str, color: str = BLUE, width: float = 6.0) -> VGroup:
+    """A styled information box with a border and background."""
+    from manim import RoundedRectangle, BLACK
+    txt = Text(text, font_size=24, color=WHITE)
+    box = RoundedRectangle(corner_radius=0.1, fill_color=BLACK, fill_opacity=0.7, stroke_color=color, stroke_width=2)
+    box.stretch_to_fit_width(min(txt.width + 1.0, width))
+    box.stretch_to_fit_height(txt.height + 0.6)
+    return VGroup(box, txt)
+
+
+def get_two_column(left_mobj: Mobject, right_mobj: Mobject, buff: float = 1.0) -> VGroup:
+    """Arranges two mobjects in a side-by-side (two-column) layout."""
+    return VGroup(left_mobj, right_mobj).arrange(RIGHT, buff=buff)
+
+
+def get_table_block(headers: Sequence[str], rows: Sequence[Sequence[str]], cell_font_size: float = 24.0) -> VGroup:
+    """A text-based table with headers and rows (no-LaTeX)."""
+    from manim import Line, ORIGIN
+    
+    all_rows = [headers] + list(rows)
+    row_groups = []
+    
+    # Calculate column widths
+    num_cols = len(headers)
+    col_widths = [0.0] * num_cols
+    for r in all_rows:
+        for i, val in enumerate(r):
+            txt = Text(str(val), font_size=cell_font_size)
+            col_widths[i] = max(col_widths[i], txt.width + 0.5)
+            
+    for r_idx, r in enumerate(all_rows):
+        cells = []
+        curr_x = 0.0
+        for i, val in enumerate(r):
+            txt = Text(str(val), font_size=cell_font_size)
+            if r_idx == 0: # Header
+                txt.set_color(BLUE).set_weight("BOLD")
+            txt.move_to(ORIGIN + RIGHT * (curr_x + col_widths[i]/2))
+            cells.append(txt)
+            curr_x += col_widths[i]
+        row_groups.append(VGroup(*cells))
+        
+    table = VGroup(*row_groups).arrange(DOWN, buff=0.4, aligned_edge=LEFT)
+    
+    # Add horizontal line after header
+    if len(row_groups) > 1:
+        h_line = Line(table[0].get_left() + LEFT*0.1, table[0].get_right() + RIGHT*0.1, stroke_width=1)
+        h_line.next_to(table[0], DOWN, buff=0.15)
+        table.add(h_line)
+        
+    return table
+
+
+def get_step_indicator(total: int, current: int, color: str = BLUE) -> VGroup:
+    """A series of dots representing progress steps."""
+    from manim import Dot, GRAY
+    dots = VGroup()
+    for i in range(total):
+        d = Dot(color=color if i < current else GRAY)
+        if i == current - 1:
+            d.scale(1.3)
+        dots.add(d)
+    return dots.arrange(RIGHT, buff=0.3)
+
+
+def get_key_value_panel(pairs: Sequence[tuple[str, str]], key_color: str = BLUE) -> VGroup:
+    """A vertical list of Key: Value pairs."""
+    rows = []
+    for k, v in pairs:
+        k_txt = Text(f"{k}:", font_size=24, color=key_color, weight="BOLD")
+        v_txt = Text(str(v), font_size=24)
+        row = VGroup(k_txt, v_txt).arrange(RIGHT, buff=0.2, aligned_edge=UP)
+        rows.append(row)
+    return VGroup(*rows).arrange(DOWN, buff=0.3, aligned_edge=LEFT)

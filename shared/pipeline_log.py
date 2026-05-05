@@ -22,21 +22,21 @@ pipeline_scene_id_var: ContextVar[str | None] = ContextVar("pipeline_scene_id", 
 
 # Global Redis client for event broadcasting
 _BROADCAST_REDIS: redis.Redis | None = None
+_EXPLICIT_REDIS_URL: str | None = None
 
 def _get_broadcast_redis() -> redis.Redis | None:
     global _BROADCAST_REDIS
     if _BROADCAST_REDIS is not None:
         return _BROADCAST_REDIS
-    url = os.environ.get("REDIS_URL")
+
+    url = _EXPLICIT_REDIS_URL or os.environ.get("REDIS_URL")
     if not url:
-        LOG.warning("REDIS_URL not set in pipeline_log; pipeline events will NOT be broadcasted.")
         return None
+    
     try:
         _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)
-        LOG.debug(f"Redis broadcast client initialized with {url}")
         return _BROADCAST_REDIS
-    except Exception as e:
-        LOG.error(f"Redis broadcast client initialization FAILED: {e}")
+    except Exception:
         return None
 
 
@@ -50,8 +50,12 @@ def _pipeline_log_level() -> int:
     return getattr(logging, raw, logging.INFO)
 
 
-def setup_pipeline_logging(level: str | int | None = None) -> None:
+def setup_pipeline_logging(level: str | int | None = None, redis_url: str | None = None) -> None:
     """Attach a single stdout handler so each event is one JSON line (idempotent)."""
+    global _EXPLICIT_REDIS_URL
+    if redis_url:
+        _EXPLICIT_REDIS_URL = redis_url
+
     if LOG.handlers:
         return
     

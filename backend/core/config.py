@@ -30,7 +30,12 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1",
         validation_alias="LLM_API_BASE",
     )
+    dashscope_api_key: str | None = Field(default=None, validation_alias="DASHSCOPE_API_KEY")
     agent_models_yaml: str | None = Field(default=None, validation_alias="AGENT_MODELS_YAML")
+    default_agent_model: str = Field(
+        default="openrouter/google/gemma-4-31b-it:free",
+        validation_alias="DEFAULT_AGENT_MODEL",
+    )
 
     auth_mode: Literal["off", "jwt"] = Field(default="off", validation_alias="AUTH_MODE")
     supabase_jwt_secret: str | None = Field(default=None, validation_alias="SUPABASE_JWT_SECRET")
@@ -55,7 +60,8 @@ class Settings(BaseSettings):
         default="DemoPrimitivesScene",
         validation_alias="MANIM_SCENE_CLASS",
     )
-    output_dir: str = Field(default="output", validation_alias="OUTPUT_DIR")
+    storage_dir: str = Field(default="storage", validation_alias="STORAGE_DIR")
+    output_dir: str = Field(default="storage/outputs", validation_alias="OUTPUT_DIR")
     repo_root: str = Field(default=".", validation_alias="REPO_ROOT")
     generated_scene_class: str = Field(
         default="GeneratedScene",
@@ -103,13 +109,11 @@ class Settings(BaseSettings):
         
         # Guard against wildcard CORS in production
         if is_prod and self.cors_origins == "*":
-            # We allow it for now but maybe we should log a warning or be stricter.
-            # For Hugging Face Spaces, sometimes * is needed if the UI is separate,
-            # but ideally we want specific domains.
-            import logging
-            logging.getLogger("manim.security").warning(
-                "CRITICAL SECURITY WARNING: CORS_ORIGINS is set to '*' in production environment!"
+            msg = (
+                f"CRITICAL SECURITY ERROR: CORS_ORIGINS cannot be '*' when APP_ENV is '{self.app_env}'. "
+                "Set specific allowed domains for production."
             )
+            raise ValueError(msg)
         return self
 
     @cached_property

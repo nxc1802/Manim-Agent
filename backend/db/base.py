@@ -5,8 +5,7 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from shared.schemas.project import Project, ProjectStatus
-from shared.schemas.scene import Scene, StoryboardStatus
-
+from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 @runtime_checkable
 class ContentStore(Protocol):
@@ -30,7 +29,9 @@ class ContentStore(Protocol):
         title: str,
         description: str | None,
         source_language: str,
+        target_scenes: int | None = None,
         status: ProjectStatus = "draft",
+        config: dict[str, Any] | None = None,
     ) -> Project: ...
     def touch_project(self, project_id: UUID) -> Project | None: ...
 
@@ -49,3 +50,4 @@ class ContentStore(Protocol):
         storyboard_status: StoryboardStatus = "missing",
     ) -> Scene: ...
     def add_scene_to_project_index(self, scene: Scene) -> None: ...
+    def save_scene_code_history(self, history: SceneCodeHistory) -> None: ...

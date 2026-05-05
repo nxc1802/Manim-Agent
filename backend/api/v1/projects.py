@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from backend.core.limiter import limiter
 from shared.schemas.project import Project, ProjectCreate
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 
@@ -18,23 +19,33 @@ router = APIRouter(tags=["projects"])
     response_model=Project,
     status_code=status.HTTP_201_CREATED,
     summary="Create project",
+    description="Khởi tạo một dự án mới. Đây là bước đầu tiên trong quy trình sản xuất video.",
 )
+@limiter.limit("2/minute")
 def create_project(
+    request: Request,
     body: ProjectCreate,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Project:
+    # Merge top-level fields into config for persistence
+    project_config = body.config or {}
+    if "use_primitives" not in project_config:
+        project_config["use_primitives"] = body.use_primitives
+
     return store.create_project(
         project_id=uuid4(),
         user_id=user_id,
         title=body.title,
         description=body.description,
         source_language=body.source_language,
+        target_scenes=body.target_scenes,
+        config=project_config,
         status="draft",
     )
 
 
-@router.get("", response_model=list[Project], summary="List projects")
+@router.get("", response_model=list[Project], summary="List projects", description="Lấy danh sách tất cả các dự án của người dùng hiện tại.")
 def list_projects(
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: ContentStore = Depends(get_content_store),  # noqa: B008
@@ -42,7 +53,7 @@ def list_projects(
     return store.list_projects_for_user(user_id)
 
 
-@router.get("/{project_id}", response_model=Project, summary="Get project by id")
+@router.get("/{project_id}", response_model=Project, summary="Get project by id", description="Lấy thông tin chi tiết của một dự án cụ thể theo ID.")
 def get_project(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
@@ -51,7 +62,7 @@ def get_project(
     return project_readable_by_user(store, project_id, user_id)
 
 
-@router.get("/{project_id}/scenes", response_model=list[Scene], summary="List scenes for project")
+@router.get("/{project_id}/scenes", response_model=list[Scene], summary="List scenes for project", description="Lấy danh sách các scene thuộc về một dự án.")
 def list_project_scenes(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
@@ -66,6 +77,7 @@ def list_project_scenes(
     response_model=Scene,
     status_code=status.HTTP_201_CREATED,
     summary="Create scene",
+    description="Tạo một scene mới trong dự án. Scene đại diện cho một phân đoạn video.",
 )
 def create_scene(
     project_id: UUID,

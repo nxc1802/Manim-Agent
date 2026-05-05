@@ -16,8 +16,25 @@ permissions:
   contents: read
 
 jobs:
+  ci:
+    name: CI Gate (Lint + Test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - run: ruff check backend primitives shared tests worker ai_engine
+      - run: mypy backend primitives shared worker
+      - run: pytest tests/unit -q --tb=short
+
   deploy-api:
     name: HF Space — API
+    needs: [ci]
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -73,8 +90,21 @@ jobs:
           export COMMIT_MESSAGE="[API] ${HF_SPACE_REPO} @ ${GITHUB_SHA:0:7} (run ${GITHUB_RUN_ID})"
           bash scripts/ops/push_hf_space.sh
 
+      - name: Smoke test API
+        if: steps.should_run.outputs.deploy == 'true'
+        env:
+          MANIM_AGENT_API_HF: "https://${{ vars.HF_SPACE_API_REPO }}.hf.space"
+        run: |
+          chmod +x scripts/ops/smoke_hf_spaces.sh
+          # Wait a bit for HF build to at least start/provision
+          echo "Waiting for HF deployment to stabilize..."
+          sleep 30 
+          # Note: Smoke test might fail if HF build is slow, but it's a good signal
+          bash scripts/ops/smoke_hf_spaces.sh
+
   deploy-render:
     name: HF Space — Render worker
+    needs: [ci]
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -134,6 +164,7 @@ jobs:
 
   deploy-tts:
     name: HF Space — TTS worker
+    needs: [ci]
     runs-on: ubuntu-latest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}

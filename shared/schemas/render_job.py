@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,3 +32,4 @@ class RenderJob(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)

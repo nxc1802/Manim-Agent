@@ -7,13 +7,13 @@ from typing import Any
 
 def strip_json_fence(text: str) -> str:
     t = text.strip()
-    m = re.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", t, flags=re.DOTALL | re.IGNORECASE)
+    m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", t, flags=re.DOTALL | re.IGNORECASE)
     if m:
         return m.group(1).strip()
     return t
 
 
-def parse_json_object(text: str) -> dict[str, Any]:
+def parse_json_object(text: str, list_key: str = "beats") -> dict[str, Any]:
     """Tries to extract and parse a JSON object from text with high resilience."""
     # 1. Strip markdown fences
     raw = strip_json_fence(text)
@@ -24,7 +24,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
         if isinstance(data, dict):
             return data
         if isinstance(data, list):
-            return {"beats": data}
+            return {list_key: data}
     except Exception:
         pass
     
@@ -51,7 +51,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
             snippet_l = re.sub(r",\s*([}\]])", r"\1", snippet_l)
             data_l = json.loads(snippet_l)
             if isinstance(data_l, list):
-                return {"beats": data_l}
+                return {list_key: data_l}
         except Exception:
             pass
 

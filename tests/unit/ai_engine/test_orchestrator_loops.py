@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from uuid import uuid4
 
 import pytest
-from ai_engine.orchestrator import run_builder_loop_phase
+from ai_engine.builder_loop import run_builder_loop_phase
 from ai_engine.config import RuntimeLimitsConfig
 from shared.schemas.scene import Scene
 from shared.schemas.review_pipeline import ReviewRoundResponse
@@ -40,15 +40,16 @@ def mock_scene() -> Scene:
     )
 
 
-@patch("ai_engine.orchestrator.run_builder")
-@patch("ai_engine.orchestrator.wait_for_render_job")
-@patch("ai_engine.orchestrator.run_single_review_round")
-@patch("ai_engine.orchestrator.render_manim_scene")
-def test_builder_loop_early_stop_on_success(
+@pytest.mark.anyio
+@patch("ai_engine.builder_loop.run_builder", new_callable=AsyncMock)
+@patch("ai_engine.builder_loop.wait_for_render_job")
+@patch("ai_engine.builder_loop.run_single_review_round_ex", new_callable=AsyncMock)
+@patch("ai_engine.builder_loop.render_manim_scene")
+async def test_builder_loop_early_stop_on_success(
     mock_render_task: MagicMock,
-    mock_review_round: MagicMock,
+    mock_review_round: AsyncMock,
     mock_wait_job: MagicMock,
-    mock_builder: MagicMock,
+    mock_builder: AsyncMock,
     mock_scene: Scene,
     mock_runtime_limits: RuntimeLimitsConfig,
 ) -> None:
@@ -59,19 +60,28 @@ def test_builder_loop_early_stop_on_success(
     llm = MagicMock()
     
     # Round 1: Builder returns code, Wait returns completed job, Review returns early_stop=True
-    mock_builder.return_value = ("class GeneratedScene:\n    pass", "v1", {"duration_ms": 100})
-    mock_wait_job.return_value = MagicMock(status="completed", asset_url="file:///tmp/x.mp4")
-    mock_review_round.return_value = ReviewRoundResponse(
-        static_parse_ok=True,
-        static_imports_ok=True,
-        code_review=ReviewResult(issues=[]),
-        code_review_passed=True,
-        visual_review_passed=True,
-        early_stop=True,
-        metrics={},
+    mock_builder.return_value = ("class GeneratedScene:\n    pass", "v1", {"duration_ms": 100}, "sys", "usr")
+    
+    job_mock = MagicMock()
+    job_mock.status = "completed"
+    job_mock.asset_url = "file:///tmp/x.mp4"
+    job_mock.metadata = {"video_duration": 1.0}
+    mock_wait_job.return_value = job_mock
+    
+    mock_review_round.return_value = (
+        ReviewRoundResponse(
+            static_parse_ok=True,
+            static_imports_ok=True,
+            code_review=ReviewResult(issues=[]),
+            code_review_passed=True,
+            visual_review_passed=True,
+            early_stop=True,
+            metrics={},
+        ),
+        {"code_reviewer": {"system": "s", "user": "u"}}
     )
 
-    scene_out, report = run_builder_loop_phase(
+    scene_out, report = await run_builder_loop_phase(
         scene_id=mock_scene.id,
         store=store,
         job_store=job_store,
@@ -87,15 +97,16 @@ def test_builder_loop_early_stop_on_success(
     assert mock_review_round.call_count == 1
 
 
-@patch("ai_engine.orchestrator.run_builder")
-@patch("ai_engine.orchestrator.wait_for_render_job")
-@patch("ai_engine.orchestrator.run_single_review_round")
-@patch("ai_engine.orchestrator.render_manim_scene")
-def test_builder_loop_max_rounds_exceeded(
+@pytest.mark.anyio
+@patch("ai_engine.builder_loop.run_builder", new_callable=AsyncMock)
+@patch("ai_engine.builder_loop.wait_for_render_job")
+@patch("ai_engine.builder_loop.run_single_review_round_ex", new_callable=AsyncMock)
+@patch("ai_engine.builder_loop.render_manim_scene")
+async def test_builder_loop_max_rounds_exceeded(
     mock_render_task: MagicMock,
-    mock_review_round: MagicMock,
+    mock_review_round: AsyncMock,
     mock_wait_job: MagicMock,
-    mock_builder: MagicMock,
+    mock_builder: AsyncMock,
     mock_scene: Scene,
     mock_runtime_limits: RuntimeLimitsConfig,
 ) -> None:
@@ -106,20 +117,29 @@ def test_builder_loop_max_rounds_exceeded(
     llm = MagicMock()
     
     # Always fail review
-    mock_builder.return_value = ("class GeneratedScene:\n    pass", "v1", {"duration_ms": 100})
-    mock_wait_job.return_value = MagicMock(status="completed", asset_url="file:///tmp/x.mp4")
-    mock_review_round.return_value = ReviewRoundResponse(
-        static_parse_ok=True,
-        static_imports_ok=True,
-        code_review=ReviewResult(issues=[]),
-        code_review_passed=False,
-        visual_review_passed=False,
-        early_stop=False,
-        metrics={},
+    mock_builder.return_value = ("class GeneratedScene:\n    pass", "v1", {"duration_ms": 100}, "sys", "usr")
+    
+    job_mock = MagicMock()
+    job_mock.status = "completed"
+    job_mock.asset_url = "file:///tmp/x.mp4"
+    job_mock.metadata = {"video_duration": 1.0}
+    mock_wait_job.return_value = job_mock
+    
+    mock_review_round.return_value = (
+        ReviewRoundResponse(
+            static_parse_ok=True,
+            static_imports_ok=True,
+            code_review=ReviewResult(issues=[]),
+            code_review_passed=False,
+            visual_review_passed=False,
+            early_stop=False,
+            metrics={},
+        ),
+        {"code_reviewer": {"system": "s", "user": "u"}}
     )
 
     # Set max_rounds to 2 via yaml_data or extra_rounds param
-    scene_out, report = run_builder_loop_phase(
+    scene_out, report = await run_builder_loop_phase(
         scene_id=mock_scene.id,
         store=store,
         job_store=job_store,

@@ -4,7 +4,7 @@ import logging
 
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from redis.exceptions import RedisError
 from shared.pipeline_log import setup_pipeline_logging
 
@@ -13,18 +13,46 @@ from backend.core.config import settings
 from backend.core.correlation import CorrelationIdMiddleware
 from backend.core.errors import register_exception_handlers
 from backend.services.redis_client import get_redis
+from backend.core.limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-setup_pipeline_logging(level=settings.log_level)
+setup_pipeline_logging(level=settings.log_level, redis_url=settings.redis_url)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 logger.info(f"Initialized pipeline logging with level: {settings.log_level}")
 logger.info(f"Backend started with LOG_LEVEL={settings.log_level}")
 
+API_DESCRIPTION = """
+# 🎬 Manim Agent API
+
+Hệ thống điều phối (orchestration) cho quy trình sản xuất video Manim tự động bằng AI.
+
+## Các tính năng chính:
+- **Director Agent**: Lập kế hoạch storyboard từ ý tưởng ban đầu.
+- **Planner Agent**: Chi tiết hóa storyboard thành các "beats" và "primitives".
+- **Voice Synthesis**: Tích hợp TTS (Piper) để lồng tiếng tự động.
+- **Builder Agent**: Tự động sinh mã nguồn Manim Python.
+- **Review Loop**: Vòng lặp tự sửa lỗi code và review hình ảnh (visual review) bằng AI.
+
+---
+*Manim runs exclusively in worker processes.*
+
+👉 **Thử nghiệm Premium API Client mới tại đây:** [/scalar](/scalar)
+"""
+
 app = FastAPI(
     title="Manim Agent API",
     version="0.1.0",
-    description="Orchestration API for AI-generated Manim videos (Manim runs in worker only).",
+    description=API_DESCRIPTION,
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": -1,
+        "persistAuthorization": True,
+        "filter": True,
+    },
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 register_exception_handlers(app)
 
@@ -61,3 +89,29 @@ def ready() -> JSONResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "not_ready", "redis": False},
         )
+
+
+@app.get("/scalar", include_in_schema=False)
+def scalar_ui() -> HTMLResponse:
+    """Premium API Client UI (Scalar)."""
+    return HTMLResponse(
+        content=f"""
+        <!doctype html>
+        <html>
+          <head>
+            <title>Manim Agent API - Scalar</title>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <style>
+              body {{ margin: 0; }}
+            </style>
+          </head>
+          <body>
+            <script
+              id="api-reference"
+              data-url="/openapi.json"></script>
+            <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+          </body>
+        </html>
+        """
+    )

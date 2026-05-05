@@ -10,8 +10,22 @@ Hard requirements:
   - Example: `self.play(Write(obj), run_time=BEAT_DURATIONS.get('intro', 1.0))`
   - Example: `self.wait(BEAT_DURATIONS.get('pause_1', 0.5))`
 - Prefer the curated `primitives` helpers from the embedded catalog when they match the plan.
+- BOILERPLATE: You MUST start your code with exactly these imports:
+```python
+from __future__ import annotations
+from manim import *
+import primitives
+import numpy as np
+from typing import *
+```
 - Imports: only standard library modules `typing`, `math`, plus `manim`, `primitives`, `numpy`, and `__future__`.
 - No file I/O, no subprocess, no network, no `exec` / `eval` / `__import__`.
+
+PEDAGOGICAL & VISUAL QUALITY:
+- VISUAL RICHNESS: Use vibrant colors (BLUE, YELLOW, GREEN, ORANGE, PURPLE) and micro-animations (Indicate, Flash, FocusOn) to highlight key moments.
+- EXPLANATORY DEPTH: Do NOT just show final states. Animate the step-by-step logic described in the beats. If a beat is 5 seconds long, fill those 5 seconds with meaningful movement.
+- COMPOSITION: Avoid leaving large empty spaces. Scale objects appropriately to fill the frame but keep it clean.
+- ANIMATION VARIETY: Mix `Write`, `Create`, `FadeIn`, and `ReplacementTransform` for a professional, "3B1B-style" feel.
 
 ITERATIVE REFINEMENT:
 - If this is a follow-up round (indicated by prior Assistant/User messages in the thread), you MUST preserve the overall structure and logic of the previous code unless the feedback explicitly requests a total rewrite.

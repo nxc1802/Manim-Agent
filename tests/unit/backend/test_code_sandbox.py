@@ -1,51 +1,60 @@
 from __future__ import annotations
 
 import pytest
-from backend.core.config import settings
-from backend.services.code_sandbox import SandboxLimits, SandboxValidationError, validate_manim_code
+from backend.services.code_sandbox import (
+    validate_manim_code, SandboxLimits, SandboxValidationError, static_check_split
+)
 
-_VALID = """from __future__ import annotations
+def test_validate_manim_code_success():
+    code = "from manim import *\nclass GeneratedScene(Scene):\n    pass"
+    validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
-from manim import Scene
+def test_validate_manim_code_size_fail():
+    code = "x = 1"
+    with pytest.raises(SandboxValidationError, match="Code exceeds max size"):
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=2))
 
+def test_validate_manim_code_syntax_fail():
+    code = "class GeneratedScene(Scene)" # missing colon
+    with pytest.raises(SandboxValidationError, match="Invalid Python syntax"):
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
-class GeneratedScene(Scene):
-    def construct(self) -> None:
-        self.wait(0.1)
-"""
-
-
-def test_validate_manim_code_accepts_minimal_scene() -> None:
-    validate_manim_code(
-        _VALID,
-        limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-    )
-
-
-def test_validate_rejects_forbidden_import() -> None:
-    bad = _VALID + "\nimport os\n"
-    with pytest.raises(SandboxValidationError, match="Disallowed import"):
-        validate_manim_code(bad, limits=SandboxLimits(max_bytes=10_000))
-
-
-def test_validate_rejects_exec() -> None:
-    bad = _VALID.replace("self.wait(0.1)", "exec('1')")
+def test_validate_manim_code_policy_fail():
+    # Disallowed import
+    code = "import os\nclass GeneratedScene(Scene): pass"
+    with pytest.raises(SandboxValidationError, match="Disallowed import root"):
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
+        
+    # Relative import
+    code = "from . import x\nclass GeneratedScene(Scene): pass"
+    with pytest.raises(SandboxValidationError, match="Relative imports are not allowed"):
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
+        
+    # Forbidden call
+    code = "exec('ls')\nclass GeneratedScene(Scene): pass"
     with pytest.raises(SandboxValidationError, match="Disallowed call"):
-        validate_manim_code(bad, limits=SandboxLimits(max_bytes=10_000))
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
+        
+    # Missing class
+    code = "class WrongClass(Scene): pass"
+    with pytest.raises(SandboxValidationError, match="must define class GeneratedScene"):
+        validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
-
-def test_validate_rejects_missing_generated_scene_class() -> None:
-    bad = (
-        "from manim import Scene\n\n"
-        "class Other(Scene):\n"
-        "    def construct(self) -> None:\n"
-        "        pass\n"
-    )
-    with pytest.raises(SandboxValidationError, match="GeneratedScene"):
-        validate_manim_code(bad, limits=SandboxLimits(max_bytes=10_000))
-
-
-def test_validate_rejects_oversized_source() -> None:
-    huge = _VALID + ("#" * (settings.max_manim_code_bytes + 10))
-    with pytest.raises(SandboxValidationError, match="max size"):
-        validate_manim_code(huge, limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes))
+def test_static_check_split():
+    limits = SandboxLimits(max_bytes=1000)
+    
+    # OK
+    ok, pol, err = static_check_split("from manim import *\nclass GeneratedScene(Scene): pass", limits=limits)
+    assert ok and pol and err is None
+    
+    # Syntax fail
+    ok, pol, err = static_check_split("invalid syntax", limits=limits)
+    assert not ok and not pol and err == "syntax_error"
+    
+    # Policy fail
+    ok, pol, err = static_check_split("import os\nclass GeneratedScene(Scene): pass", limits=limits)
+    assert ok and not pol and err == "policy_error"
+    
+    # Size fail
+    ok, pol, err = static_check_split("x = 1", limits=SandboxLimits(max_bytes=1))
+    assert not ok and not pol and err == "size_exceeded"

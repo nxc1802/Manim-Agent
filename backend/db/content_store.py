@@ -93,7 +93,9 @@ class RedisContentStore(ContentStore):
         title: str,
         description: str | None,
         source_language: str,
+        target_scenes: int | None = None,
         status: ProjectStatus = "draft",
+        config: dict[str, Any] | None = None,
     ) -> Project:
         now = datetime.now(tz=UTC)
         project = Project(
@@ -102,7 +104,8 @@ class RedisContentStore(ContentStore):
             title=title,
             description=description,
             source_language=source_language,
-            config={},
+            target_scenes=target_scenes,
+            config=config or {},
             status=status,
             created_at=now,
             updated_at=now,
@@ -174,12 +177,19 @@ class RedisContentStore(ContentStore):
 
 
 def get_content_store() -> ContentStore:
-    """Prefer Supabase for project/scene persistence if configured; fallback to Redis."""
+    """Prefer Supabase for project/scene persistence if configured; fallback to Redis (dev only)."""
     from backend.core.config import settings
     from backend.db.supabase_store import SupabaseContentStore
     from backend.services.redis_client import get_redis
 
-    if settings.supabase_url and settings.supabase_service_role_key:
+    is_configured = bool(settings.supabase_url and settings.supabase_service_role_key)
+    
+    if is_configured:
         return SupabaseContentStore()
+    
+    if settings.app_env == "production":
+        msg = "CRITICAL: Supabase must be configured for content persistence in production (missing SUPABASE_URL or KEY)."
+        raise ValueError(msg)
+        
     return RedisContentStore(get_redis())
 

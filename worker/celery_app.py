@@ -7,7 +7,7 @@ celery_app = Celery(
     "manim_agent",
     broker=settings.celery_broker_url_resolved,
     backend=settings.celery_result_backend_resolved,
-    include=["worker.tasks", "worker.tts_tasks"],
+    include=["worker.tasks", "worker.tts_tasks", "worker.orchestrator_tasks"],
 )
 
 celery_app.conf.update(
@@ -22,4 +22,4 @@ celery_app.conf.update(
 
 from shared.pipeline_log import setup_pipeline_logging  # noqa: E402
 
-setup_pipeline_logging()
+setup_pipeline_logging(level=settings.log_level, redis_url=settings.redis_url)

@@ -54,5 +54,8 @@ def test_sync_timeline_endpoint(api_client: TestClient) -> None:
     r2 = api_client.post(f"/v1/scenes/{sid}/sync-timeline")
     assert r2.status_code == 200, r2.text
     body = r2.json()
-    assert "intro" in body["sync_segments"]
-    assert "intro" in body["sync_segments"]
+    sync = body["sync_segments"]
+    assert sync["version"] == "1"
+    labels = [b["step_label"] for b in sync["beats"]]
+    assert "intro" in labels
+    assert "explain" in labels

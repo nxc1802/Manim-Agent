@@ -6,16 +6,19 @@ install:
 	$(PYTHON) -m pip install -e ".[dev]"
 
 dev:
-	uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+	mkdir -p storage/logs
+	uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 2>&1 | tee storage/logs/uvicorn.log
 
 lint:
 	ruff check backend primitives shared tests worker
 
 worker:
-	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q render
+	mkdir -p storage/logs
+	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q render 2>&1 | tee storage/logs/celery_render.log
 
 worker-tts:
-	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q tts -n tts@%h
+	mkdir -p storage/logs
+	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q tts -n tts@%h 2>&1 | tee storage/logs/celery_tts.log
 
 docker-build-api:
 	docker build -f docker/api/Dockerfile -t manim-agent-api:dev .

@@ -13,7 +13,8 @@ from ai_engine.config import (
     resolve_agent_params,
 )
 from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.core.config import settings
 from backend.core.supabase_jwt import JwtValidationError, user_id_from_supabase_jwt
@@ -22,6 +23,8 @@ from backend.db.content_store import get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from backend.services.voice_job_store import RedisVoiceJobStore
+
+security = HTTPBearer(auto_error=False)
 
 
 def get_job_store() -> RedisRenderJobStore:
@@ -51,23 +54,30 @@ def get_runtime_limits() -> RuntimeLimitsConfig:
 def get_llm_client() -> LLMClient:
     """Use LiteLLM when ``OPENROUTER_API_KEY`` is set; otherwise ``FakeLLMClient`` (offline)."""
     key = (settings.openrouter_api_key or "").strip() or None
-    if key:
-        return LiteLLMClient(key, api_base=settings.llm_api_base)
+    ds_key = (settings.dashscope_api_key or "").strip() or None
+    if key or ds_key:
+        return LiteLLMClient(
+            key,
+            api_base=settings.llm_api_base,
+            provider_keys={"dashscope": ds_key} if ds_key else None,
+        )
     return FakeLLMClient()
 
 
 def get_request_user_id(
-    authorization: str | None = Header(default=None, alias="Authorization"),
+    auth: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> UUID:
     """Resolve the acting user: dev default when AUTH_MODE=off; JWT sub when AUTH_MODE=jwt."""
     if settings.auth_mode != "jwt":
         return settings.dev_default_user_id
-    if not authorization or not authorization.lower().startswith("bearer "):
+
+    if not auth:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
+            detail="Missing Authorization header (Bearer token required)",
         )
-    token = authorization.split(" ", 1)[1].strip()
+
+    token = auth.credentials.strip()
     secret = (settings.supabase_jwt_secret or "").strip()
     if not secret:
         raise HTTPException(

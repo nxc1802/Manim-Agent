@@ -159,8 +159,7 @@ def upload_preview_frame_and_sign(
                 )
             upload_resp.raise_for_status()
         url = sign_storage_object_read_url(object_path=object_path)
-        # Log the URL for developer debugging
-        logger.info(f"DEBUG: Preview Frame URL (Round {round_idx}): {url}")
+        logger.debug(f"Preview Frame URL (Round {round_idx}): {url}")
         return url
     except Exception:
         logger.exception("Supabase frame upload/sign failed scene_id=%s round=%s", scene_id, round_idx)

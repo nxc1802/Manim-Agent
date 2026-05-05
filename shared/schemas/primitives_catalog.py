@@ -1,35 +1,30 @@
 from __future__ import annotations
+from pydantic import BaseModel, Field
+from typing import Literal, Optional, List, Any
 
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
-
-PrimitiveKind = Literal["str", "int", "float", "bool", "list", "object", "mobject"]
-
+# Define the allowed types for primitive parameters
+PrimitiveKind = Literal[
+    "str", "int", "float", "bool", "list", "dict", "object", "mobject", "scene"
+]
 
 class PrimitiveParameter(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+    """Schema for a single parameter of a primitive."""
     name: str
     kind: PrimitiveKind
     required: bool = True
-    default: str | None = None
-    description: str | None = None
-
+    default: Optional[str] = None
+    description: Optional[str] = None
 
 class PrimitiveEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+    """Schema for a single primitive in the catalog."""
     name: str
     module: str
     description: str
-    parameters: list[PrimitiveParameter] = Field(default_factory=list)
+    parameters: List[PrimitiveParameter]
     example: str
-    tags: list[str] = Field(default_factory=list)
-
+    tags: List[str] = Field(default_factory=list)
 
 class PrimitivesCatalogResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    version: int = 1
-    primitives: list[PrimitiveEntry]
+    """Schema for the full primitives catalog response."""
+    version: str | int
+    primitives: List[PrimitiveEntry]

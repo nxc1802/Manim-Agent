@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class VoiceSynthesizeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    voice_script_override: str | None = Field(default=None, max_length=200_000)
+    voice_script_override: str | None = Field(default=None, max_length=20_000)
     language: str = Field(default="vi", min_length=2, max_length=16)
 
 

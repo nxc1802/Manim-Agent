@@ -18,12 +18,21 @@ from shared.pipeline_log import (
 
 from worker.renderer import render_manim_scene_to_disk
 from worker.supabase_storage import upload_render_artifact_if_configured
+from ai_engine.config import load_agent_models_yaml, default_agent_models_path, load_runtime_limits
 
 logger = logging.getLogger(__name__)
 
 
 def execute_render_job(job_id: UUID) -> None:
     tid = get_pipeline_trace_id()
+    logger.info("Worker: execute_render_job started job_id=%s trace_id=%s", job_id, tid)
+    pipeline_event(
+        "worker.render",
+        "execute_start",
+        "Worker starting render execution logic",
+        job_id=str(job_id),
+        trace_id=tid,
+    )
     store = RedisRenderJobStore(get_redis())
     job = store.get(job_id)
     if job is None:
@@ -57,6 +66,8 @@ def execute_render_job(job_id: UUID) -> None:
     )
 
     job_dir: Path | None = None
+    result = None
+    job_dir = None
     try:
         quality = job.render_quality or "720p"
         pipeline_event(
@@ -67,10 +78,16 @@ def execute_render_job(job_id: UUID) -> None:
             trace_id=tid,
             details={"quality": quality, "job_type": job.job_type},
         )
+        yaml_path = Path(settings.agent_models_yaml).expanduser() if settings.agent_models_yaml else default_agent_models_path()
+        yaml_data = load_agent_models_yaml(yaml_path)
+        rt = load_runtime_limits(yaml_data)
+        manim_timeout = rt.worker_man_render_timeout_seconds
+
         result = render_manim_scene_to_disk(
             job_id=job_id,
             job_type=job.job_type,
             quality=quality,
+            timeout=manim_timeout,
         )
         video_path = result.video_path
         job_dir = result.job_dir
@@ -98,6 +115,13 @@ def execute_render_job(job_id: UUID) -> None:
             details={"has_remote_url": bool(remote_url)},
         )
 
+        video_duration = 0.0
+        try:
+            from worker.tts_runtime import _ffprobe_duration_seconds
+            video_duration = _ffprobe_duration_seconds(video_path)
+        except Exception:
+            logger.warning("Failed to calculate video duration for job_id=%s", job_id)
+
         store.update(
             job_id,
             status="completed",
@@ -105,6 +129,7 @@ def execute_render_job(job_id: UUID) -> None:
             asset_url=asset_url,
             completed_at=datetime.now(tz=UTC),
             logs="Render completed.",
+            metadata={"video_duration": video_duration}
         )
         pipeline_event(
             "worker.render",
@@ -181,6 +206,38 @@ def execute_render_job(job_id: UUID) -> None:
     finally:
         if job_dir and job_dir.exists():
             import shutil
+            
+            try:
+                # New Structured Storage: storage/outputs/<project_id>/<scene_id>/
+                project_dir = Path(settings.output_dir) / str(job.project_id)
+                scene_dir = project_dir / (str(job.scene_id) if job.scene_id else "misc")
+                scene_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 1. Final Combined (result.video_path)
+                if result and result.video_path and result.video_path.exists():
+                    shutil.copy2(result.video_path, scene_dir / "final_combined.mp4")
+                
+                # 2. Silent Manim (result.silent_video_path)
+                if result and result.silent_video_path and result.silent_video_path.exists():
+                    shutil.copy2(result.silent_video_path, scene_dir / "manim_silent.mp4")
+                
+                # 3. Voice Audio (result.audio_path)
+                if result and result.audio_path and result.audio_path.exists():
+                    shutil.copy2(result.audio_path, scene_dir / "voice_audio.wav")
+
+                # Intermediates in sub-folder
+                intermediates_dir = scene_dir / "intermediates"
+                intermediates_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Copy logs and generated script
+                for file in job_dir.glob("*"):
+                    if file.is_file() and file.suffix != ".mp4" and file.suffix != ".wav":
+                        shutil.copy2(file, intermediates_dir / file.name)
+                        
+                logger.info("Structured outputs saved to %s", scene_dir)
+            except Exception as local_err:
+                logger.warning("Failed to save structured outputs: %s", local_err)
+
             logger.info("Cleaning up job_dir: %s", job_dir)
             shutil.rmtree(job_dir, ignore_errors=True)
 

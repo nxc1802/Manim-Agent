@@ -1,3 +1,3 @@
 """Shared constants for catalog versioning."""
 
-CATALOG_VERSION = 1
+CATALOG_VERSION = 2

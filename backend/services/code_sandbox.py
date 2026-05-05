@@ -73,7 +73,7 @@ def validate_manim_code(source: str, *, limits: SandboxLimits) -> None:
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
-        msg = f"Invalid Python syntax: {exc.msg}"
+        msg = f"Invalid Python syntax: {exc.msg} at line {exc.lineno}, col {exc.offset}"
         raise SandboxValidationError(msg) from exc
     if not isinstance(tree, ast.Module):
         msg = "Expected a module"

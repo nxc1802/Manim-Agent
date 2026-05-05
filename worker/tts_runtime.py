@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
 import shutil
 import struct
 import subprocess
@@ -79,6 +80,18 @@ def _write_silent_wav(path: Path, duration_seconds: float) -> None:
 
 
 def _run_piper(cfg: PiperRuntimeConfig, text: str, out_wav: Path) -> list[dict[str, Any]]:
+    # Local macOS fallback: 'say' command
+    if platform.system() == "Darwin":
+        try:
+            aiff_tmp = out_wav.with_suffix(".aiff")
+            # Using 'Samantha' voice as it's typically high-quality on macOS en_US
+            subprocess.run(["say", "-v", "Samantha", "-o", str(aiff_tmp), text], check=True, capture_output=True)
+            subprocess.run(["ffmpeg", "-y", "-i", str(aiff_tmp), str(out_wav)], check=True, capture_output=True)
+            aiff_tmp.unlink(missing_ok=True)
+            return [{"text": text, "audio_duration": _audio_duration_seconds(out_wav)}]
+        except Exception as e:
+            logger.warning("macOS 'say' fallback failed, trying Piper: %s", e)
+
     model = Path(cfg.voice_model_path)
     cmd = [
         cfg.binary,
@@ -199,10 +212,14 @@ def execute_voice_job(job_id: UUID) -> None:
             bin_path = Path(piper_cfg.binary)
             bin_ok = bin_path.is_file() if bin_path.is_absolute() else shutil.which(piper_cfg.binary)
             
+            is_darwin = platform.system() == "Darwin"
+            if is_darwin:
+                bin_ok = True  # Enable macOS 'say' fallback
+            
             spans: list[SegmentSpan] = []
             beat_durations: dict[str, float] = {}
 
-            if not bin_ok or not model.is_file():
+            if not bin_ok or (not is_darwin and not model.is_file()):
                 logger.warning("Piper binary or model missing; falling back to silent mock for local testing.")
                 if planner_output:
                     t = 0.0
@@ -279,6 +296,17 @@ def execute_voice_job(job_id: UUID) -> None:
                 project_id=job.project_id,
                 job_id=job_id,
             )
+            
+            # Save a local copy for easier debugging
+            try:
+                local_audio_dir = Path(settings.output_dir) / "audios"
+                local_audio_dir.mkdir(parents=True, exist_ok=True)
+                local_audio_dest = local_audio_dir / f"{job.project_id}_{job_id}.wav"
+                shutil.copy2(out_wav, local_audio_dest)
+                logger.info("Local audio copy saved: %s", local_audio_dest)
+            except Exception as local_err:
+                logger.warning("Failed to save local audio copy: %s", local_err)
+
             asset_url = remote_url if remote_url else f"file://{out_wav}"
             pipeline_event(
                 "worker.tts",
@@ -297,19 +325,6 @@ def execute_voice_job(job_id: UUID) -> None:
                 "granularity": "segment",
                 "duration_seconds": duration_f,
             }
-            vstore.update(
-                job_id,
-                status="completed",
-                progress=100,
-                asset_url=asset_url,
-                logs=logs,
-                metadata=meta,
-                completed_at=datetime.now(tz=UTC),
-            )
-            job_done = vstore.get(job_id)
-            if job_done is not None:
-                patch_voice_job_row(job_done)
-
             ts_payload: dict[str, Any] = ts.model_dump(mode="json")
             scene_updates: dict[str, object] = {
                 "audio_url": asset_url,
@@ -337,6 +352,19 @@ def execute_voice_job(job_id: UUID) -> None:
                     voice_script=vs if isinstance(vs, str) else None,
                     update_voice_script="voice_script" in scene_updates,
                 )
+
+            vstore.update(
+                job_id,
+                status="completed",
+                progress=100,
+                asset_url=asset_url,
+                logs=logs,
+                metadata=meta,
+                completed_at=datetime.now(tz=UTC),
+            )
+            job_done = vstore.get(job_id)
+            if job_done is not None:
+                patch_voice_job_row(job_done)
             
             insert_worker_service_audit_row(
                 audit_id=uuid4(),

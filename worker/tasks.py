@@ -15,7 +15,14 @@ from worker.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="manim_agent.render_manim_scene", bind=True)
+@celery_app.task(
+    name="manim_agent.render_manim_scene",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3},
+    retry_backoff=True,
+    retry_backoff_max=60,
+)
 def render_manim_scene(self: Task, job_id: str) -> str:
     """Celery entrypoint: render is executed in worker processes only."""
     from worker.runtime import execute_render_job

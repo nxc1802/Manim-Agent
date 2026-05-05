@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
+from backend.core.config import settings
 
 AgentName = Literal[
     "director",
@@ -44,7 +45,7 @@ def resolve_agent_params(data: dict[str, Any], agent: AgentName) -> AgentLLMPara
     defaults = cast(dict[str, Any], data.get("defaults") or {})
     agents = cast(dict[str, Any], data.get("agents") or {})
     agent_cfg = cast(dict[str, Any], agents.get(agent) or {})
-    model = str(agent_cfg.get("model") or "openrouter/google/gemma-4-31b-it:free")
+    model = str(agent_cfg.get("model") or settings.default_agent_model)
     temperature = float(
         agent_cfg.get("temperature", defaults.get("temperature", 0.4)),
     )
@@ -64,6 +65,7 @@ class BuilderReviewLoopConfig:
     code_static_ast_parse_ok: bool
     code_static_forbidden_imports_ok: bool
     visual_agent_blocking_issues_empty: bool
+    visual_reviewer_enabled: bool
     blocking_severity_min: str
     stop_when_only_info_severity: bool
     on_max_rounds_exceeded: str
@@ -86,6 +88,7 @@ def load_builder_review_loop(data: dict[str, Any]) -> BuilderReviewLoopConfig:
         code_static_ast_parse_ok=bool(code_p.get("static_ast_parse_ok", True)),
         code_static_forbidden_imports_ok=bool(code_p.get("static_forbidden_imports_ok", True)),
         visual_agent_blocking_issues_empty=bool(vis_p.get("agent_blocking_issues_empty", True)),
+        visual_reviewer_enabled=bool(raw.get("visual_reviewer_enabled", True)),
         blocking_severity_min=str(raw.get("blocking_severity_min") or "warning"),
         stop_when_only_info_severity=bool(raw.get("stop_when_only_info_severity", False)),
         on_max_rounds_exceeded=str(raw.get("on_max_rounds_exceeded") or "hitl_or_fail"),

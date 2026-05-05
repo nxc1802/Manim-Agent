@@ -7,6 +7,7 @@ CREATE TABLE public.projects (
   title TEXT NOT NULL,
   description TEXT,
   source_language TEXT DEFAULT 'en',
+  target_scenes INTEGER,
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft', 'processing', 'completed', 'archived')),
@@ -117,8 +118,42 @@ CREATE TABLE public.pipeline_runs (
   scene_id UUID NOT NULL REFERENCES public.scenes (id) ON DELETE CASCADE,
   status TEXT NOT NULL,
   report JSONB NOT NULL DEFAULT '{}'::jsonb,
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE public.scene_code_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scene_id UUID NOT NULL REFERENCES public.scenes (id) ON DELETE CASCADE,
+  run_id UUID REFERENCES public.pipeline_runs (id) ON DELETE SET NULL,
+  version INTEGER NOT NULL,
+  round_idx INTEGER,
+  manim_code TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_scene_code_history_scene_id ON public.scene_code_history (scene_id);
+CREATE INDEX idx_scene_code_history_run_id ON public.scene_code_history (run_id);
+
+CREATE TABLE public.agent_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id UUID NOT NULL REFERENCES public.pipeline_runs (id) ON DELETE CASCADE,
+  scene_id UUID REFERENCES public.scenes (id) ON DELETE CASCADE,
+  round_idx INTEGER,
+  agent_name TEXT NOT NULL,
+  prompt_version TEXT,
+  system_prompt TEXT,
+  user_prompt TEXT,
+  output_text TEXT,
+  error TEXT,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_agent_logs_run_id ON public.agent_logs (run_id);
+CREATE INDEX idx_agent_logs_scene_id ON public.agent_logs (scene_id);
 
 CREATE INDEX idx_pipeline_runs_project ON public.pipeline_runs (project_id);
 CREATE INDEX idx_pipeline_runs_scene ON public.pipeline_runs (scene_id);
@@ -164,6 +199,8 @@ ALTER TABLE public.voice_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pipeline_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.worker_service_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scene_code_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY projects_owner_all
   ON public.projects
@@ -261,6 +298,42 @@ CREATE POLICY worker_service_audit_owner_select
     )
   );
 
+CREATE POLICY scene_code_history_by_project_owner
+  ON public.scene_code_history
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.projects p
+      JOIN public.scenes s ON s.project_id = p.id
+      WHERE s.id = scene_code_history.scene_id AND p.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.projects p
+      JOIN public.scenes s ON s.project_id = p.id
+      WHERE s.id = scene_code_history.scene_id AND p.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY agent_logs_by_project_owner
+  ON public.agent_logs
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.projects p
+      JOIN public.scenes s ON s.project_id = p.id
+      WHERE s.id = agent_logs.scene_id AND p.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.projects p
+      JOIN public.scenes s ON s.project_id = p.id
+      WHERE s.id = agent_logs.scene_id AND p.user_id = auth.uid()
+    )
+  );
+
 ALTER TABLE public.projects FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.scenes FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.render_jobs FORCE ROW LEVEL SECURITY;
@@ -268,3 +341,5 @@ ALTER TABLE public.voice_jobs FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.assets FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.pipeline_runs FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.worker_service_audit FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.scene_code_history FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_logs FORCE ROW LEVEL SECURITY;

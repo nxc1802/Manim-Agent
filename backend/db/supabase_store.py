@@ -10,7 +10,7 @@ import httpx
 from backend.core.config import settings
 from backend.db.base import ContentStore
 from shared.schemas.project import Project, ProjectStatus
-from shared.schemas.scene import Scene, StoryboardStatus
+from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,9 @@ class SupabaseContentStore(ContentStore):
         title: str,
         description: str | None,
         source_language: str,
+        target_scenes: int | None = None,
         status: ProjectStatus = "draft",
+        config: dict[str, Any] | None = None,
     ) -> Project:
         if not self._headers:
             # Fallback for dev if no supabase? Or just error?
@@ -106,6 +108,8 @@ class SupabaseContentStore(ContentStore):
             title=title,
             description=description,
             source_language=source_language,
+            target_scenes=target_scenes,
+            config=config or {},
             status=status,
             created_at=datetime.now(tz=UTC),
             updated_at=datetime.now(tz=UTC),
@@ -175,6 +179,16 @@ class SupabaseContentStore(ContentStore):
             if r.status_code == 200:
                 return self.get_project(project_id)
         return None
+
+    def save_scene_code_history(self, history: SceneCodeHistory) -> None:
+        if not self._headers: return
+        payload = history.model_dump(mode="json")
+        url = f"{self._base_url}/rest/v1/scene_code_history"
+        with self._get_client() as client:
+            r = client.post(url, json=payload)
+            if r.status_code >= 400:
+                logger.error(f"Supabase save_scene_code_history failed: {r.status_code} {r.text}")
+            r.raise_for_status()
 
     def add_scene_to_project_index(self, scene: Scene) -> None:
         """Supabase handles indexing via foreign keys, so this is a no-op."""

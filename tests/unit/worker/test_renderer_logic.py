@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from worker.renderer import render_manim_scene_to_disk, RenderManimResult
+from worker.renderer import render_manim_scene_to_disk, RenderManimResult, manim_quality_flags
 
 
 @pytest.fixture()
@@ -106,4 +106,31 @@ def test_render_manim_scene_to_disk_handles_failure(
     mock_run.side_effect = subprocess.CalledProcessError(1, ["cmd"], stderr="Manim Error")
     
     with pytest.raises(RuntimeError, match="Manim Error"):
+        render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
+
+
+def test_manim_quality_flags():
+    assert manim_quality_flags(job_type="preview", quality="720p") == ["-qh"]
+    assert manim_quality_flags(job_type="full", quality="4k") == ["-qk"]
+    assert manim_quality_flags(job_type="full", quality="1080p") == ["-qh"]
+    assert manim_quality_flags(job_type="full", quality="720p") == ["-qh"]
+
+
+def test_render_manim_scene_to_disk_errors(mock_job_store, mock_content_store):
+    job_id = uuid4()
+    
+    # Job not found
+    mock_job_store.get.return_value = None
+    with pytest.raises(RuntimeError, match="Render job not found"):
+        render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
+        
+    # Scene not found
+    mock_job_store.get.return_value = MagicMock(scene_id=uuid4())
+    mock_content_store.get_scene.return_value = None
+    with pytest.raises(RuntimeError, match="not found in content store"):
+        render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
+        
+    # Missing code
+    mock_content_store.get_scene.return_value = MagicMock(manim_code="")
+    with pytest.raises(RuntimeError, match="missing manim_code"):
         render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")

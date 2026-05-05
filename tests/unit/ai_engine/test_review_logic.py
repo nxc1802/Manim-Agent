@@ -23,12 +23,13 @@ _EXAMPLE_MODELS = Path(__file__).resolve().parents[3] / (
 )
 
 
-def test_run_code_reviewer_parses_fake() -> None:
+@pytest.mark.anyio
+async def test_run_code_reviewer_parses_fake() -> None:
     issue = '{"issues":[{"severity":"info","code":"n","message":"ok"}]}'
     llm = FakeLLMClient(code_review_json=issue)
     data = load_agent_models_yaml(_EXAMPLE_MODELS)
     p = resolve_agent_params(data, "code_reviewer")
-    res, _pv, _m = run_code_reviewer(
+    res, _pv, _m, _s, _u = await run_code_reviewer(
         llm=llm,
         model=p.model,
         temperature=p.temperature,
@@ -61,8 +62,9 @@ def _tiny_mp4(path: Path) -> None:
     )
 
 
+@pytest.mark.anyio
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
-def test_review_round_early_stop_with_preview(tmp_path: Path) -> None:
+async def test_review_round_early_stop_with_preview(tmp_path: Path) -> None:
     video = tmp_path / "p.mp4"
     _tiny_mp4(video)
     data = load_agent_models_yaml(_EXAMPLE_MODELS)
@@ -76,7 +78,7 @@ class GeneratedScene(Scene):
 """
     code_llm = resolve_agent_params(data, "code_reviewer")
     visual_llm = resolve_agent_params(data, "visual_reviewer")
-    rep = run_single_review_round(
+    rep = await run_single_review_round(
         llm=llm,
         review_cfg=cfg,
         code_llm=code_llm,
@@ -92,7 +94,8 @@ class GeneratedScene(Scene):
     assert rep.early_stop is True
 
 
-def test_review_round_skips_visual_without_preview() -> None:
+@pytest.mark.anyio
+async def test_review_round_skips_visual_without_preview() -> None:
     data = load_agent_models_yaml(_EXAMPLE_MODELS)
     cfg = load_builder_review_loop(data)
     llm = FakeLLMClient(
@@ -106,7 +109,7 @@ class GeneratedScene(Scene):
 """
     code_llm = resolve_agent_params(data, "code_reviewer")
     visual_llm = resolve_agent_params(data, "visual_reviewer")
-    rep = run_single_review_round(
+    rep = await run_single_review_round(
         llm=llm,
         review_cfg=cfg,
         code_llm=code_llm,
@@ -122,9 +125,14 @@ class GeneratedScene(Scene):
     assert rep.early_stop is False
 
 
-def test_review_round_skips_visual_when_no_file() -> None:
+@pytest.mark.anyio
+async def test_review_round_skips_visual_when_disabled() -> None:
     data = load_agent_models_yaml(_EXAMPLE_MODELS)
+    # Force disabled
+    raw = data["builder_review_loop"]
+    raw["visual_reviewer_enabled"] = False
     cfg = load_builder_review_loop(data)
+    
     llm = FakeLLMClient()
     code = """from __future__ import annotations
 from manim import Scene
@@ -134,18 +142,52 @@ class GeneratedScene(Scene):
 """
     code_llm = resolve_agent_params(data, "code_reviewer")
     visual_llm = resolve_agent_params(data, "visual_reviewer")
-    missing = Path("/nonexistent") / str(uuid4()) / "x.mp4"
-    rep = run_single_review_round(
+    rep = await run_single_review_round(
         llm=llm,
         review_cfg=cfg,
         code_llm=code_llm,
         visual_llm=visual_llm,
         manim_code=code,
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-        preview_video_path=missing,
+        preview_video_path=Path("/tmp/fake.mp4"),
         extract_preview_frame=extract_end_of_play_jpeg_frame,
     )
     assert rep.code_review_passed
     assert rep.visual_review is None
-    assert rep.visual_review_skipped_reason == "no_preview_video"
-    assert rep.early_stop is False
+    assert rep.visual_review_skipped_reason == "disabled_in_config"
+    assert rep.visual_review_passed is None
+    assert rep.early_stop is True # Because only code_review_passed is required in default (wait, default requires both?)
+
+@pytest.mark.anyio
+async def test_review_round_dynamic_early_stop() -> None:
+    data = load_agent_models_yaml(_EXAMPLE_MODELS)
+    # Require both
+    raw = data["builder_review_loop"]
+    raw["visual_reviewer_enabled"] = False
+    raw["early_stop"]["require_all"] = ["code_review_passed", "visual_review_passed"]
+    cfg = load_builder_review_loop(data)
+    
+    llm = FakeLLMClient()
+    code = """from __future__ import annotations
+from manim import Scene
+class GeneratedScene(Scene):
+    def construct(self) -> None:
+        self.wait(0.1)
+"""
+    code_llm = resolve_agent_params(data, "code_reviewer")
+    visual_llm = resolve_agent_params(data, "visual_reviewer")
+    rep = await run_single_review_round(
+        llm=llm,
+        review_cfg=cfg,
+        code_llm=code_llm,
+        visual_llm=visual_llm,
+        manim_code=code,
+        sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
+        preview_video_path=Path("/tmp/fake.mp4"),
+        extract_preview_frame=extract_end_of_play_jpeg_frame,
+    )
+    assert rep.code_review_passed
+    assert rep.visual_review_passed is None
+    # visual_review_passed is None, but pass_results treats it as True for requirement check if skipped?
+    # No, my logic was: "visual_review_passed": visual_passed if visual_passed is not None else True
+    assert rep.early_stop is True

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -16,9 +16,13 @@ ReviewLoopStatus = Literal["idle", "running", "completed", "hitl_pending", "fail
 class SceneCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scene_order: int = Field(ge=0)
-    storyboard_text: str | None = Field(default=None, max_length=200_000)
-    voice_script: str | None = Field(default=None, max_length=200_000)
+    scene_order: int = Field(ge=0, description="Thứ tự của scene trong video (0-indexed)")
+    storyboard_text: str | None = Field(
+        default=None, max_length=20_000, description="Nội dung storyboard (draft)"
+    )
+    voice_script: str | None = Field(
+        default=None, max_length=200_000, description="Kịch bản lời thoại (voiceover)"
+    )
 
 
 class Scene(BaseModel):
@@ -29,19 +33,39 @@ class Scene(BaseModel):
     id: UUID
     project_id: UUID
     scene_order: int
-    storyboard_status: StoryboardStatus = "missing"
-    storyboard_text: str | None = None
-    voice_script: str | None = None
-    planner_output: dict[str, Any] | list[Any] | None = None
-    sync_segments: dict[str, Any] | list[Any] | None = None
-    manim_code: str | None = None
-    manim_code_version: int = 1
-    audio_url: str | None = None
-    timestamps: dict[str, Any] | list[Any] | None = None
-    duration_seconds: Decimal | None = None
-    plan_status: PlanStatus = "missing"
-    voice_script_status: VoiceScriptStatus = "missing"
-    review_loop_status: ReviewLoopStatus = "idle"
+    storyboard_status: StoryboardStatus = Field(
+        default="missing",
+        description="Trạng thái storyboard (missing, pending_review, approved)",
+    )
+    storyboard_text: str | None = Field(default=None, description="Nội dung storyboard (draft)")
+    voice_script: str | None = Field(
+        default=None, description="Kịch bản lời thoại (voiceover)"
+    )
+    planner_output: dict[str, Any] | list[Any] | None = Field(
+        default=None, description="Kết quả từ Planner Agent (beats, primitives)"
+    )
+    sync_segments: dict[str, Any] | list[Any] | None = Field(
+        default=None, description="Dữ liệu đồng bộ beat với audio timeline"
+    )
+    manim_code: str | None = Field(
+        default=None, description="Mã nguồn Manim Python được sinh bởi Builder Agent"
+    )
+    manim_code_version: int = Field(default=1, description="Phiên bản của mã nguồn Manim")
+    audio_url: str | None = Field(default=None, description="Đường dẫn đến file âm thanh (TTS)")
+    timestamps: dict[str, Any] | list[Any] | None = Field(
+        default=None, description="Dữ liệu thời gian của từng segment âm thanh"
+    )
+    duration_seconds: Decimal | None = Field(default=None, description="Tổng thời lượng của scene")
+    plan_status: PlanStatus = Field(
+        default="missing", description="Trạng thái của execution plan"
+    )
+    voice_script_status: VoiceScriptStatus = Field(
+        default="missing", description="Trạng thái của voice script"
+    )
+    review_loop_status: ReviewLoopStatus = Field(
+        default="idle",
+        description="Trạng thái vòng lặp review (idle, running, completed, hitl_pending, failed)",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -60,3 +84,16 @@ class Scene(BaseModel):
                 out["review_loop_status"] = "idle"
             return out
         return data
+
+class SceneCodeHistory(BaseModel):
+    """Row shape for `public.scene_code_history`."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: UUID = Field(default_factory=uuid4)
+    scene_id: UUID
+    run_id: UUID | None = None
+    version: int
+    round_idx: int | None = None
+    manim_code: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

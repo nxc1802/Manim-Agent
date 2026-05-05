@@ -18,3 +18,15 @@ media/
 *.log
 dump.rdb
 logs/
+
+# Development & Temp
+scratch/
+scratch.py
+test_results/
+storage/
+*.aiff
+*.wav
+*.mp4
+.DS_Store
+.env.test
+.python-version

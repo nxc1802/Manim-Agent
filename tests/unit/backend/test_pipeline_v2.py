@@ -72,7 +72,7 @@ def test_generate_code_enqueue_preview_mocked_render(
 ) -> None:
     _project_id, scene_id = _bootstrap_planned_scene(api_client)
 
-    def fake_render(*, job_id: UUID, job_type: str, quality: str):  # noqa: ARG001
+    def fake_render(*, job_id: UUID, job_type: str, quality: str, **kwargs):  # noqa: ARG001
         from worker.renderer import RenderManimResult
 
         out = tmp_path / f"{job_id}.mp4"

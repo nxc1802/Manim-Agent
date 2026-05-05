@@ -1,5 +1,5 @@
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,6 +66,25 @@ class BuilderReviewLoopResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scene_id: UUID
+    job_id: UUID | None = None
     review_loop_status: str
     report: dict[str, Any] = Field(default_factory=dict)
     rounds: list[dict[str, Any]] = Field(default_factory=list)
+
+class AgentLog(BaseModel):
+    """Row shape for `public.agent_logs`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID
+    scene_id: UUID | None = None
+    round_idx: int | None = None
+    agent_name: str
+    attempt: int = 1
+    prompt_version: str | None = None
+    system_prompt: str | None = None
+    user_prompt: str | None = None
+    output_text: str | None = None
+    metrics: dict[str, Any] | None = None
+    error: str | None = None

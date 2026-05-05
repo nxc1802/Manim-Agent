@@ -8,7 +8,7 @@ from ai_engine.llm_client import LLMClient
 from ai_engine.prompts import PROMPT_VERSION_VISUAL_REVIEWER, load_prompt_text
 
 
-def run_visual_reviewer(
+async def run_visual_reviewer(
     *,
     llm: LLMClient,
     model: str,
@@ -17,10 +17,15 @@ def run_visual_reviewer(
     frame_jpeg: bytes,
     context: str | None = None,
     request_timeout_seconds: int | None = None,
-) -> tuple[ReviewResult, str, dict[str, int | None]]:
+) -> tuple[ReviewResult, str, dict[str, Any], str, str]:
     """Vision review on JPEG frame (default: last frame of preview ≈ end of Scene.play())."""
     system = load_prompt_text("visual_reviewer_system.txt")
-    user = context or "Review this preview frame from a Manim educational scene."
+    user_instruction = (
+        "You are an expert Manim developer. Review the following preview frame from an educational scene. "
+        "Analyze the visuals for correctness, clarity, and alignment with the intended message. "
+        "Return issues in the specified JSON format."
+    )
+    user = f"{user_instruction}\n\nContext: {context}" if context else user_instruction
     
     pipeline_debug(
         "ai_engine.visual_reviewer",
@@ -29,7 +34,7 @@ def run_visual_reviewer(
         details={"model": model, "system": system, "user": user, "image_size": len(frame_jpeg)}
     )
     
-    comp = llm.complete_with_images_ex(
+    comp = await llm.acomplete_with_images_ex(
         model=model,
         system=system,
         user=user,
@@ -47,7 +52,7 @@ def run_visual_reviewer(
         details={"raw_json": comp.text}
     )
     
-    data = parse_json_object(comp.text)
+    data = parse_json_object(comp.text, list_key="issues")
     metrics: dict[str, int | None] = {
         "duration_ms": comp.usage.duration_ms,
         "prompt_tokens": comp.usage.prompt_tokens,
@@ -55,9 +60,14 @@ def run_visual_reviewer(
     }
     try:
         res = ReviewResult.model_validate(data)
-    except Exception:
-        pipeline_debug("ai_engine.visual_reviewer", "validation_failed", "Pydantic validation failed for Visual Reviewer output")
+    except Exception as e:
+        pipeline_debug(
+            "ai_engine.visual_reviewer", 
+            "validation_failed", 
+            f"Pydantic validation failed for Visual Reviewer output: {e}",
+            details={"data": data}
+        )
         # Fallback to empty issues to allow the loop to continue or fail gracefully
         res = ReviewResult(issues=[])
     
-    return res, PROMPT_VERSION_VISUAL_REVIEWER, metrics
+    return res, PROMPT_VERSION_VISUAL_REVIEWER, metrics, system, user
