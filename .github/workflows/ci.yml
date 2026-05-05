@@ -19,6 +19,11 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3-dev libcairo2-dev libpango1.0-dev ffmpeg pkg-config
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
