@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 from ai_engine.agents.code_reviewer import run_code_reviewer
@@ -132,7 +131,7 @@ async def test_review_round_skips_visual_when_disabled() -> None:
     raw = data["builder_review_loop"]
     raw["visual_reviewer_enabled"] = False
     cfg = load_builder_review_loop(data)
-    
+
     llm = FakeLLMClient()
     code = """from __future__ import annotations
 from manim import Scene
@@ -156,7 +155,10 @@ class GeneratedScene(Scene):
     assert rep.visual_review is None
     assert rep.visual_review_skipped_reason == "disabled_in_config"
     assert rep.visual_review_passed is None
-    assert rep.early_stop is True # Because only code_review_passed is required in default (wait, default requires both?)
+    assert (
+        rep.early_stop is True
+    )  # Because only code_review_passed is required in default (wait, default requires both?)
+
 
 @pytest.mark.anyio
 async def test_review_round_dynamic_early_stop() -> None:
@@ -166,7 +168,7 @@ async def test_review_round_dynamic_early_stop() -> None:
     raw["visual_reviewer_enabled"] = False
     raw["early_stop"]["require_all"] = ["code_review_passed", "visual_review_passed"]
     cfg = load_builder_review_loop(data)
-    
+
     llm = FakeLLMClient()
     code = """from __future__ import annotations
 from manim import Scene

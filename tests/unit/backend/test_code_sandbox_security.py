@@ -66,18 +66,23 @@ class MyScene(Scene):
         pass
 """
     limits = SandboxLimits(max_bytes=1000)
-    with pytest.raises(SandboxValidationError, match="Generated code must define class GeneratedScene"):
+    with pytest.raises(
+        SandboxValidationError, match="Generated code must define class GeneratedScene"
+    ):
         validate_manim_code(code, limits=limits)
 
 
-@pytest.mark.parametrize("malicious", [
-    "import socket",
-    "import requests",
-    "from os import path",
-    "import sys",
-    "exec('print(1)')",
-    "__import__('os').system('ls')",
-])
+@pytest.mark.parametrize(
+    "malicious",
+    [
+        "import socket",
+        "import requests",
+        "from os import path",
+        "import sys",
+        "exec('print(1)')",
+        "__import__('os').system('ls')",
+    ],
+)
 def test_various_malicious_attempts(malicious: str) -> None:
     code = f"""
 from manim import Scene

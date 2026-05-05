@@ -7,13 +7,14 @@ from uuid import UUID
 from shared.schemas.project import Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
+
 @runtime_checkable
 class ContentStore(Protocol):
     """Common interface for project and scene persistence."""
 
     def resolve_asset_local_path(self, asset_url: str | None) -> Path | None:
         """Convert a stored asset URL/path into a local filesystem Path.
-        
+
         Handles file:// schemes for local storage or downloads from remote buckets (e.g. Supabase).
         """
         ...

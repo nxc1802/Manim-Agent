@@ -17,6 +17,7 @@ def api_client() -> TestClient:
     from backend.api.deps import get_content_store
     from backend.db.content_store import RedisContentStore
     from backend.services.redis_client import get_redis
+
     configure_redis(FakeRedis(decode_responses=True))
     planner_json = (
         Path(__file__).resolve().parents[2] / "fixtures" / "planner_output_valid.json"

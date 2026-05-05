@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
-from pathlib import Path
 
 from backend.core.config import settings
 from backend.db.base import ContentStore
@@ -183,13 +183,15 @@ def get_content_store() -> ContentStore:
     from backend.services.redis_client import get_redis
 
     is_configured = bool(settings.supabase_url and settings.supabase_service_role_key)
-    
+
     if is_configured:
         return SupabaseContentStore()
-    
-    if settings.app_env == "production":
-        msg = "CRITICAL: Supabase must be configured for content persistence in production (missing SUPABASE_URL or KEY)."
-        raise ValueError(msg)
-        
-    return RedisContentStore(get_redis())
 
+    if settings.app_env == "production":
+        msg = (
+            "CRITICAL: Supabase must be configured for content persistence in production "
+            "(missing SUPABASE_URL or KEY)."
+        )
+        raise ValueError(msg)
+
+    return RedisContentStore(get_redis())

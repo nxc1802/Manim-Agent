@@ -71,6 +71,7 @@ class BuilderReviewLoopResponse(BaseModel):
     report: dict[str, Any] = Field(default_factory=dict)
     rounds: list[dict[str, Any]] = Field(default_factory=list)
 
+
 class AgentLog(BaseModel):
     """Row shape for `public.agent_logs`."""
 

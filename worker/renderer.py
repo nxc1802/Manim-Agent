@@ -38,7 +38,7 @@ def manim_quality_flags(*, job_type: RenderJobType, quality: RenderQuality) -> l
         return ["-qk"]
     if quality == "1080p":
         return ["-qh"]
-    return ["-qh"] # Default to high for non-preview if not specified
+    return ["-qh"]  # Default to high for non-preview if not specified
 
 
 def render_manim_scene_to_disk(
@@ -69,21 +69,27 @@ def render_manim_scene_to_disk(
             msg = f"Scene {job.scene_id} not found in content store for job {job_id}"
             logger.error(msg)
             raise RuntimeError(msg)
-        
+
         mcode = (scene.manim_code or "").strip()
-        logger.info("Retrieved scene_id=%s manim_code_len=%d version=%d", job.scene_id, len(mcode), scene.manim_code_version)
-        
+        logger.info(
+            "Retrieved scene_id=%s manim_code_len=%d version=%d",
+            job.scene_id,
+            len(mcode),
+            scene.manim_code_version,
+        )
+
         if not mcode:
             msg = f"Scene {job.scene_id} missing manim_code for render (job_id={job_id})"
             logger.error(msg)
             raise RuntimeError(msg)
-            
+
         # Inject metadata: durations for Dynamic Template
         durations_json = json.dumps(scene.sync_segments or {}, ensure_ascii=False)
         metadata_injection = f"\n# Dynamic Template Metadata\nBEAT_DURATIONS = {durations_json}\n\n"
-        
+
         scene_file = (job_dir / "generated_scene.py").resolve()
-        # Ensure __future__ imports are at the very top (SyntaxError if BEAT_DURATIONS is before them)
+        # Ensure __future__ imports are at the very top
+        # (SyntaxError if BEAT_DURATIONS is before them)
         lines = mcode.splitlines(keepends=True)
         future_lines = []
         other_lines = []
@@ -92,7 +98,7 @@ def render_manim_scene_to_disk(
                 future_lines.append(line)
             else:
                 other_lines.append(line)
-        
+
         full_code = "".join(future_lines) + metadata_injection + "".join(other_lines)
         scene_file.write_text(full_code, encoding="utf-8")
         scene_class = settings.generated_scene_class
@@ -174,7 +180,7 @@ def render_manim_scene_to_disk(
     if not matches:
         msg = f"No mp4 produced under {media_dir}"
         raise FileNotFoundError(msg)
-    
+
     video_path = matches[-1]
     pipeline_event(
         "worker.manim",
@@ -187,63 +193,85 @@ def render_manim_scene_to_disk(
 
     silent_video = matches[-1]
     local_audio_path = None
-    
+
     # --- Audio Merging Logic ---
     if scene and scene.audio_url:
         try:
             logger.info("Merging audio for scene: %s, URL: %s", job_id, scene.audio_url)
             pipeline_event(
-                "worker.manim", "audio_merge_start", 
-                "Downloading and merging audio", 
-                job_id=str(job_id), 
-                details={"audio_url": scene.audio_url}
+                "worker.manim",
+                "audio_merge_start",
+                "Downloading and merging audio",
+                job_id=str(job_id),
+                details={"audio_url": scene.audio_url},
             )
-            
+
             audio_ext = "mp3"
-            if ".wav" in scene.audio_url.lower(): audio_ext = "wav"
+            if ".wav" in scene.audio_url.lower():
+                audio_ext = "wav"
             local_audio = job_dir / f"voice.{audio_ext}"
-            
+
             import httpx
+
             full_audio_url = scene.audio_url
             if not full_audio_url.startswith("http"):
                 base_url = settings.supabase_url
                 if not base_url.endswith("/storage/v1"):
                     base_url = f"{base_url}/storage/v1"
                 full_audio_url = f"{base_url}{scene.audio_url}"
-                
+
             logger.info("Downloading audio from: %s", full_audio_url)
-            pipeline_event("worker.manim", "audio_download_start", "Downloading audio from resolved URL", details={"url": full_audio_url})
-            
+            pipeline_event(
+                "worker.manim",
+                "audio_download_start",
+                "Downloading audio from resolved URL",
+                details={"url": full_audio_url},
+            )
+
             with httpx.stream("GET", full_audio_url, follow_redirects=True) as r:
                 r.raise_for_status()
                 with open(local_audio, "wb") as f:
                     for chunk in r.iter_bytes():
                         f.write(chunk)
-            
+
             local_audio_path = local_audio
-            logger.info("Audio downloaded to: %s (Size: %s bytes)", local_audio, local_audio.stat().st_size)
-            
+            logger.info(
+                "Audio downloaded to: %s (Size: %s bytes)", local_audio, local_audio.stat().st_size
+            )
+
             merged_video = job_dir / f"{scene_class}_merged.mp4"
             merge_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-i", str(local_audio),
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                str(merged_video)
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(video_path),
+                "-i",
+                str(local_audio),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                str(merged_video),
             ]
-            
+
             logger.info("Running merge command: %s", " ".join(merge_cmd))
             merge_proc = subprocess.run(merge_cmd, check=True, capture_output=True, text=True)
             logger.info("FFmpeg merge stdout: %s", merge_proc.stdout)
             logger.info("FFmpeg merge stderr: %s", merge_proc.stderr)
-            
+
             if merged_video.exists():
                 video_path = merged_video
                 logger.info("Audio merged successfully. New video_path: %s", video_path)
-                pipeline_event("worker.manim", "audio_merge_ok", "Audio merged successfully", job_id=str(job_id))
+                pipeline_event(
+                    "worker.manim",
+                    "audio_merge_ok",
+                    "Audio merged successfully",
+                    job_id=str(job_id),
+                )
         except Exception as e:
             logger.exception("Failed to merge audio: %s", e)
             pipeline_error("worker.manim", "audio_merge_failed", str(e), job_id=str(job_id))
@@ -255,5 +283,5 @@ def render_manim_scene_to_disk(
         stderr_tail=stderr_tail,
         command=cmd,
         silent_video_path=silent_video,
-        audio_path=local_audio_path
+        audio_path=local_audio_path,
     )

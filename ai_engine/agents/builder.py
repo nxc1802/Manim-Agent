@@ -27,7 +27,7 @@ async def run_builder(
     is_fix_mode: bool = False,
 ) -> tuple[str, str, dict[str, Any], str, str]:
     """Return (python_source, prompt_version, llm_metrics, system_prompt, user_prompt)."""
-    
+
     # 1. Select Base System Prompt
     if is_fix_mode:
         system_base = load_prompt_text("builder_system_fix.txt")
@@ -36,49 +36,48 @@ async def run_builder(
             system_base = load_prompt_text("builder_system.txt")
         else:
             system_base = load_prompt_text("builder_system_no_primitives.txt")
-    
+
     # 2. Append Catalog (only if primitives are enabled AND it's NOT fix mode, or as per requirement)
     # Actually, in fix mode, it's better to keep catalog if using primitives to know what's available.
     catalog_str = ""
     if use_primitives:
         catalog = build_primitives_catalog().model_dump(mode="json")
         catalog_str = f"### 📦 PRIMITIVES_CATALOG\n{json.dumps(catalog, indent=2)}\n\n"
-    
+
     # 3. Contextual Data
     goal = {
         "planner_output": planner.model_dump(mode="json"),
         "sync_segments": sync_segments,
         "storyboard_excerpt": storyboard_excerpt,
     }
-    
+
     if is_fix_mode:
         # In Fix Mode, we emphasize the current state and feedback
         system = (
             f"{system_base}\n\n"
             f"{catalog_str}"
-            f"### 🎯 ORIGINAL_GOAL_SUMMARY\n{planner.model_dump_json()[:1000]}..." # Compressed goal for fix mode
+            f"### 🎯 ORIGINAL_GOAL_SUMMARY\n{planner.model_dump_json()[:1000]}..."  # Compressed goal for fix mode
         )
         # We assume chat_history contains the [Assistant(code), User(feedback)]
         messages = [{"role": "system", "content": system}] + (chat_history or [])
     else:
         # Init Mode
-        system = (
-            f"{system_base}\n\n"
-            f"{catalog_str}"
-            f"### 🎯 ORIGINAL_GOAL\n{json.dumps(goal, indent=2)}"
-        )
+        system = f"{system_base}\n\n{catalog_str}### 🎯 ORIGINAL_GOAL\n{json.dumps(goal, indent=2)}"
         messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": "Generate the first version of the Manim code based on the ORIGINAL_GOAL."},
+            {
+                "role": "user",
+                "content": "Generate the first version of the Manim code based on the ORIGINAL_GOAL.",
+            },
         ]
-    
+
     pipeline_debug(
         "ai_engine.builder",
         "llm_input",
         f"Builder LLM Input (Mode={'Fix' if is_fix_mode else 'Init'})",
-        details={"model": model, "messages": messages}
+        details={"model": model, "messages": messages},
     )
-    
+
     comp = await llm.acomplete_chat_ex(
         model=model,
         messages=messages,
@@ -87,14 +86,11 @@ async def run_builder(
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
     )
-    
+
     pipeline_debug(
-        "ai_engine.builder",
-        "llm_output",
-        "Builder LLM Output",
-        details={"text": comp.text}
+        "ai_engine.builder", "llm_output", "Builder LLM Output", details={"text": comp.text}
     )
-    
+
     metrics: dict[str, int | None] = {
         "duration_ms": comp.usage.duration_ms,
         "prompt_tokens": comp.usage.prompt_tokens,

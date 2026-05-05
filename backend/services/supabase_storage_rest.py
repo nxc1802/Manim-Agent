@@ -162,5 +162,7 @@ def upload_preview_frame_and_sign(
         logger.debug(f"Preview Frame URL (Round {round_idx}): {url}")
         return url
     except Exception:
-        logger.exception("Supabase frame upload/sign failed scene_id=%s round=%s", scene_id, round_idx)
+        logger.exception(
+            "Supabase frame upload/sign failed scene_id=%s round=%s", scene_id, round_idx
+        )
         return None

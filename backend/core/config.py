@@ -106,11 +106,12 @@ class Settings(BaseSettings):
         if is_prod and self.auth_mode == "off":
             msg = f"AUTH_MODE cannot be 'off' when APP_ENV is '{self.app_env}'. Set AUTH_MODE=jwt."
             raise ValueError(msg)
-        
+
         # Guard against wildcard CORS in production
         if is_prod and self.cors_origins == "*":
             msg = (
-                f"CRITICAL SECURITY ERROR: CORS_ORIGINS cannot be '*' when APP_ENV is '{self.app_env}'. "
+                f"CRITICAL SECURITY ERROR: CORS_ORIGINS cannot be '*' "
+                f"when APP_ENV is '{self.app_env}'. "
                 "Set specific allowed domains for production."
             )
             raise ValueError(msg)

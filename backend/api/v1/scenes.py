@@ -13,20 +13,16 @@ from ai_engine.config import (
 )
 from ai_engine.llm_client import LLMClient
 from ai_engine.orchestrator import (
-    run_builder_loop_phase,
     run_planning_phase,
-    run_single_review_round,
     run_storyboard_phase,
 )
 from ai_engine.utils.storage_helper import save_agent_interaction
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from backend.core.limiter import limiter
 from pydantic import BaseModel, ConfigDict, Field
 from shared.code_utils import extract_python_code
 from shared.pipeline_log import pipeline_event
 from shared.schemas.builder_api import GenerateCodeBody, GenerateCodeResponse
 from shared.schemas.planner_output import PlannerOutput
-from shared.schemas.render_job import RenderJob
 from shared.schemas.review_pipeline import (
     BuilderReviewLoopRequest,
     BuilderReviewLoopResponse,
@@ -37,9 +33,9 @@ from shared.schemas.review_pipeline import (
 )
 from shared.schemas.scene import Scene
 from shared.schemas.voice_api import VoiceEnqueueResponse, VoiceSynthesizeBody
+from worker.orchestrator_tasks import run_orchestrator_loop_task
 from worker.tasks import render_manim_scene
 from worker.tts_tasks import synthesize_voice
-from worker.orchestrator_tasks import run_orchestrator_loop_task
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import (
@@ -52,6 +48,7 @@ from backend.api.deps import (
     get_voice_job_store,
 )
 from backend.core.config import settings
+from backend.core.limiter import limiter
 from backend.db.base import ContentStore
 from backend.services.code_sandbox import SandboxLimits, validate_manim_code
 from backend.services.job_store import RedisRenderJobStore
@@ -73,7 +70,9 @@ def get_scene(
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
     return scene
 
@@ -82,8 +81,6 @@ def _agent_models_path() -> Path:
     if settings.agent_models_yaml:
         return Path(settings.agent_models_yaml).expanduser()
     return default_agent_models_path()
-
-
 
 
 class GenerateStoryboardBody(BaseModel):
@@ -95,12 +92,26 @@ class GenerateStoryboardBody(BaseModel):
 @router.post(
     "/{scene_id}/generate-storyboard",
     summary="Director: storyboard draft",
-    description="**Director Agent**: Tạo bản thảo storyboard từ tiêu đề và mô tả dự án. Đây là bước thiết kế nội dung hình ảnh và lời thoại thô.",
+    description=(
+        "**Director Agent**: Tạo bản thảo storyboard từ tiêu đề và mô tả dự án. "
+        "Đây là bước thiết kế nội dung hình ảnh và lời thoại thô."
+    ),
     responses={
-        200: {"description": "Storyboard generated", "content": {"application/json": {"example": {"id": "...", "storyboard_text": "...", "storyboard_status": "pending_review"}}}},
+        200: {
+            "description": "Storyboard generated",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "...",
+                        "storyboard_text": "...",
+                        "storyboard_status": "pending_review",
+                    }
+                }
+            },
+        },
         404: {"description": "Scene not found"},
         409: {"description": "Storyboard already approved"},
-    }
+    },
 )
 @limiter.limit("5/minute")
 async def generate_storyboard(
@@ -113,21 +124,27 @@ async def generate_storyboard(
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project = project_readable_by_user(store, scene.project_id, user_id)
     if scene.storyboard_status == "approved":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Storyboard already approved")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Storyboard already approved"
+        )
 
     yaml_data = load_agent_models_yaml(_agent_models_path())
     params = get_agent_llm_params("director")
-    
+
     # Use project-level target_scenes if set, else fallback to agent_models.yaml default
     target_scenes = project.target_scenes
     if target_scenes is None:
         target_scenes = yaml_data.get("agents", {}).get("director", {}).get("target_scenes")
 
-    pipeline_event("api.scenes", "storyboard_start", "Director: generating storyboard", scene_id=str(scene_id))
-    
+    pipeline_event(
+        "api.scenes", "storyboard_start", "Director: generating storyboard", scene_id=str(scene_id)
+    )
+
     text, _pv, _metrics, _sys, _usr = await run_storyboard_phase(
         llm=llm,
         model=params.model,
@@ -139,7 +156,7 @@ async def generate_storyboard(
         extra_brief=body.brief_override if body else None,
     )
     save_agent_interaction(scene.project_id, "director", "storyboard", _sys, _usr, text)
-    
+
     updated = store.update_scene(scene_id, storyboard_text=text, storyboard_status="pending_review")
     pipeline_event(
         "api.scenes", "storyboard_ok", "Director: storyboard generated", scene_id=str(scene_id)
@@ -177,15 +194,18 @@ def approve_storyboard(
 
 
 @router.post(
-    "/{scene_id}/plan", 
-    response_model=Scene, 
-    summary="Planner: execution plan", 
-    description="**Planner Agent**: Chuyển đổi storyboard đã duyệt thành một kế hoạch thực thi chi tiết bao gồm các 'beats' (nhịp) và các 'primitives' (linh kiện đồ họa).",
+    "/{scene_id}/plan",
+    response_model=Scene,
+    summary="Planner: execution plan",
+    description=(
+        "**Planner Agent**: Chuyển đổi storyboard đã duyệt thành một kế hoạch thực thi chi tiết "
+        "bao gồm các 'beats' (nhịp) và các 'primitives' (linh kiện đồ họa)."
+    ),
     responses={
         200: {"description": "Plan generated"},
         400: {"description": "Storyboard not approved"},
         404: {"description": "Scene not found"},
-    }
+    },
 )
 @limiter.limit("10/minute")
 async def run_scene_planner(
@@ -197,7 +217,9 @@ async def run_scene_planner(
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project = project_readable_by_user(store, scene.project_id, user_id)
     if scene.storyboard_status != "approved":
         raise HTTPException(
@@ -208,8 +230,10 @@ async def run_scene_planner(
 
     params = get_agent_llm_params("planner")
     rt = get_runtime_limits()
-    pipeline_event("api.scenes", "plan_start", "Planner: generating execution plan", scene_id=str(scene_id))
-    
+    pipeline_event(
+        "api.scenes", "plan_start", "Planner: generating execution plan", scene_id=str(scene_id)
+    )
+
     plan, _pv, _metrics, _sys, _usr = await run_planning_phase(
         llm=llm,
         model=params.model,
@@ -220,7 +244,7 @@ async def run_scene_planner(
         request_timeout_seconds=rt.llm_timeout_seconds("planner"),
     )
     save_agent_interaction(scene.project_id, "planner", "plan", _sys, _usr, plan)
-    
+
     updated = store.update_scene(
         scene_id,
         planner_output=plan.model_dump(mode="json"),
@@ -240,7 +264,9 @@ def approve_plan(
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
     updated = store.update_scene(scene_id, plan_status="approved")
     assert updated is not None
@@ -255,7 +281,9 @@ def approve_voice_script(
 ) -> Scene:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
     updated = store.update_scene(scene_id, voice_script_status="approved")
     assert updated is not None
@@ -271,27 +299,41 @@ def sync_timeline_endpoint(
     """Run deterministic Sync Engine to align beats to audio timestamps."""
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
-    
+
     if not scene.planner_output:
         raise HTTPException(status_code=400, detail="Missing execution plan for synchronization")
     if not scene.timestamps:
-        raise HTTPException(status_code=400, detail="Missing voice timestamps for synchronization. Please run TTS first.")
-        
+        raise HTTPException(
+            status_code=400,
+            detail="Missing voice timestamps for synchronization. Please run TTS first.",
+        )
+
     from shared.schemas.voice_segments import VoiceSegmentTimestamps
+
     plan = PlannerOutput.model_validate(scene.planner_output)
     ts = VoiceSegmentTimestamps.model_validate(scene.timestamps)
-    
+
     sync_segments = align_beats_to_audio(plan, ts)
-    
+
     updated = store.update_scene(scene_id, sync_segments=sync_segments)
     pipeline_event("api.scenes", "sync_ok", "Sync: beats aligned to audio", scene_id=str(scene_id))
     assert updated is not None
     return updated
 
 
-@router.post("/{scene_id}/generate-code", response_model=GenerateCodeResponse, summary="Builder: generate Manim code", description="**Builder Agent**: Chuyển đổi execution plan và dữ liệu đồng bộ thành mã nguồn Manim Python hoàn chỉnh.")
+@router.post(
+    "/{scene_id}/generate-code",
+    response_model=GenerateCodeResponse,
+    summary="Builder: generate Manim code",
+    description=(
+        "**Builder Agent**: Chuyển đổi execution plan và dữ liệu đồng bộ thành "
+        "mã nguồn Manim Python hoàn chỉnh."
+    ),
+)
 @limiter.limit("5/minute")
 async def generate_scene_code(
     request: Request,
@@ -306,7 +348,9 @@ async def generate_scene_code(
     logger.debug(f"generate_scene_code scene_id={scene_id} enqueue_preview={opts.enqueue_preview}")
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project = project_readable_by_user(store, scene.project_id, user_id)
     if scene.storyboard_status != "approved":
         raise HTTPException(
@@ -343,9 +387,13 @@ async def generate_scene_code(
     if opts.enqueue_preview:
         job_id = uuid4()
         job_store.create_queued_job(
-            job_id=job_id, project_id=scene.project_id, scene_id=scene_id,
-            job_type="preview", render_quality="720p", webhook_url=None,
-            docker_image_tag=settings.worker_image_tag
+            job_id=job_id,
+            project_id=scene.project_id,
+            scene_id=scene_id,
+            job_type="preview",
+            render_quality="720p",
+            webhook_url=None,
+            docker_image_tag=settings.worker_image_tag,
         )
         render_manim_scene.apply_async(args=[str(job_id)])
         preview_job_id = job_id
@@ -353,7 +401,16 @@ async def generate_scene_code(
     return GenerateCodeResponse(scene=updated, preview_job_id=preview_job_id)
 
 
-@router.post("/{scene_id}/voice", response_model=VoiceEnqueueResponse, status_code=status.HTTP_202_ACCEPTED, summary="TTS: synthesize voice", description="**TTS Engine (Piper)**: Chuyển đổi kịch bản lời thoại thành âm thanh và tính toán thời gian (timestamps) cho từng từ/đoạn.")
+@router.post(
+    "/{scene_id}/voice",
+    response_model=VoiceEnqueueResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="TTS: synthesize voice",
+    description=(
+        "**TTS Engine (Piper)**: Chuyển đổi kịch bản lời thoại thành âm thanh "
+        "và tính toán thời gian (timestamps) cho từng từ/đoạn."
+    ),
+)
 def enqueue_scene_voice(
     scene_id: UUID,
     body: VoiceSynthesizeBody | None = None,
@@ -364,7 +421,9 @@ def enqueue_scene_voice(
     opts = body or VoiceSynthesizeBody()
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
     if scene.storyboard_status != "approved":
         raise HTTPException(status_code=400, detail="Storyboard not approved")
@@ -378,13 +437,18 @@ def enqueue_scene_voice(
         metadata["voice_script_override"] = opts.voice_script_override.strip()
 
     job = vstore.create_queued_job(
-        job_id=job_id, project_id=scene.project_id, scene_id=scene_id,
-        metadata=metadata, voice_engine="piper",
-        docker_image_tag=settings.tts_worker_image_tag
+        job_id=job_id,
+        project_id=scene.project_id,
+        scene_id=scene_id,
+        metadata=metadata,
+        voice_engine="piper",
+        docker_image_tag=settings.tts_worker_image_tag,
     )
     insert_voice_job_row(job)
     synthesize_voice.apply_async(args=[str(job_id)])
-    return VoiceEnqueueResponse(voice_job_id=job_id, status="queued", poll_path=f"/v1/voice-jobs/{job_id}")
+    return VoiceEnqueueResponse(
+        voice_job_id=job_id, status="queued", poll_path=f"/v1/voice-jobs/{job_id}"
+    )
 
 
 @router.post("/{scene_id}/review-round", response_model=ReviewRoundResponse)
@@ -399,9 +463,11 @@ async def run_review_round_endpoint(
     opts = body or ReviewRoundRequest()
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
-    
+
     preview_path: Path | None = None
     if opts.preview_job_id:
         job = job_store.get(opts.preview_job_id)
@@ -410,10 +476,13 @@ async def run_review_round_endpoint(
 
     yaml_data = load_agent_models_yaml(_agent_models_path())
     review_cfg = load_builder_review_loop(yaml_data)
-    from backend.services.frame_info import extract_frame_at_timestamp
     from ai_engine.orchestrator import run_single_review_round_ex
+
+    from backend.services.frame_info import extract_frame_at_timestamp
+
     resp, _prompts = await run_single_review_round_ex(
-        llm=llm, review_cfg=review_cfg,
+        llm=llm,
+        review_cfg=review_cfg,
         code_llm=get_agent_llm_params("code_reviewer"),
         visual_llm=get_agent_llm_params("visual_reviewer"),
         manim_code=(scene.manim_code or "").strip(),
@@ -421,12 +490,22 @@ async def run_review_round_endpoint(
         preview_video_path=preview_path,
         extract_preview_frame=extract_frame_at_timestamp,
         sync_segments=scene.sync_segments,
-        runtime_limits=get_runtime_limits()
+        runtime_limits=get_runtime_limits(),
     )
     return resp
 
 
-@router.post("/{scene_id}/builder-review-loop", response_model=BuilderReviewLoopResponse, status_code=status.HTTP_202_ACCEPTED, summary="Orchestrator: start review loop", description="**Pipeline Orchestrator**: Chạy vòng lặp tự động bao gồm: Sinh code (Builder) → Render (Worker) → Review (Code/Visual Reviewer). Vòng lặp sẽ lặp lại tối đa N lần hoặc dừng sớm nếu đạt yêu cầu chất lượng.")
+@router.post(
+    "/{scene_id}/builder-review-loop",
+    response_model=BuilderReviewLoopResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Orchestrator: start review loop",
+    description=(
+        "**Pipeline Orchestrator**: Chạy vòng lặp tự động bao gồm: Sinh code (Builder) "
+        "→ Render (Worker) → Review (Code/Visual Reviewer). Vòng lặp sẽ lặp lại tối đa N lần "
+        "hoặc dừng sớm nếu đạt yêu cầu chất lượng."
+    ),
+)
 @limiter.limit("2/minute")
 def builder_review_loop_endpoint(
     request: Request,
@@ -438,7 +517,9 @@ def builder_review_loop_endpoint(
     opts = body or BuilderReviewLoopRequest()
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project = project_readable_by_user(store, scene.project_id, user_id)
     if scene.storyboard_status != "approved":
         raise HTTPException(
@@ -446,7 +527,7 @@ def builder_review_loop_endpoint(
             detail="Storyboard must be approved before planning",
         )
     use_primitives = project.config.get("use_primitives", True)
-    
+
     # Update status to running immediately
     updated = store.update_scene(scene_id, review_loop_status="running")
     assert updated is not None
@@ -457,14 +538,12 @@ def builder_review_loop_endpoint(
             "scene_id": str(scene_id),
             "preview_poll_timeout_seconds": opts.preview_poll_timeout_seconds,
             "mode": opts.mode,
-            "use_primitives": use_primitives
+            "use_primitives": use_primitives,
         }
     )
 
     return BuilderReviewLoopResponse(
-        scene_id=scene_id,
-        job_id=UUID(task.id),
-        review_loop_status="running"
+        scene_id=scene_id, job_id=UUID(task.id), review_loop_status="running"
     )
 
 
@@ -479,21 +558,26 @@ def hitl_ack_builder_review(
 ) -> HitlReviewLoopAckResponse:
     scene = store.get_scene(scene_id)
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+        )
     project_readable_by_user(store, scene.project_id, user_id)
-    
+
     if body.action == "revert":
         # Simplified revert logic in API for now, or move to orchestrator helper
         updated = store.update_scene(
-            scene_id, review_loop_status="idle", plan_status="pending_review",
-            voice_script_status="pending_review", manim_code_version=1
+            scene_id,
+            review_loop_status="idle",
+            plan_status="pending_review",
+            voice_script_status="pending_review",
+            manim_code_version=1,
         )
         return HitlReviewLoopAckResponse(scene=updated, message="Reverted.")
-    
+
     if body.action == "continue":
         project = project_readable_by_user(store, scene.project_id, user_id)
         use_primitives = project.config.get("use_primitives", True)
-        
+
         # Update status to running immediately
         updated = store.update_scene(scene_id, review_loop_status="running")
         assert updated is not None
@@ -503,10 +587,12 @@ def hitl_ack_builder_review(
                 "scene_id": str(scene_id),
                 "mode": "hitl",
                 "extra_rounds": body.extra_rounds,
-                "use_primitives": use_primitives
+                "use_primitives": use_primitives,
             }
         )
-        return HitlReviewLoopAckResponse(scene=updated, message=f"Continued in background (job_id={task.id}).")
+        return HitlReviewLoopAckResponse(
+            scene=updated, message=f"Continued in background (job_id={task.id})."
+        )
 
     # stop action
     updated = store.update_scene(scene_id, review_loop_status="failed")

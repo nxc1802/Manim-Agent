@@ -217,9 +217,9 @@ class FakeLLMClient:
         if "builder agent" in s:
             return self._builder_code
         if "visual reviewer" in s:
-             return self._visual_review_json
+            return self._visual_review_json
         if "code reviewer" in s:
-             return self._code_review_json
+            return self._code_review_json
         return self._director_text
 
     def complete(
@@ -408,7 +408,7 @@ class LiteLLMClient:
                 kwargs["api_key"] = ds_key
                 # Use the compatible-mode base if it's an 'openai/' style call or we want to force it
                 if "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
-                     kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                    kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
         elif "openrouter/" in lowered_model or "/" not in model:
             if self._api_key:
                 kwargs["api_key"] = self._api_key
@@ -443,7 +443,7 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
 
-        t0 = time.monotonic()
+        time.monotonic()
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -491,15 +491,17 @@ class LiteLLMClient:
         @retry(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=2, min=2, max=10),
-            retry=retry_if_exception_type((
-                litellm.APIConnectionError,
-                litellm.Timeout,
-                litellm.RateLimitError,
-                litellm.ServiceUnavailableError,
-                litellm.InternalServerError,
-                litellm.APIError,
-                RuntimeError,  # covers "LLM returned empty content"
-            )),
+            retry=retry_if_exception_type(
+                (
+                    litellm.APIConnectionError,
+                    litellm.Timeout,
+                    litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
+                    litellm.InternalServerError,
+                    litellm.APIError,
+                    RuntimeError,  # covers "LLM returned empty content"
+                )
+            ),
             reraise=True,
         )
         def _call_with_retry() -> LLMCompletion:
@@ -517,7 +519,7 @@ class LiteLLMClient:
             resp = litellm.completion(**kwargs)
             msg = resp.choices[0].message
             content = getattr(msg, "content", None)
-            
+
             # Debug: Check for reasoning content or other fields if standard content is empty
             if not content:
                 # msg.model_dump() provides a dict view in Pydantic v2
@@ -528,10 +530,14 @@ class LiteLLMClient:
                     if val and isinstance(val, str) and val.strip():
                         content = val
                         break
-                
+
             text = content.strip() if isinstance(content, str) else ""
             if not text:
-                logger.error("LiteLLM returned empty content (model=%s). Message fields: %s", model, list(msg.keys()))
+                logger.error(
+                    "LiteLLM returned empty content (model=%s). Message fields: %s",
+                    model,
+                    list(msg.keys()),
+                )
                 raise RuntimeError("LLM returned empty content")
             duration_ms = int((time.monotonic() - t0) * 1000)
             usage_obj = getattr(resp, "usage", None)
@@ -586,14 +592,16 @@ class LiteLLMClient:
         @retry(
             stop=stop_after_attempt(5),
             wait=wait_exponential(multiplier=2, min=4, max=20),
-            retry=retry_if_exception_type((
-                litellm.APIConnectionError,
-                litellm.Timeout,
-                litellm.RateLimitError,
-                litellm.ServiceUnavailableError,
-                litellm.InternalServerError,
-                litellm.APIError,
-            )),
+            retry=retry_if_exception_type(
+                (
+                    litellm.APIConnectionError,
+                    litellm.Timeout,
+                    litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
+                    litellm.InternalServerError,
+                    litellm.APIError,
+                )
+            ),
             reraise=True,
         )
         def _call_with_retry() -> LLMCompletion:
@@ -605,7 +613,10 @@ class LiteLLMClient:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                        },
                     ],
                 },
             ]
@@ -636,7 +647,7 @@ class LiteLLMClient:
                 duration_ms=duration_ms,
             )
             return LLMCompletion(text=text, usage=usage)
-            
+
         return _call_with_retry()
 
     async def acomplete(
@@ -650,9 +661,13 @@ class LiteLLMClient:
         max_tokens: int,
     ) -> str:
         res = await self.acomplete_ex(
-            model=model, system=system, user=user,
-            json_mode=json_mode, temperature=temperature, max_tokens=max_tokens,
-            request_timeout_seconds=None
+            model=model,
+            system=system,
+            user=user,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
         )
         return res.text
 
@@ -672,9 +687,12 @@ class LiteLLMClient:
             {"role": "user", "content": user},
         ]
         return await self.acomplete_chat_ex(
-            model=model, messages=messages,
-            json_mode=json_mode, temperature=temperature, max_tokens=max_tokens,
-            request_timeout_seconds=request_timeout_seconds
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=request_timeout_seconds,
         )
 
     async def acomplete_chat(
@@ -687,9 +705,12 @@ class LiteLLMClient:
         max_tokens: int,
     ) -> str:
         res = await self.acomplete_chat_ex(
-            model=model, messages=messages,
-            json_mode=json_mode, temperature=temperature, max_tokens=max_tokens,
-            request_timeout_seconds=None
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
         )
         return res.text
 
@@ -704,33 +725,43 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
-        from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+        from tenacity import (
+            AsyncRetrying,
+            retry_if_exception_type,
+            stop_after_attempt,
+            wait_exponential,
+        )
 
         t0 = time.monotonic()
         timeout = float(request_timeout_seconds or 600)
         kwargs = self._get_completion_kwargs(
-            model=model, messages=messages,
-            temperature=temperature, max_tokens=max_tokens,
-            json_mode=json_mode, timeout=timeout
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            timeout=timeout,
         )
 
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=2, min=2, max=10),
-            retry=retry_if_exception_type((
-                litellm.APIConnectionError,
-                litellm.Timeout,
-                litellm.RateLimitError,
-                litellm.ServiceUnavailableError,
-                litellm.InternalServerError,
-                litellm.APIError,
-                RuntimeError,
-            )),
+            retry=retry_if_exception_type(
+                (
+                    litellm.APIConnectionError,
+                    litellm.Timeout,
+                    litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
+                    litellm.InternalServerError,
+                    litellm.APIError,
+                    RuntimeError,
+                )
+            ),
             reraise=True,
         ):
             with attempt:
                 resp = await litellm.acompletion(**kwargs)
-                
+
         msg = resp.choices[0].message
         content = getattr(msg, "content", None)
         if not content:
@@ -739,11 +770,11 @@ class LiteLLMClient:
                 if val and isinstance(val, str) and val.strip():
                     content = val
                     break
-                    
+
         text = content.strip() if isinstance(content, str) else ""
         if not text:
             raise RuntimeError("LLM returned empty content")
-            
+
         duration_ms = int((time.monotonic() - t0) * 1000)
         usage_obj = getattr(resp, "usage", None)
         usage = LLMUsage(
@@ -765,9 +796,14 @@ class LiteLLMClient:
         max_tokens: int,
     ) -> str:
         res = await self.acomplete_with_images_ex(
-            model=model, system=system, user=user, image_jpeg=image_jpeg,
-            json_mode=json_mode, temperature=temperature, max_tokens=max_tokens,
-            request_timeout_seconds=None
+            model=model,
+            system=system,
+            user=user,
+            image_jpeg=image_jpeg,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
         )
         return res.text
 
@@ -784,7 +820,12 @@ class LiteLLMClient:
         request_timeout_seconds: int | None,
     ) -> LLMCompletion:
         import litellm
-        from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+        from tenacity import (
+            AsyncRetrying,
+            retry_if_exception_type,
+            stop_after_attempt,
+            wait_exponential,
+        )
 
         t0 = time.monotonic()
         b64 = base64.standard_b64encode(image_jpeg).decode("ascii")
@@ -800,22 +841,27 @@ class LiteLLMClient:
         ]
         timeout = float(request_timeout_seconds or 600)
         kwargs = self._get_completion_kwargs(
-            model=model, messages=messages,
-            temperature=temperature, max_tokens=max_tokens,
-            json_mode=json_mode, timeout=timeout
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            timeout=timeout,
         )
 
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(5),
             wait=wait_exponential(multiplier=2, min=4, max=20),
-            retry=retry_if_exception_type((
-                litellm.APIConnectionError,
-                litellm.Timeout,
-                litellm.RateLimitError,
-                litellm.ServiceUnavailableError,
-                litellm.InternalServerError,
-                litellm.APIError,
-            )),
+            retry=retry_if_exception_type(
+                (
+                    litellm.APIConnectionError,
+                    litellm.Timeout,
+                    litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
+                    litellm.InternalServerError,
+                    litellm.APIError,
+                )
+            ),
             reraise=True,
         ):
             with attempt:
@@ -826,7 +872,7 @@ class LiteLLMClient:
         text = content.strip() if isinstance(content, str) else ""
         if not text:
             raise RuntimeError("LLM returned empty content")
-            
+
         duration_ms = int((time.monotonic() - t0) * 1000)
         usage_obj = getattr(resp, "usage", None)
         usage = LLMUsage(

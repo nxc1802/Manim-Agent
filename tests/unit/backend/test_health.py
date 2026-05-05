@@ -20,7 +20,9 @@ def test_ready_ok(api_client: TestClient) -> None:
     assert body["redis"] is True
 
 
-def test_ready_returns_503_when_redis_unavailable(api_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ready_returns_503_when_redis_unavailable(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from backend import main as main_mod
 
     def _bad_redis() -> object:

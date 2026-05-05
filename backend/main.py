@@ -7,15 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from redis.exceptions import RedisError
 from shared.pipeline_log import setup_pipeline_logging
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from backend.api.v1.router import api_router
 from backend.core.config import settings
 from backend.core.correlation import CorrelationIdMiddleware
 from backend.core.errors import register_exception_handlers
-from backend.services.redis_client import get_redis
 from backend.core.limiter import limiter
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from backend.services.redis_client import get_redis
 
 setup_pipeline_logging(level=settings.log_level, redis_url=settings.redis_url)
 logging.basicConfig(level=logging.INFO)
@@ -95,7 +95,7 @@ def ready() -> JSONResponse:
 def scalar_ui() -> HTMLResponse:
     """Premium API Client UI (Scalar)."""
     return HTMLResponse(
-        content=f"""
+        content="""
         <!doctype html>
         <html>
           <head>
@@ -103,7 +103,7 @@ def scalar_ui() -> HTMLResponse:
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <style>
-              body {{ margin: 0; }}
+              body { margin: 0; }
             </style>
           </head>
           <body>

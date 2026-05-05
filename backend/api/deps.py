@@ -13,13 +13,11 @@ from ai_engine.config import (
     resolve_agent_params,
 )
 from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.core.config import settings
 from backend.core.supabase_jwt import JwtValidationError, user_id_from_supabase_jwt
-from backend.db.base import ContentStore
-from backend.db.content_store import get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from backend.services.voice_job_store import RedisVoiceJobStore
@@ -65,7 +63,7 @@ def get_llm_client() -> LLMClient:
 
 
 def get_request_user_id(
-    auth: HTTPAuthorizationCredentials | None = Depends(security),
+    auth: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
 ) -> UUID:
     """Resolve the acting user: dev default when AUTH_MODE=off; JWT sub when AUTH_MODE=jwt."""
     if settings.auth_mode != "jwt":

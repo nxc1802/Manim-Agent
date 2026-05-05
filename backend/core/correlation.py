@@ -28,12 +28,13 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         header_rid = request.headers.get("x-request-id")
         rid = (header_rid.strip() if header_rid else "") or str(uuid.uuid4())
-        
+
         # Propagate to both standard request context and pipeline trace context
         token_rid = request_id_ctx.set(rid)
         from shared.pipeline_log import pipeline_trace_id_var
+
         token_trace = pipeline_trace_id_var.set(rid)
-        
+
         try:
             response = await call_next(request)
         finally:

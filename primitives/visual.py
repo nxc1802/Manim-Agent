@@ -13,12 +13,13 @@ from manim import (
     Code,
     Line,
     NumberLine,
-    Text,
-    VGroup,
     NumberPlane,
+    Text,
     Vector,
+    VGroup,
 )
 from manim.mobject.mobject import Mobject
+
 from primitives.theme import COLOR_3B1B_BLUE, COLOR_3B1B_YELLOW
 
 DEFAULT_FONT_SIZE = 40.0
@@ -51,12 +52,10 @@ def get_array_block(
 def get_code_box(code_string: str, language: str = "python") -> Mobject:
     """Syntax-highlighted code block with fallback for missing fonts/dependencies."""
     from manim import BLACK, RoundedRectangle
+
     try:
         return Code(
-            code_string=code_string,
-            language=language,
-            add_line_numbers=False,
-            style="monokai"
+            code_string=code_string, language=language, add_line_numbers=False, style="monokai"
         )
     except Exception:
         # Fallback: Dark background + Text
@@ -88,8 +87,8 @@ def get_bulleted_list(items: Sequence[str]) -> VGroup:
 
 def get_equation_block(latex: str) -> Mobject:
     """Equation rendering: `MathTex` when LaTeX is installed, otherwise `Text` fallback.
-    
-    NOTE: The AI system prompt currently specifies LaTeX is NOT installed. 
+
+    NOTE: The AI system prompt currently specifies LaTeX is NOT installed.
     This primitive provides a safe fallback using Text mobjects.
     """
     import shutil
@@ -103,7 +102,7 @@ def get_equation_block(latex: str) -> Mobject:
         except Exception:
             # Fallback on render error
             pass
-            
+
     # Fallback: Use Text with a math-like slant
     return Text(str(latex), font_size=36, slant=ITALIC)
 
@@ -121,16 +120,17 @@ def get_number_line(
     include_numbers: bool = False,
 ) -> NumberLine:
     """Number line with tick spacing from `x_range` (start, end, step).
-    
+
     Defaults to `include_numbers=False` as LaTeX is often unavailable in CI.
     """
     import shutil
+
     if len(x_range) < 3:
         # Prevent crash on malformed input
         start, end, step = (x_range[0], x_range[1], 1.0) if len(x_range) == 2 else (0, 10, 1)
     else:
         start, end, step = x_range[:3]
-        
+
     # Safe fallback: if LaTeX is missing, force include_numbers=False to prevent crash.
     safe_include = include_numbers and (shutil.which("latex") is not None)
     return NumberLine(
@@ -156,28 +156,30 @@ def get_data_chart(
 ) -> VGroup:
     """Simple bar chart using Rectangles and Text labels."""
     from manim import ORIGIN, Rectangle
-    
+
     if not values:
         return VGroup()
-    
+
     n = len(values)
     bar_width = (width / n) * 0.8
     spacing = (width / n) * 0.2
     max_val = max(values) or 1.0
-    
+
     bars = VGroup()
     label_objs = VGroup()
-    
+
     for i, val in enumerate(values):
         h = (val / max_val) * max_height
-        bar = Rectangle(width=bar_width, height=h, fill_opacity=0.8, fill_color=color, stroke_width=1)
+        bar = Rectangle(
+            width=bar_width, height=h, fill_opacity=0.8, fill_color=color, stroke_width=1
+        )
         bar.move_to(ORIGIN + RIGHT * (i * (bar_width + spacing)) + UP * (h / 2))
         bars.add(bar)
-        
+
         if labels and i < len(labels):
             lbl = Text(labels[i], font_size=20).next_to(bar, DOWN, buff=0.2)
             label_objs.add(lbl)
-            
+
     group = VGroup(bars, label_objs)
     group.center()
     return group
@@ -191,14 +193,14 @@ def get_geometric_diagram(
 ) -> VGroup:
     """Basic geometric shapes with optional center label."""
     from manim import Circle, Square, Triangle
-    
+
     if shape_type.lower() == "circle":
-        mobj = Circle(radius=size/2, color=color)
+        mobj = Circle(radius=size / 2, color=color)
     elif shape_type.lower() == "square":
         mobj = Square(side_length=size, color=color)
     else:
-        mobj = Triangle(color=color).scale(size/1.5)
-        
+        mobj = Triangle(color=color).scale(size / 1.5)
+
     res = VGroup(mobj)
     if label:
         lbl = Text(label, font_size=24).move_to(mobj.get_center())
@@ -206,10 +208,12 @@ def get_geometric_diagram(
     return res
 
 
-def dynamic_pointer(target: Mobject, label: str = "Note", direction: str | Sequence[float] | None = None) -> VGroup:
+def dynamic_pointer(
+    target: Mobject, label: str = "Note", direction: str | Sequence[float] | None = None
+) -> VGroup:
     """Arrow pointing at a target mobject with a label. Handles string directions."""
     import numpy as np
-    
+
     # Map string directions to Manim vectors
     dir_map = {"UP": UP, "DOWN": DOWN, "LEFT": LEFT, "RIGHT": RIGHT}
     if isinstance(direction, str):
@@ -218,7 +222,7 @@ def dynamic_pointer(target: Mobject, label: str = "Note", direction: str | Seque
         dir_vec = np.array(direction)
     else:
         dir_vec = UP
-    
+
     arrow = Arrow(target.get_center() + dir_vec * 1.5, target.get_center() + dir_vec * 0.2, buff=0)
     lbl = Text(label, font_size=24).next_to(arrow.get_start(), dir_vec, buff=0.1)
     return VGroup(arrow, lbl)
@@ -241,13 +245,16 @@ def get_math_grid(
     )
 
 
-def get_vector_arrow(coords: Sequence[float], label: str | None = None, color: str = COLOR_3B1B_YELLOW) -> VGroup:
+def get_vector_arrow(
+    coords: Sequence[float], label: str | None = None, color: str = COLOR_3B1B_YELLOW
+) -> VGroup:
     """Vector arrow with optional label at the tip."""
-    import numpy as np
     vec = Vector(coords, color=color)
     res = VGroup(vec)
     if label:
-        lbl = Text(f"({coords[0]}, {coords[1]})" if label == "auto" else label, font_size=20, color=color)
+        lbl = Text(
+            f"({coords[0]}, {coords[1]})" if label == "auto" else label, font_size=20, color=color
+        )
         lbl.next_to(vec.get_end(), vec.get_vector(), buff=0.2)
         res.add(lbl)
     return res
@@ -265,29 +272,32 @@ def get_matrix_block(
         cells = [Text(str(v), font_size=cell_font_size, color=color) for v in r]
         row_group = VGroup(*cells).arrange(RIGHT, buff=0.6)
         rows.append(row_group)
-    
+
     grid = VGroup(*rows).arrange(DOWN, buff=0.6)
-    
+
     # Manual brackets
     h = grid.get_height() + 0.5
     w = 0.2
-    
+
     l_bracket = VGroup(
-        Line(UP * h/2 + RIGHT * w, UP * h/2, color=color),
-        Line(UP * h/2, DOWN * h/2, color=color),
-        Line(DOWN * h/2, DOWN * h/2 + RIGHT * w, color=color)
+        Line(UP * h / 2 + RIGHT * w, UP * h / 2, color=color),
+        Line(UP * h / 2, DOWN * h / 2, color=color),
+        Line(DOWN * h / 2, DOWN * h / 2 + RIGHT * w, color=color),
     ).next_to(grid, LEFT, buff=0.2)
-    
+
     r_bracket = l_bracket.copy().flip(RIGHT).next_to(grid, RIGHT, buff=0.2)
-    
+
     return VGroup(grid, l_bracket, r_bracket)
 
 
 def get_info_box(text: str, color: str = BLUE, width: float = 6.0) -> VGroup:
     """A styled information box with a border and background."""
-    from manim import RoundedRectangle, BLACK
+    from manim import BLACK, RoundedRectangle
+
     txt = Text(text, font_size=24, color=WHITE)
-    box = RoundedRectangle(corner_radius=0.1, fill_color=BLACK, fill_opacity=0.7, stroke_color=color, stroke_width=2)
+    box = RoundedRectangle(
+        corner_radius=0.1, fill_color=BLACK, fill_opacity=0.7, stroke_color=color, stroke_width=2
+    )
     box.stretch_to_fit_width(min(txt.width + 1.0, width))
     box.stretch_to_fit_height(txt.height + 0.6)
     return VGroup(box, txt)
@@ -298,13 +308,15 @@ def get_two_column(left_mobj: Mobject, right_mobj: Mobject, buff: float = 1.0) -
     return VGroup(left_mobj, right_mobj).arrange(RIGHT, buff=buff)
 
 
-def get_table_block(headers: Sequence[str], rows: Sequence[Sequence[str]], cell_font_size: float = 24.0) -> VGroup:
+def get_table_block(
+    headers: Sequence[str], rows: Sequence[Sequence[str]], cell_font_size: float = 24.0
+) -> VGroup:
     """A text-based table with headers and rows (no-LaTeX)."""
-    from manim import Line, ORIGIN
-    
+    from manim import ORIGIN, Line
+
     all_rows = [headers] + list(rows)
     row_groups = []
-    
+
     # Calculate column widths
     num_cols = len(headers)
     col_widths = [0.0] * num_cols
@@ -312,33 +324,36 @@ def get_table_block(headers: Sequence[str], rows: Sequence[Sequence[str]], cell_
         for i, val in enumerate(r):
             txt = Text(str(val), font_size=cell_font_size)
             col_widths[i] = max(col_widths[i], txt.width + 0.5)
-            
+
     for r_idx, r in enumerate(all_rows):
         cells = []
         curr_x = 0.0
         for i, val in enumerate(r):
             txt = Text(str(val), font_size=cell_font_size)
-            if r_idx == 0: # Header
+            if r_idx == 0:  # Header
                 txt.set_color(BLUE).set_weight("BOLD")
-            txt.move_to(ORIGIN + RIGHT * (curr_x + col_widths[i]/2))
+            txt.move_to(ORIGIN + RIGHT * (curr_x + col_widths[i] / 2))
             cells.append(txt)
             curr_x += col_widths[i]
         row_groups.append(VGroup(*cells))
-        
+
     table = VGroup(*row_groups).arrange(DOWN, buff=0.4, aligned_edge=LEFT)
-    
+
     # Add horizontal line after header
     if len(row_groups) > 1:
-        h_line = Line(table[0].get_left() + LEFT*0.1, table[0].get_right() + RIGHT*0.1, stroke_width=1)
+        h_line = Line(
+            table[0].get_left() + LEFT * 0.1, table[0].get_right() + RIGHT * 0.1, stroke_width=1
+        )
         h_line.next_to(table[0], DOWN, buff=0.15)
         table.add(h_line)
-        
+
     return table
 
 
 def get_step_indicator(total: int, current: int, color: str = BLUE) -> VGroup:
     """A series of dots representing progress steps."""
-    from manim import Dot, GRAY
+    from manim import GRAY, Dot
+
     dots = VGroup()
     for i in range(total):
         d = Dot(color=color if i < current else GRAY)

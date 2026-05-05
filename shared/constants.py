@@ -1,15 +1,18 @@
-from enum import Enum
+from enum import StrEnum
 
-class SeverityLevel(str, Enum):
+
+class SeverityLevel(StrEnum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
     BLOCKER = "blocker"
 
-class ReviewLoopMode(str, Enum):
+
+class ReviewLoopMode(StrEnum):
     AUTO = "auto"
     HITL = "hitl"
 
-class MaxRoundsExceededAction(str, Enum):
+
+class MaxRoundsExceededAction(StrEnum):
     HITL_OR_FAIL = "hitl_or_fail"
     FAIL = "failed"

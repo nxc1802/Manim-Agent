@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from shared.pipeline_log import pipeline_debug
 from shared.schemas.review import ReviewResult
 
@@ -26,14 +28,14 @@ async def run_visual_reviewer(
         "Return issues in the specified JSON format."
     )
     user = f"{user_instruction}\n\nContext: {context}" if context else user_instruction
-    
+
     pipeline_debug(
         "ai_engine.visual_reviewer",
         "llm_input",
         "Visual Reviewer LLM Inputs",
-        details={"model": model, "system": system, "user": user, "image_size": len(frame_jpeg)}
+        details={"model": model, "system": system, "user": user, "image_size": len(frame_jpeg)},
     )
-    
+
     comp = await llm.acomplete_with_images_ex(
         model=model,
         system=system,
@@ -44,14 +46,14 @@ async def run_visual_reviewer(
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
     )
-    
+
     pipeline_debug(
         "ai_engine.visual_reviewer",
         "llm_output",
         "Visual Reviewer LLM Output",
-        details={"raw_json": comp.text}
+        details={"raw_json": comp.text},
     )
-    
+
     data = parse_json_object(comp.text, list_key="issues")
     metrics: dict[str, int | None] = {
         "duration_ms": comp.usage.duration_ms,
@@ -62,12 +64,12 @@ async def run_visual_reviewer(
         res = ReviewResult.model_validate(data)
     except Exception as e:
         pipeline_debug(
-            "ai_engine.visual_reviewer", 
-            "validation_failed", 
+            "ai_engine.visual_reviewer",
+            "validation_failed",
             f"Pydantic validation failed for Visual Reviewer output: {e}",
-            details={"data": data}
+            details={"data": data},
         )
         # Fallback to empty issues to allow the loop to continue or fail gracefully
         res = ReviewResult(issues=[])
-    
+
     return res, PROMPT_VERSION_VISUAL_REVIEWER, metrics, system, user

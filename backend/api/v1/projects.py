@@ -3,12 +3,12 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from backend.core.limiter import limiter
 from shared.schemas.project import Project, ProjectCreate
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_request_user_id
+from backend.core.limiter import limiter
 from backend.db.base import ContentStore
 
 router = APIRouter(tags=["projects"])
@@ -45,7 +45,12 @@ def create_project(
     )
 
 
-@router.get("", response_model=list[Project], summary="List projects", description="Lấy danh sách tất cả các dự án của người dùng hiện tại.")
+@router.get(
+    "",
+    response_model=list[Project],
+    summary="List projects",
+    description="Lấy danh sách tất cả các dự án của người dùng hiện tại.",
+)
 def list_projects(
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: ContentStore = Depends(get_content_store),  # noqa: B008
@@ -53,7 +58,12 @@ def list_projects(
     return store.list_projects_for_user(user_id)
 
 
-@router.get("/{project_id}", response_model=Project, summary="Get project by id", description="Lấy thông tin chi tiết của một dự án cụ thể theo ID.")
+@router.get(
+    "/{project_id}",
+    response_model=Project,
+    summary="Get project by id",
+    description="Lấy thông tin chi tiết của một dự án cụ thể theo ID.",
+)
 def get_project(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
@@ -62,7 +72,12 @@ def get_project(
     return project_readable_by_user(store, project_id, user_id)
 
 
-@router.get("/{project_id}/scenes", response_model=list[Scene], summary="List scenes for project", description="Lấy danh sách các scene thuộc về một dự án.")
+@router.get(
+    "/{project_id}/scenes",
+    response_model=list[Scene],
+    summary="List scenes for project",
+    description="Lấy danh sách các scene thuộc về một dự án.",
+)
 def list_project_scenes(
     project_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
@@ -86,9 +101,7 @@ def create_scene(
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Scene:
     project_readable_by_user(store, project_id, user_id)
-    storyboard_status: StoryboardStatus = (
-        "pending_review" if body.storyboard_text else "missing"
-    )
+    storyboard_status: StoryboardStatus = "pending_review" if body.storyboard_text else "missing"
     return store.create_scene(
         scene_id=uuid4(),
         project_id=project_id,

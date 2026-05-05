@@ -17,7 +17,7 @@ def parse_json_object(text: str, list_key: str = "beats") -> dict[str, Any]:
     """Tries to extract and parse a JSON object from text with high resilience."""
     # 1. Strip markdown fences
     raw = strip_json_fence(text)
-    
+
     # 2. Try simple load first
     try:
         data = json.loads(raw)
@@ -27,7 +27,7 @@ def parse_json_object(text: str, list_key: str = "beats") -> dict[str, Any]:
             return {list_key: data}
     except Exception:
         pass
-    
+
     # 3. Locate the first { and last }
     start = raw.find("{")
     end = raw.rfind("}")
@@ -41,7 +41,7 @@ def parse_json_object(text: str, list_key: str = "beats") -> dict[str, Any]:
                 return data
         except Exception:
             pass
-            
+
     # 4. If it's a list [ ... ]
     start_l = raw.find("[")
     end_l = raw.rfind("]")

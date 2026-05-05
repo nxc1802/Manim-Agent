@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 import fakeredis
 import pytest
 from backend.core.config import settings
-from backend.main import app
 from backend.db.content_store import RedisContentStore
+from backend.main import app
 from backend.services.redis_client import configure_redis
 from fastapi.testclient import TestClient
 from worker.runtime import execute_render_job

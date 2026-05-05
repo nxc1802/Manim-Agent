@@ -6,18 +6,18 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
 from backend.core.config import settings
 from backend.services.redis_client import configure_redis
 from fakeredis import FakeRedis
-
-from ai_engine.llm_client import FakeLLMClient, LiteLLMClient, LLMClient
+from fastapi.testclient import TestClient
 
 
 def _load_tests_env_file() -> None:
     """Optional `tests/.env.test`: vars for integration tests only (not in ``Settings``)."""
     paths = [
         Path(__file__).resolve().parent / ".env.test",
-        Path(__file__).resolve().parents[1] / ".env"
+        Path(__file__).resolve().parents[1] / ".env",
     ]
     for path in paths:
         if not path.is_file():
@@ -64,9 +64,10 @@ def _disable_supabase_http_side_effects(monkeypatch: pytest.MonkeyPatch) -> None
 def _isolate_redis_client_between_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test gets a fresh in-memory Redis and no real Supabase."""
     from backend.core.config import settings
+
     monkeypatch.setattr(settings, "supabase_url", "")
     monkeypatch.setattr(settings, "supabase_service_role_key", "")
-    
+
     configure_redis(FakeRedis(decode_responses=True))
     yield
     configure_redis(None)
@@ -104,13 +105,13 @@ def mock_supabase() -> MagicMock:
 @pytest.fixture()
 def api_client() -> TestClient:
     """Yields a FastAPI TestClient with dependencies overridden for offline testing."""
-    from backend.main import app
-    from backend.api.deps import get_llm_client, get_content_store
-    from backend.db.content_store import RedisContentStore
-    from backend.services.redis_client import get_redis
     from ai_engine.llm_client import FakeLLMClient
+    from backend.api.deps import get_content_store, get_llm_client
+    from backend.db.content_store import RedisContentStore
+    from backend.main import app
+    from backend.services.redis_client import get_redis
     from fastapi.testclient import TestClient
-    
+
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
     app.dependency_overrides[get_content_store] = lambda: RedisContentStore(get_redis())
     with TestClient(app) as client:

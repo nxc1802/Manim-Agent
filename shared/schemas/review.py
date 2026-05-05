@@ -14,7 +14,11 @@ class ReviewIssue(BaseModel):
     message: str
     severity: ReviewSeverity = "warning"
     line_number: int | None = None
-    suggestion: str | None = Field(default=None, description="Optional code snippet or instruction to fix the issue")
+    suggestion: str | None = Field(
+        default=None, description="Optional code snippet or instruction to fix the issue"
+    )
+
+
 class ReviewResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

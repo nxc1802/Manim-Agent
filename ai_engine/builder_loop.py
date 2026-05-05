@@ -6,24 +6,9 @@ import hashlib
 import logging
 import time
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
-from ai_engine.agents.builder import run_builder
-from ai_engine.agents.code_reviewer import run_code_reviewer
-from ai_engine.agents.visual_reviewer import run_visual_reviewer
-from ai_engine.config import (
-    AgentLLMParams,
-    BuilderReviewLoopConfig,
-    RuntimeLimitsConfig,
-    load_builder_review_loop,
-    resolve_agent_params,
-)
-from ai_engine.json_utils import parse_json_object
-from ai_engine.llm_client import LLMClient
-from ai_engine.prompts import PROMPT_VERSION_VISUAL_REVIEWER
-from ai_engine.utils.storage_helper import save_agent_interaction
 from backend.core.config import settings
 from backend.services.code_sandbox import SandboxLimits
 from backend.services.frame_info import extract_frame_at_timestamp
@@ -40,6 +25,21 @@ from shared.schemas.review import ReviewIssue, ReviewResult
 from shared.schemas.review_pipeline import AgentLog, ReviewRoundResponse
 from shared.schemas.scene import Scene, SceneCodeHistory
 from worker.tasks import render_manim_scene
+
+from ai_engine.agents.builder import run_builder
+from ai_engine.agents.code_reviewer import run_code_reviewer
+from ai_engine.agents.visual_reviewer import run_visual_reviewer
+from ai_engine.config import (
+    AgentLLMParams,
+    BuilderReviewLoopConfig,
+    RuntimeLimitsConfig,
+    load_builder_review_loop,
+    resolve_agent_params,
+)
+from ai_engine.json_utils import parse_json_object
+from ai_engine.llm_client import LLMClient
+from ai_engine.prompts import PROMPT_VERSION_VISUAL_REVIEWER
+from ai_engine.utils.storage_helper import save_agent_interaction
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +97,12 @@ def _get_convergence_timestamp(sync_segments: dict[str, Any] | None) -> float | 
         return None
     try:
         from shared.schemas.voice_segments import VoiceSegmentTimestamps
+
         if isinstance(sync_segments, dict):
             sync = VoiceSegmentTimestamps.model_validate(sync_segments)
         else:
-            sync = sync_segments # type: ignore
-        
+            sync = sync_segments  # type: ignore
+
         if sync.segments:
             return sync.segments[-1].end
     except Exception:
@@ -113,27 +114,24 @@ def truncate_error_logs(logs: str, max_chars: int = 2000) -> str:
     """Sandwich truncating: keep the beginning and the end of the logs."""
     if not logs or len(logs) <= max_chars:
         return logs
-    
+
     # Reserve some space for the truncation message
     msg = "\n\n... [TRUNCATED] ...\n\n"
     limit = (max_chars - len(msg)) // 2
     if limit <= 0:
-        return logs[-max_chars:] # Fallback
-    
+        return logs[-max_chars:]  # Fallback
+
     return f"{logs[:limit]}{msg}{logs[-limit:]}"
 
 
 async def _run_agent_with_self_correction(
-    agent_name: str,
-    call_fn: Any,
-    schema: type[T] | None,
-    **kwargs: Any
+    agent_name: str, call_fn: Any, schema: type[T] | None, **kwargs: Any
 ) -> tuple[Any, str, dict[str, Any], str, str]:
     """Helper to call agent and validate schema."""
     try:
         # call_fn is assumed to be async now
         result, version, metrics, system, user = await call_fn(**kwargs)
-        
+
         if schema is None:
             return result, version, metrics, system, user
 
@@ -152,8 +150,8 @@ async def _run_agent_with_self_correction(
         pipeline_event(
             f"ai_engine.{agent_name}",
             "agent_failed",
-            f"Agent call or validation failed",
-            details={"error": str(e)}
+            "Agent call or validation failed",
+            details={"error": str(e)},
         )
         raise
 
@@ -182,17 +180,17 @@ async def run_single_review_round_ex(
         llm_timeout_default_seconds=600,
         llm_timeouts={},
     )
-    
+
     empty = ReviewResult(issues=[])
     metrics: dict[str, Any] = {}
     prompts: dict[str, dict[str, str]] = {}
-    
+
     code_review = empty
     code_passed = True
     visual_review: ReviewResult | None = None
     visual_passed: bool | None = None
     skip_reason: str | None = None
-    
+
     truncated_logs = truncate_error_logs(error_logs) if error_logs else None
 
     # 1. Define review tasks
@@ -216,12 +214,12 @@ async def run_single_review_round_ex(
             return None, "disabled_in_config"
         if not preview_video_path:
             return None, "no_preview_video"
-        
+
         try:
             convergence_t = _get_convergence_timestamp(sync_segments)
             # frame extraction remains synchronous as it's typically quick file I/O or subprocess
             frame_jpeg = extract_preview_frame(preview_video_path, convergence_t)
-            
+
             res = await _run_agent_with_self_correction(
                 "visual_reviewer",
                 run_visual_reviewer,
@@ -232,7 +230,9 @@ async def run_single_review_round_ex(
                 max_tokens=visual_llm.max_tokens,
                 frame_jpeg=frame_jpeg,
                 context=(
-                    f"Frame is at {convergence_t:.2f}s" if convergence_t else "Frame is at the end of the preview"
+                    f"Frame is at {convergence_t:.2f}s"
+                    if convergence_t
+                    else "Frame is at the end of the preview"
                 ),
                 request_timeout_seconds=rt.llm_timeout_seconds("visual_reviewer"),
             )
@@ -254,15 +254,15 @@ async def run_single_review_round_ex(
     tasks = [_invoke_code_reviewer()]
     if not error_logs and review_cfg.visual_reviewer_enabled and preview_video_path:
         tasks.append(_invoke_visual_reviewer())
-    
+
     results = await asyncio.gather(*tasks)
-    
+
     # Process Code Review result
     code_res = results[0]
     code_review, _pv, cm, csys, cusr = code_res
     metrics["code_reviewer"] = cm
     prompts["code_reviewer"] = {"system": csys, "user": cusr}
-    
+
     if error_logs:
         code_passed = False
         skip_reason = "render_failed"
@@ -285,21 +285,25 @@ async def run_single_review_round_ex(
             prompts["visual_reviewer"] = {"system": vsys, "user": vusr}
             visual_passed = _visual_review_passed(cfg=review_cfg, agent_result=visual_review)
             if not visual_passed:
-                skip_reason = (skip_reason + ", " if skip_reason else "") + "visual_review_not_passed"
+                skip_reason = (
+                    skip_reason + ", " if skip_reason else ""
+                ) + "visual_review_not_passed"
     elif not error_logs:
         if not review_cfg.visual_reviewer_enabled:
-             skip_reason = "disabled_in_config"
+            skip_reason = "disabled_in_config"
         elif not preview_video_path:
-             skip_reason = "no_preview_video"
+            skip_reason = "no_preview_video"
         else:
-             skip_reason = "visual_review_not_triggered"
+            skip_reason = "visual_review_not_triggered"
 
     # 3. Dynamic Early Stop Logic
     pass_results = {
         "code_review_passed": code_passed,
-        "visual_review_passed": visual_passed if visual_passed is not None else (not review_cfg.visual_reviewer_enabled),
+        "visual_review_passed": visual_passed
+        if visual_passed is not None
+        else (not review_cfg.visual_reviewer_enabled),
     }
-    
+
     early_stop = True
     for requirement in review_cfg.early_stop_require_all:
         if not pass_results.get(requirement, False):
@@ -380,7 +384,7 @@ async def run_builder_loop_phase(
     visual_rev_llm = resolve_agent_params(yaml_data, "visual_reviewer")
     plan = PlannerOutput.model_validate(scene.planner_output)
     excerpt = scene.storyboard_text[:4000] if scene.storyboard_text else None
-    
+
     # Persistent record in Supabase
     try:
         insert_pipeline_run_row(
@@ -388,7 +392,7 @@ async def run_builder_loop_phase(
             project_id=scene.project_id,
             scene_id=scene_id,
             status="running",
-            report={}
+            report={},
         )
     except Exception:
         logger.exception("Initial pipeline run insertion failed")
@@ -408,7 +412,7 @@ async def run_builder_loop_phase(
                 f"Starting round {round_idx}/{n_rounds}",
                 scene_id=str(scene_id),
             )
-            
+
             # 3a. Builder Agent
             code, _pv_b, b_met, b_sys, b_usr = await run_builder(
                 llm=llm,
@@ -424,8 +428,10 @@ async def run_builder_loop_phase(
                 request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
                 is_fix_mode=(round_idx > 1),
             )
-            save_agent_interaction(scene.project_id, "builder", "generate", b_sys, b_usr, code, round_idx=round_idx)
-            
+            save_agent_interaction(
+                scene.project_id, "builder", "generate", b_sys, b_usr, code, round_idx=round_idx
+            )
+
             builder_block = {
                 "prompt_version": _pv_b,
                 "duration_ms": b_met.get("duration_ms"),
@@ -434,24 +440,26 @@ async def run_builder_loop_phase(
                 "attempts": 1,
                 "prompts": {"system": b_sys, "user": b_usr},
             }
-            
+
             # Persistent Agent Log to Supabase
             try:
-                insert_agent_log_row(AgentLog(
-                    run_id=run_id,
-                    scene_id=scene_id,
-                    round_idx=round_idx,
-                    agent_name="builder",
-                    attempt=1,
-                    prompt_version=_pv_b,
-                    system_prompt=b_sys,
-                    user_prompt=b_usr,
-                    output_text=code,
-                    metrics=b_met,
-                ))
+                insert_agent_log_row(
+                    AgentLog(
+                        run_id=run_id,
+                        scene_id=scene_id,
+                        round_idx=round_idx,
+                        agent_name="builder",
+                        attempt=1,
+                        prompt_version=_pv_b,
+                        system_prompt=b_sys,
+                        user_prompt=b_usr,
+                        output_text=code,
+                        metrics=b_met,
+                    )
+                )
             except Exception:
                 logger.warning("Failed to insert background agent log to Supabase")
-            
+
             chat_history.append({"role": "assistant", "content": code})
 
             prev = (scene.manim_code or "").strip()
@@ -463,13 +471,15 @@ async def run_builder_loop_phase(
 
             # Save snapshot to history
             try:
-                store.save_scene_code_history(SceneCodeHistory(
-                    scene_id=scene_id,
-                    run_id=run_id,
-                    version=next_ver,
-                    round_idx=round_idx,
-                    manim_code=stripped,
-                ))
+                store.save_scene_code_history(
+                    SceneCodeHistory(
+                        scene_id=scene_id,
+                        run_id=run_id,
+                        version=next_ver,
+                        round_idx=round_idx,
+                        manim_code=stripped,
+                    )
+                )
             except Exception:
                 logger.exception("Failed to save scene_code_history")
 
@@ -511,11 +521,11 @@ async def run_builder_loop_phase(
                     if video_dur is None:
                         # Fallback to sync ffprobe if needed
                         from worker.tts_runtime import _ffprobe_duration_seconds
+
                         video_dur = _ffprobe_duration_seconds(mp4_url)
-                    
+
                     sync_report = validate_sync_duration(
-                        video_duration=video_dur,
-                        audio_duration=scene.duration_seconds
+                        video_duration=video_dur, audio_duration=scene.duration_seconds
                     )
                 except Exception:
                     logger.exception("Failed to validate sync duration")
@@ -545,17 +555,27 @@ async def run_builder_loop_phase(
                     elif agent_name == "visual_reviewer" and review.visual_review:
                         output_txt = review.visual_review.model_dump_json()
 
-                    insert_agent_log_row(AgentLog(
-                        run_id=run_id,
-                        scene_id=scene_id,
+                    insert_agent_log_row(
+                        AgentLog(
+                            run_id=run_id,
+                            scene_id=scene_id,
+                            round_idx=round_idx,
+                            agent_name=agent_name,
+                            system_prompt=p.get("system"),
+                            user_prompt=p.get("user"),
+                            output_text=output_txt,
+                            metrics=met,
+                        )
+                    )
+                    save_agent_interaction(
+                        scene.project_id,
+                        agent_name,
+                        "review",
+                        p.get("system"),
+                        p.get("user"),
+                        output_txt,
                         round_idx=round_idx,
-                        agent_name=agent_name,
-                        system_prompt=p.get("system"),
-                        user_prompt=p.get("user"),
-                        output_text=output_txt,
-                        metrics=met,
-                    ))
-                    save_agent_interaction(scene.project_id, agent_name, "review", p.get("system"), p.get("user"), output_txt, round_idx=round_idx)
+                    )
                 except Exception:
                     logger.exception(f"Failed to insert {agent_name} agent_log")
 
@@ -566,7 +586,7 @@ async def run_builder_loop_phase(
                     fb = extract_frame_at_timestamp(mp4_url, convergence_t)
                     h = hashlib.sha256(fb).hexdigest()
                     vr_meta = {"sha256": h, "bytes": len(fb), "timestamp": convergence_t}
-                    
+
                     signed_url = upload_preview_frame_and_sign(
                         frame_bytes=fb,
                         project_id=scene.project_id,
@@ -582,18 +602,20 @@ async def run_builder_loop_phase(
                     logger.exception("VR preview frame extract failed")
                     vr_meta["error"] = True
 
-            rounds.append({
-                "round": round_idx,
-                "wall_ms": int((time.perf_counter() - tr) * 1000),
-                "builder": builder_block,
-                "preview_job_id": str(job_id),
-                "preview_wait_ms": preview_wait_ms,
-                "preview_status": job.status,
-                "review": review.model_dump(mode="json"),
-                "review_prompts": r_prompts,
-                "vr_preview": vr_meta,
-                "sync_validation": sync_report,
-            })
+            rounds.append(
+                {
+                    "round": round_idx,
+                    "wall_ms": int((time.perf_counter() - tr) * 1000),
+                    "builder": builder_block,
+                    "preview_job_id": str(job_id),
+                    "preview_wait_ms": preview_wait_ms,
+                    "preview_status": job.status,
+                    "review": review.model_dump(mode="json"),
+                    "review_prompts": r_prompts,
+                    "vr_preview": vr_meta,
+                    "sync_validation": sync_report,
+                }
+            )
 
             if review.early_stop:
                 final_status = "completed"

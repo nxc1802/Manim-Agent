@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -20,9 +19,9 @@ class SmokeScene(Scene):
 """
     scene_file = tmp_path / "scene.py"
     scene_file.write_text(code)
-    
+
     media_dir = tmp_path / "media"
-    
+
     cmd = [
         "manim",
         "render",
@@ -32,10 +31,10 @@ class SmokeScene(Scene):
         "--media_dir",
         str(media_dir),
     ]
-    
+
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     assert res.returncode == 0, f"Manim failed: {res.stderr}"
-    
+
     # Check if mp4 exists
     matches = list(media_dir.rglob("SmokeScene.mp4"))
     assert len(matches) > 0

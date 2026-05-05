@@ -53,8 +53,6 @@ def resolve_agent_params(data: dict[str, Any], agent: AgentName) -> AgentLLMPara
     return AgentLLMParams(model=model, temperature=temperature, max_tokens=max_tokens)
 
 
-
-
 @dataclass(frozen=True)
 class BuilderReviewLoopConfig:
     """Subset of ``builder_review_loop`` from agent_models YAML (Phase 8)."""

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -38,9 +38,7 @@ class Scene(BaseModel):
         description="Trạng thái storyboard (missing, pending_review, approved)",
     )
     storyboard_text: str | None = Field(default=None, description="Nội dung storyboard (draft)")
-    voice_script: str | None = Field(
-        default=None, description="Kịch bản lời thoại (voiceover)"
-    )
+    voice_script: str | None = Field(default=None, description="Kịch bản lời thoại (voiceover)")
     planner_output: dict[str, Any] | list[Any] | None = Field(
         default=None, description="Kết quả từ Planner Agent (beats, primitives)"
     )
@@ -56,9 +54,7 @@ class Scene(BaseModel):
         default=None, description="Dữ liệu thời gian của từng segment âm thanh"
     )
     duration_seconds: Decimal | None = Field(default=None, description="Tổng thời lượng của scene")
-    plan_status: PlanStatus = Field(
-        default="missing", description="Trạng thái của execution plan"
-    )
+    plan_status: PlanStatus = Field(default="missing", description="Trạng thái của execution plan")
     voice_script_status: VoiceScriptStatus = Field(
         default="missing", description="Trạng thái của voice script"
     )
@@ -66,8 +62,8 @@ class Scene(BaseModel):
         default="idle",
         description="Trạng thái vòng lặp review (idle, running, completed, hitl_pending, failed)",
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="before")
     @classmethod
@@ -85,6 +81,7 @@ class Scene(BaseModel):
             return out
         return data
 
+
 class SceneCodeHistory(BaseModel):
     """Row shape for `public.scene_code_history`."""
 
@@ -96,4 +93,4 @@ class SceneCodeHistory(BaseModel):
     version: int
     round_idx: int | None = None
     manim_code: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -82,14 +82,12 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "sweep_reveal": ("primitives.animation", "sweep_reveal"),
     "typewriter_text": ("primitives.animation", "typewriter_text"),
     "wave_emphasis": ("primitives.animation", "wave_emphasis"),
-    
     # layout.py
     "center_mobject": ("primitives.layout", "center_mobject"),
     "scale_to_width": ("primitives.layout", "scale_to_width"),
     "stack_horizontal": ("primitives.layout", "stack_horizontal"),
     "stack_vertical": ("primitives.layout", "stack_vertical"),
     "surround_with_frame": ("primitives.layout", "surround_with_frame"),
-    
     # visual.py
     "dynamic_pointer": ("primitives.visual", "dynamic_pointer"),
     "get_array_block": ("primitives.visual", "get_array_block"),
@@ -111,7 +109,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "get_table_block": ("primitives.visual", "get_table_block"),
     "get_step_indicator": ("primitives.visual", "get_step_indicator"),
     "get_key_value_panel": ("primitives.visual", "get_key_value_panel"),
-    
     # pedagogy.py
     "equation_morph": ("primitives.pedagogy", "equation_morph"),
     "progressive_reveal": ("primitives.pedagogy", "progressive_reveal"),
@@ -120,7 +117,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "theorem_reveal": ("primitives.pedagogy", "theorem_reveal"),
     "graph_trace": ("primitives.pedagogy", "graph_trace"),
     "notation_swap": ("primitives.pedagogy", "notation_swap"),
-    
     # domain.py
     "get_graph_network": ("primitives.domain", "get_graph_network"),
     "get_binary_tree": ("primitives.domain", "get_binary_tree"),

@@ -9,10 +9,10 @@ def extract_python_code(text: str) -> str:
     match = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Try to find any code block
     match = re.search(r"```\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
+
     return text.strip()

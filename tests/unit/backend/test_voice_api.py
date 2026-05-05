@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -9,8 +10,8 @@ import pytest
 from ai_engine.llm_client import FakeLLMClient
 from ai_engine.piper_config import PiperRuntimeConfig
 from backend.api.deps import get_llm_client
-from backend.main import app
 from backend.db.content_store import RedisContentStore
+from backend.main import app
 from backend.services.redis_client import configure_redis, get_redis
 from fakeredis import FakeRedis
 from fastapi.testclient import TestClient
@@ -22,7 +23,7 @@ def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     from backend.api.deps import get_content_store
     from backend.db.content_store import RedisContentStore
     from backend.services.redis_client import get_redis
-    
+
     onnx = tmp_path / "voice.onnx"
     onnx.write_bytes(b"fake")
     cfg = PiperRuntimeConfig(
@@ -45,7 +46,7 @@ def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     planner_json = fixture_json.read_text(encoding="utf-8")
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient(planner_json=planner_json)
     app.dependency_overrides[get_content_store] = lambda: RedisContentStore(get_redis())
-    
+
     mock_task = MagicMock()
 
     def _run(*args: object, **kwargs: object) -> None:

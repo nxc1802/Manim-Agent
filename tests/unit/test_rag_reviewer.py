@@ -1,7 +1,7 @@
-import pytest
-from ai_engine.rag.log_parser import parse_render_error
 from ai_engine.rag.api_registry import ManimAPIRegistry
+from ai_engine.rag.log_parser import parse_render_error
 from ai_engine.rag.reviewer_context import build_reviewer_rag_context
+
 
 def test_log_parser_attribute_error():
     logs = """
@@ -14,6 +14,7 @@ def test_log_parser_attribute_error():
     assert parsed.symbol == "play_text"
     assert parsed.line_number == 42
 
+
 def test_log_parser_name_error():
     logs = """
     File "scene.py", line 10, in construct
@@ -24,6 +25,7 @@ def test_log_parser_name_error():
     assert parsed.error_type == "NameError"
     assert parsed.symbol == "ShowCreation"
 
+
 def test_api_registry_deprecated():
     registry = ManimAPIRegistry()
     dep = registry.lookup_deprecated("ShowCreation")
@@ -31,11 +33,13 @@ def test_api_registry_deprecated():
     assert dep[0] == "Create"
     assert dep[1]["symbol"] == "Create"
 
+
 def test_api_registry_exact():
     registry = ManimAPIRegistry()
     entry = registry.lookup_symbol("Text")
     assert entry is not None
     assert "text_mobject" in entry["module_path"]
+
 
 def test_reviewer_context_building():
     logs = "NameError: name 'ShowCreation' is not defined"
@@ -44,6 +48,7 @@ def test_reviewer_context_building():
     assert "ShowCreation" in context
     assert "DEPRECATED" in context
     assert "Create" in context
+
 
 if __name__ == "__main__":
     # Manual run if needed

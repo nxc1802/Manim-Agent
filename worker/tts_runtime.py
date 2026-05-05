@@ -85,8 +85,16 @@ def _run_piper(cfg: PiperRuntimeConfig, text: str, out_wav: Path) -> list[dict[s
         try:
             aiff_tmp = out_wav.with_suffix(".aiff")
             # Using 'Samantha' voice as it's typically high-quality on macOS en_US
-            subprocess.run(["say", "-v", "Samantha", "-o", str(aiff_tmp), text], check=True, capture_output=True)
-            subprocess.run(["ffmpeg", "-y", "-i", str(aiff_tmp), str(out_wav)], check=True, capture_output=True)
+            subprocess.run(
+                ["say", "-v", "Samantha", "-o", str(aiff_tmp), text],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(aiff_tmp), str(out_wav)],
+                check=True,
+                capture_output=True,
+            )
             aiff_tmp.unlink(missing_ok=True)
             return [{"text": text, "audio_duration": _audio_duration_seconds(out_wav)}]
         except Exception as e:
@@ -199,28 +207,36 @@ def execute_voice_job(job_id: UUID) -> None:
         trace_id=tid,
         project_id=str(job.project_id),
         scene_id=str(job.scene_id),
-        details={"text_chars": len(text), "voice_engine": job.voice_engine, "has_planner": bool(planner_output)},
+        details={
+            "text_chars": len(text),
+            "voice_engine": job.voice_engine,
+            "has_planner": bool(planner_output),
+        },
     )
 
     piper_cfg = load_piper_runtime_config()
     with tempfile.TemporaryDirectory(prefix="tts_") as tmpdir_str:
         tmpdir = Path(tmpdir_str)
         out_wav = tmpdir / "speech.wav"
-        
+
         try:
             model = Path(piper_cfg.voice_model_path)
             bin_path = Path(piper_cfg.binary)
-            bin_ok = bin_path.is_file() if bin_path.is_absolute() else shutil.which(piper_cfg.binary)
-            
+            bin_ok = (
+                bin_path.is_file() if bin_path.is_absolute() else shutil.which(piper_cfg.binary)
+            )
+
             is_darwin = platform.system() == "Darwin"
             if is_darwin:
                 bin_ok = True  # Enable macOS 'say' fallback
-            
+
             spans: list[SegmentSpan] = []
             beat_durations: dict[str, float] = {}
 
             if not bin_ok or (not is_darwin and not model.is_file()):
-                logger.warning("Piper binary or model missing; falling back to silent mock for local testing.")
+                logger.warning(
+                    "Piper binary or model missing; falling back to silent mock for local testing."
+                )
                 if planner_output:
                     t = 0.0
                     for beat in planner_output.beats:
@@ -251,20 +267,20 @@ def execute_voice_job(job_id: UUID) -> None:
                         spans.append(SegmentSpan(text=b_txt, start=t, end=t + dur))
                         t += dur
                         beat_wavs.append(b_wav)
-                    
+
                     _concat_wavs(beat_wavs, out_wav)
                     duration_f = _audio_duration_seconds(out_wav)
-                    
+
                     # Use deterministic sync logic to ensure consistency
                     ts = VoiceSegmentTimestamps(segments=spans)
                     beat_durations = align_beats_to_audio(planner_output, ts)
-                    
+
                     logs = "Piper beat-based synthesis completed."
                 else:
                     meta_json = _run_piper(piper_cfg, text, out_wav)
                     logs = "Piper full-text synthesis completed."
                     duration_f = _audio_duration_seconds(out_wav)
-                    
+
                     # Extract precise timestamps from Piper JSON metadata
                     # Piper JSON has "audio_duration" in seconds for each sentence
                     t = 0.0
@@ -282,13 +298,13 @@ def execute_voice_job(job_id: UUID) -> None:
                 voice_job_id=str(job_id),
                 trace_id=tid,
             )
-            
+
             if spans:
                 ts = VoiceSegmentTimestamps(segments=spans)
             else:
                 # Fallback for unexpected cases
                 ts = segment_time_alignment(text, total_duration_seconds=duration_f)
-                
+
             VoiceSegmentTimestamps.model_validate(ts.model_dump())
 
             remote_url = upload_voice_artifact_if_configured(
@@ -296,7 +312,7 @@ def execute_voice_job(job_id: UUID) -> None:
                 project_id=job.project_id,
                 job_id=job_id,
             )
-            
+
             # Save a local copy for easier debugging
             try:
                 local_audio_dir = Path(settings.output_dir) / "audios"
@@ -338,7 +354,7 @@ def execute_voice_job(job_id: UUID) -> None:
             override = job.metadata.get("voice_script_override")
             if isinstance(override, str) and override.strip():
                 scene_updates["voice_script"] = override.strip()
-                
+
             updated = cstore.update_scene(job.scene_id, **scene_updates)
             if updated is None:
                 logger.error("scene missing for voice job scene_id=%s", job.scene_id)
@@ -365,7 +381,7 @@ def execute_voice_job(job_id: UUID) -> None:
             job_done = vstore.get(job_id)
             if job_done is not None:
                 patch_voice_job_row(job_done)
-            
+
             insert_worker_service_audit_row(
                 audit_id=uuid4(),
                 project_id=job.project_id,
