@@ -10,8 +10,10 @@ API_BASE = "http://localhost:8000"
 # API_BASE = "https://Cuong2004-Manim-Agent.hf.space"
 WS_BASE = API_BASE.replace("https://", "wss://").replace("http://", "ws://")
 
+
 def log(msg):
     print(f"[*] {msg}", flush=True)
+
 
 async def check_async(resp, expected_code):
     if isinstance(expected_code, int):
@@ -21,6 +23,7 @@ async def check_async(resp, expected_code):
         print(resp.text)
         sys.exit(1)
     return resp.json()
+
 
 async def listen_ws(scene_id):
     uri = f"{WS_BASE}/v1/ws/{scene_id}"
@@ -39,6 +42,7 @@ async def listen_ws(scene_id):
     except Exception as e:
         log(f"WebSocket Error: {e}")
 
+
 async def run_complex_test():
     test_id = str(uuid.uuid4())[:8]
     log(f"--- Starting Complex E2E Test (ID: {test_id}) ---")
@@ -49,7 +53,7 @@ async def run_complex_test():
         p_data = {
             "title": f"Simple Circle - {test_id}",
             "description": "Draw a blue circle on a white background. Then, transform it into a red square.",
-            "source_language": "en"
+            "source_language": "en",
         }
         project = await check_async(await client.post(f"{API_BASE}/v1/projects", json=p_data), 201)
         project_id = project["id"]
@@ -57,25 +61,28 @@ async def run_complex_test():
 
         # 2. Create Scene
         log("Creating scene...")
-        s_data = {
-            "scene_order": 0,
-            "storyboard_text": "Scene 1: Introduction to derivatives."
-        }
-        scene = await check_async(await client.post(f"{API_BASE}/v1/projects/{project_id}/scenes", json=s_data), 201)
+        s_data = {"scene_order": 0, "storyboard_text": "Scene 1: Introduction to derivatives."}
+        scene = await check_async(
+            await client.post(f"{API_BASE}/v1/projects/{project_id}/scenes", json=s_data), 201
+        )
         scene_id = scene["id"]
         log(f"Scene created: {scene_id}")
 
         # Start WS listener
         ws_task = asyncio.create_task(listen_ws(scene_id))
-        await asyncio.sleep(1) # Give it a moment to connect
+        await asyncio.sleep(1)  # Give it a moment to connect
 
         # 3. Generate Storyboard
         log("Generating storyboard...")
-        await check_async(await client.post(f"{API_BASE}/v1/scenes/{scene_id}/generate-storyboard"), 200)
+        await check_async(
+            await client.post(f"{API_BASE}/v1/scenes/{scene_id}/generate-storyboard"), 200
+        )
 
         # 4. Approve Storyboard
         log("Approving storyboard...")
-        await check_async(await client.post(f"{API_BASE}/v1/projects/{project_id}/approve-storyboard"), 200)
+        await check_async(
+            await client.post(f"{API_BASE}/v1/projects/{project_id}/approve-storyboard"), 200
+        )
 
         # 5. Generate Plan
         log("Generating plan...")
@@ -87,16 +94,20 @@ async def run_complex_test():
 
         # 7. Approve Voice Script
         log("Approving voice script...")
-        await check_async(await client.post(f"{API_BASE}/v1/scenes/{scene_id}/approve-voice-script"), 200)
+        await check_async(
+            await client.post(f"{API_BASE}/v1/scenes/{scene_id}/approve-voice-script"), 200
+        )
 
         # 8. Synthesize Voice
         log("Synthesizing voice...")
         v_data = await check_async(await client.post(f"{API_BASE}/v1/scenes/{scene_id}/voice"), 202)
         voice_job_id = v_data["voice_job_id"]
-        
+
         log("Polling voice job...")
         while True:
-            v_job = await check_async(await client.get(f"{API_BASE}/v1/voice-jobs/{voice_job_id}"), 200)
+            v_job = await check_async(
+                await client.get(f"{API_BASE}/v1/voice-jobs/{voice_job_id}"), 200
+            )
             if v_job["status"] == "completed":
                 log("Voice synthesis completed.")
                 break
@@ -107,15 +118,22 @@ async def run_complex_test():
 
         # 9. Start Review Loop
         log("Starting Builder Review Loop (Auto mode)...")
-        await check_async(await client.post(f"{API_BASE}/v1/scenes/{scene_id}/builder-review-loop", params={"mode": "auto"}), 200)
+        await check_async(
+            await client.post(
+                f"{API_BASE}/v1/scenes/{scene_id}/builder-review-loop", params={"mode": "auto"}
+            ),
+            200,
+        )
 
         log("Polling scene for completion...")
         while True:
-            scenes = await check_async(await client.get(f"{API_BASE}/v1/projects/{project_id}/scenes"), 200)
+            scenes = await check_async(
+                await client.get(f"{API_BASE}/v1/projects/{project_id}/scenes"), 200
+            )
             scene = next((s for s in scenes if s["id"] == scene_id), None)
             status = scene["review_loop_status"]
             log(f"Current status: {status}")
-            
+
             if status == "completed":
                 log("SUCCESS: Pipeline completed!")
                 print(json.dumps(scene, indent=2))
@@ -124,8 +142,9 @@ async def run_complex_test():
                 log("[!] Pipeline failed.")
                 break
             await asyncio.sleep(15)
-        
+
         ws_task.cancel()
+
 
 if __name__ == "__main__":
     asyncio.run(run_complex_test())

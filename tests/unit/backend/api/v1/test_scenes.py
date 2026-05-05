@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Generator
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 

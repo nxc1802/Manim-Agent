@@ -10,8 +10,10 @@ API_BASE = "https://cuong2004-manim-agent.hf.space"
 VOICE_TIMEOUT = 120
 RENDER_TIMEOUT = 300
 
+
 def log(msg):
     print(f"[*] {msg}")
+
 
 def check(resp, expected=200):
     if resp.status_code != expected:
@@ -20,13 +22,14 @@ def check(resp, expected=200):
         sys.exit(1)
     return resp.json()
 
+
 def main():
     # 1. Create Project
     log("Step 1: Creating Project...")
     project_payload = {
         "title": "Cloud E2E Test " + str(uuid.uuid4())[:8],
         "description": "Verification of the full pipeline on Hugging Face Spaces.",
-        "source_language": "vi"
+        "source_language": "vi",
     }
     project = check(requests.post(f"{API_BASE}/v1/projects", json=project_payload), 201)
     project_id = project["id"]
@@ -36,9 +39,11 @@ def main():
     log("Step 2: Creating Scene...")
     scene_payload = {
         "scene_order": 0,
-        "storyboard_text": "Một vòng tròn biến thành một hình vuông màu đỏ."
+        "storyboard_text": "Một vòng tròn biến thành một hình vuông màu đỏ.",
     }
-    scene = check(requests.post(f"{API_BASE}/v1/projects/{project_id}/scenes", json=scene_payload), 201)
+    scene = check(
+        requests.post(f"{API_BASE}/v1/projects/{project_id}/scenes", json=scene_payload), 201
+    )
     scene_id = scene["id"]
     log(f"Scene created: {scene_id}")
 
@@ -59,13 +64,20 @@ def main():
 
     # 6. Builder (Generate Code)
     log("Step 6: Generating Manim Code (Builder)...")
-    res = check(requests.post(f"{API_BASE}/v1/scenes/{scene_id}/generate-code", json={"enqueue_preview": False}), 200)
+    res = check(
+        requests.post(
+            f"{API_BASE}/v1/scenes/{scene_id}/generate-code", json={"enqueue_preview": False}
+        ),
+        200,
+    )
     scene = res["scene"]
     log("Code generated.")
 
     # 7. Voice (TTS)
     log("Step 7: Enqueueing Voice Synthesis...")
-    voice_res = check(requests.post(f"{API_BASE}/v1/scenes/{scene_id}/voice", json={"language": "vi"}), 202)
+    voice_res = check(
+        requests.post(f"{API_BASE}/v1/scenes/{scene_id}/voice", json={"language": "vi"}), 202
+    )
     voice_job_id = voice_res["voice_job_id"]
     log(f"Voice job enqueued: {voice_job_id}")
 
@@ -87,17 +99,15 @@ def main():
 
     # 8. Sync Timeline
     log("Step 8: Syncing Timeline...")
-    sync_res = check(requests.post(f"{API_BASE}/v1/scenes/{scene_id}/sync-timeline"), 200)
+    check(requests.post(f"{API_BASE}/v1/scenes/{scene_id}/sync-timeline"), 200)
     log("Timeline synced.")
 
     # 9. Render
     log("Step 9: Enqueueing Render...")
-    render_payload = {
-        "render_type": "preview",
-        "quality": "720p",
-        "scene_id": scene_id
-    }
-    render_res = check(requests.post(f"{API_BASE}/v1/projects/{project_id}/render", json=render_payload), 202)
+    render_payload = {"render_type": "preview", "quality": "720p", "scene_id": scene_id}
+    render_res = check(
+        requests.post(f"{API_BASE}/v1/projects/{project_id}/render", json=render_payload), 202
+    )
     render_job_id = render_res["job_id"]
     log(f"Render job enqueued: {render_job_id}")
 
@@ -118,6 +128,7 @@ def main():
             print(f"Logs: {job_status.get('logs')}")
             sys.exit(1)
         time.sleep(5)
+
 
 if __name__ == "__main__":
     main()

@@ -15,7 +15,7 @@ async def test_ws():
             await websocket.send("ping")
             response = await websocket.recv()
             print(f"Received from server: {response}")
-            
+
             print("Waiting for pipeline events (timeout 10s)...")
             try:
                 # We expect no events yet unless we trigger them, but we verify we can listen.
@@ -25,6 +25,7 @@ async def test_ws():
                 print("No events received (as expected).")
     except Exception as e:
         print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(test_ws())

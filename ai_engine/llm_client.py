@@ -494,12 +494,12 @@ class LiteLLMClient:
             wait=wait_exponential(multiplier=2, min=2, max=10),
             retry=retry_if_exception_type(
                 (
-                    litellm.APIConnectionError  , # type: ignore
-                    litellm.Timeout  , # type: ignore
-                    litellm.RateLimitError  , # type: ignore
-                    litellm.ServiceUnavailableError  , # type: ignore
-                    litellm.InternalServerError  , # type: ignore
-                    litellm.APIError  , # type: ignore
+                    litellm.APIConnectionError,  # type: ignore
+                    litellm.Timeout,  # type: ignore
+                    litellm.RateLimitError,  # type: ignore
+                    litellm.ServiceUnavailableError,  # type: ignore
+                    litellm.InternalServerError,  # type: ignore
+                    litellm.APIError,  # type: ignore
                     RuntimeError,  # covers "LLM returned empty content"
                 )
             ),
@@ -595,12 +595,12 @@ class LiteLLMClient:
             wait=wait_exponential(multiplier=2, min=4, max=20),
             retry=retry_if_exception_type(
                 (
-                    litellm.APIConnectionError  , # type: ignore
-                    litellm.Timeout  , # type: ignore
-                    litellm.RateLimitError  , # type: ignore
-                    litellm.ServiceUnavailableError  , # type: ignore
-                    litellm.InternalServerError  , # type: ignore
-                    litellm.APIError  , # type: ignore
+                    litellm.APIConnectionError,  # type: ignore
+                    litellm.Timeout,  # type: ignore
+                    litellm.RateLimitError,  # type: ignore
+                    litellm.ServiceUnavailableError,  # type: ignore
+                    litellm.InternalServerError,  # type: ignore
+                    litellm.APIError,  # type: ignore
                 )
             ),
             reraise=True,
@@ -749,12 +749,12 @@ class LiteLLMClient:
             wait=wait_exponential(multiplier=2, min=2, max=10),
             retry=retry_if_exception_type(
                 (
-                    litellm.APIConnectionError  , # type: ignore
-                    litellm.Timeout  , # type: ignore
-                    litellm.RateLimitError  , # type: ignore
-                    litellm.ServiceUnavailableError  , # type: ignore
-                    litellm.InternalServerError  , # type: ignore
-                    litellm.APIError  , # type: ignore
+                    litellm.APIConnectionError,  # type: ignore
+                    litellm.Timeout,  # type: ignore
+                    litellm.RateLimitError,  # type: ignore
+                    litellm.ServiceUnavailableError,  # type: ignore
+                    litellm.InternalServerError,  # type: ignore
+                    litellm.APIError,  # type: ignore
                     RuntimeError,
                 )
             ),
@@ -855,12 +855,12 @@ class LiteLLMClient:
             wait=wait_exponential(multiplier=2, min=4, max=20),
             retry=retry_if_exception_type(
                 (
-                    litellm.APIConnectionError  , # type: ignore
-                    litellm.Timeout  , # type: ignore
-                    litellm.RateLimitError  , # type: ignore
-                    litellm.ServiceUnavailableError  , # type: ignore
-                    litellm.InternalServerError  , # type: ignore
-                    litellm.APIError  , # type: ignore
+                    litellm.APIConnectionError,  # type: ignore
+                    litellm.Timeout,  # type: ignore
+                    litellm.RateLimitError,  # type: ignore
+                    litellm.ServiceUnavailableError,  # type: ignore
+                    litellm.InternalServerError,  # type: ignore
+                    litellm.APIError,  # type: ignore
                 )
             ),
             reraise=True,

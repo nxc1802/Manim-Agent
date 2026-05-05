@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from typing import Any
 
 import pytest
@@ -58,7 +59,9 @@ def test_code_review_passed_variants(base_cfg: BuilderReviewLoopConfig) -> None:
     )
 
     # Test agent blocking
-    res_err = ReviewResult(issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")])
+    res_err = ReviewResult(
+        issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")]
+    )
     assert (
         _code_review_passed(cfg=base_cfg, syntax_ok=True, policy_ok=True, agent_result=res_err)
         is False
@@ -69,7 +72,9 @@ def test_visual_review_passed_variants(base_cfg: BuilderReviewLoopConfig) -> Non
     res = ReviewResult(issues=[])
     assert _visual_review_passed(cfg=base_cfg, agent_result=res) is True
 
-    res_err = ReviewResult(issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")])
+    res_err = ReviewResult(
+        issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")]
+    )
     assert _visual_review_passed(cfg=base_cfg, agent_result=res_err) is False
 
     # If not checking blocking

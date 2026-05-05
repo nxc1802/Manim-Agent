@@ -73,7 +73,9 @@ def test_litellm_complete_ex_success(mock_completion: MagicMock, client: LiteLLM
 
 
 @patch("litellm.completion")
-def test_litellm_complete_with_images_ex_success(mock_completion: MagicMock, client: LiteLLMClient) -> None:
+def test_litellm_complete_with_images_ex_success(
+    mock_completion: MagicMock, client: LiteLLMClient
+) -> None:
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
     mock_resp.choices[0].message.content = "image description"
@@ -94,7 +96,9 @@ def test_litellm_complete_with_images_ex_success(mock_completion: MagicMock, cli
 
 @pytest.mark.anyio
 @patch("litellm.acompletion")
-async def test_litellm_acomplete_chat_ex_success(mock_acompletion: MagicMock, client: LiteLLMClient) -> None:
+async def test_litellm_acomplete_chat_ex_success(
+    mock_acompletion: MagicMock, client: LiteLLMClient
+) -> None:
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
     mock_resp.choices[0].message.content = "async hello"

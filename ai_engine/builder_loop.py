@@ -5,8 +5,9 @@ import base64
 import hashlib
 import logging
 import time
+from collections.abc import Coroutine
 from datetime import UTC, datetime
-from typing import Any, Coroutine, Protocol, TypeVar, cast
+from typing import Any, TypeVar, cast
 from uuid import UUID, uuid4
 
 from backend.core.config import settings
@@ -212,9 +213,9 @@ async def run_single_review_round_ex(
             request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
         )
 
-    async def _invoke_visual_reviewer() -> (
-        tuple[tuple[ReviewResult, str, dict[str, Any], str, str] | None, str | None]
-    ):
+    async def _invoke_visual_reviewer() -> tuple[
+        tuple[ReviewResult, str, dict[str, Any], str, str] | None, str | None
+    ]:
         if not review_cfg.visual_reviewer_enabled:
             return None, "disabled_in_config"
         if not preview_video_path:

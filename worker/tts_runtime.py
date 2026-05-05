@@ -8,8 +8,8 @@ import struct
 import subprocess
 import tempfile
 import wave
-from decimal import Decimal
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4

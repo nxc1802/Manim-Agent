@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 from ai_engine.rag.api_registry import ManimAPIRegistry
 from ai_engine.rag.log_parser import ParsedError, parse_render_error
 

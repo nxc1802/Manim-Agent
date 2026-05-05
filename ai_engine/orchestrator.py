@@ -7,7 +7,18 @@ from shared.schemas.planner_output import PlannerOutput
 
 from ai_engine.agents.director import run_director
 from ai_engine.agents.planner import run_planner
-from ai_engine.builder_loop import truncate_error_logs as truncate_error_logs
+from ai_engine.builder_loop import (
+    run_builder_loop_phase as run_builder_loop_phase,
+)
+from ai_engine.builder_loop import (
+    run_single_review_round as run_single_review_round,
+)
+from ai_engine.builder_loop import (
+    run_single_review_round_ex as run_single_review_round_ex,
+)
+from ai_engine.builder_loop import (
+    truncate_error_logs as truncate_error_logs,
+)
 from ai_engine.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -90,13 +101,3 @@ async def run_planning_phase(
     )
 
 
-# Re-exports from builder_loop.py
-from ai_engine.builder_loop import (
-    run_builder_loop_phase as run_builder_loop_phase,
-)
-from ai_engine.builder_loop import (
-    run_single_review_round as run_single_review_round,
-)
-from ai_engine.builder_loop import (
-    run_single_review_round_ex as run_single_review_round_ex,
-)

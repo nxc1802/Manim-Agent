@@ -14,5 +14,6 @@ def listen():
         if message["type"] == "message":
             print(f"Received: {message['data']}")
 
+
 if __name__ == "__main__":
     listen()

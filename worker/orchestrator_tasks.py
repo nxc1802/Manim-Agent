@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from celery import Task
