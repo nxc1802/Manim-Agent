@@ -10,7 +10,7 @@ from ai_engine.orchestrator import truncate_error_logs
 from ai_engine.prompts import render_prompt
 
 
-def test_sandwich_truncation():
+def test_sandwich_truncation() -> None:
     logs = "A" * 1000 + "MIDDLE" + "B" * 1000
     truncated = truncate_error_logs(logs, max_chars=500)
     print(f"Original length: {len(logs)}")
@@ -23,7 +23,7 @@ def test_sandwich_truncation():
     print("✓ Sandwich truncation verified")
 
 
-def test_jinja_rendering():
+def test_jinja_rendering() -> None:
     # Create a temporary prompt file
     prompt_dir = Path("ai_engine/prompts")
     prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,7 @@ def test_jinja_rendering():
         test_prompt.unlink()
 
 
-def test_config_fallback():
+def test_config_fallback() -> None:
     # Set env var
     os.environ["DEFAULT_AGENT_MODEL"] = "test/dummy-model"
     # Need to re-instantiate settings or check if it picks up env

@@ -7,11 +7,11 @@ from ai_engine.llm_client import LiteLLMClient
 
 
 @pytest.fixture
-def client():
+def client() -> LiteLLMClient:
     return LiteLLMClient(api_key="sk-test", provider_keys={"dashscope": "ds-test"})
 
 
-def test_litellm_get_completion_kwargs_dashscope(client):
+def test_litellm_get_completion_kwargs_dashscope(client: LiteLLMClient) -> None:
     kwargs = client._get_completion_kwargs(
         model="dashscope/qwen-max",
         messages=[{"role": "user", "content": "hi"}],
@@ -25,7 +25,7 @@ def test_litellm_get_completion_kwargs_dashscope(client):
     assert kwargs["response_format"] == {"type": "json_object"}
 
 
-def test_litellm_get_completion_kwargs_ollama(client):
+def test_litellm_get_completion_kwargs_ollama(client: LiteLLMClient) -> None:
     client._api_base = "http://localhost:11434"
     kwargs = client._get_completion_kwargs(
         model="llama3",
@@ -38,7 +38,7 @@ def test_litellm_get_completion_kwargs_ollama(client):
     assert kwargs["extra_body"]["num_ctx"] == 16384
 
 
-def test_litellm_get_completion_kwargs_reasoning(client):
+def test_litellm_get_completion_kwargs_reasoning(client: LiteLLMClient) -> None:
     kwargs = client._get_completion_kwargs(
         model="openrouter/deepseek-reasoning",
         messages=[{"role": "user", "content": "hi"}],
@@ -51,7 +51,7 @@ def test_litellm_get_completion_kwargs_reasoning(client):
 
 
 @patch("litellm.completion")
-def test_litellm_complete_ex_success(mock_completion, client):
+def test_litellm_complete_ex_success(mock_completion: MagicMock, client: LiteLLMClient) -> None:
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
     mock_resp.choices[0].message.content = "hello world"
@@ -73,7 +73,7 @@ def test_litellm_complete_ex_success(mock_completion, client):
 
 
 @patch("litellm.completion")
-def test_litellm_complete_with_images_ex_success(mock_completion, client):
+def test_litellm_complete_with_images_ex_success(mock_completion: MagicMock, client: LiteLLMClient) -> None:
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
     mock_resp.choices[0].message.content = "image description"
@@ -94,7 +94,7 @@ def test_litellm_complete_with_images_ex_success(mock_completion, client):
 
 @pytest.mark.anyio
 @patch("litellm.acompletion")
-async def test_litellm_acomplete_chat_ex_success(mock_acompletion, client):
+async def test_litellm_acomplete_chat_ex_success(mock_acompletion: MagicMock, client: LiteLLMClient) -> None:
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
     mock_resp.choices[0].message.content = "async hello"

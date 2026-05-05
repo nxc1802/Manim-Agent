@@ -3,7 +3,7 @@ from __future__ import annotations
 from ai_engine.rag.log_parser import parse_render_error
 
 
-def test_parse_render_error_variants():
+def test_parse_render_error_variants() -> None:
     # Empty
     res = parse_render_error("")
     assert res.error_type == "UnknownError"

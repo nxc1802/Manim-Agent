@@ -18,6 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.core.config import settings
 from backend.core.supabase_jwt import JwtValidationError, user_id_from_supabase_jwt
+from backend.db.content_store import get_content_store as get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
 from backend.services.voice_job_store import RedisVoiceJobStore

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -8,13 +9,13 @@ from backend.core.config import settings
 from backend.db.content_store import RedisContentStore, get_content_store
 
 
-def test_get_content_store(monkeypatch):
+def test_get_content_store(monkeypatch: Any) -> None:
     monkeypatch.setattr(settings, "supabase_url", "")
     store = get_content_store()
     assert isinstance(store, RedisContentStore)
 
 
-def test_redis_content_store_project():
+def test_redis_content_store_project() -> None:
     mock_redis = MagicMock()
     store = RedisContentStore(mock_redis)
     pid = uuid4()
@@ -29,7 +30,7 @@ def test_redis_content_store_project():
     assert mock_redis.set.called
 
 
-def test_redis_content_store_scene():
+def test_redis_content_store_scene() -> None:
     mock_redis = MagicMock()
     store = RedisContentStore(mock_redis)
     pid = uuid4()
@@ -44,7 +45,7 @@ def test_redis_content_store_scene():
     assert mock_redis.rpush.called
 
 
-def test_resolve_asset_local_path():
+def test_resolve_asset_local_path() -> None:
     mock_redis = MagicMock()
     store = RedisContentStore(mock_redis)
     assert store.resolve_asset_local_path(None) is None

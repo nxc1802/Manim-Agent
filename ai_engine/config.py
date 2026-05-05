@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
-from backend.core.config import settings
+from backend.core.config import settings as settings
+from shared.constants import SeverityLevel
 
 AgentName = Literal[
     "director",
@@ -64,7 +65,7 @@ class BuilderReviewLoopConfig:
     code_static_forbidden_imports_ok: bool
     visual_agent_blocking_issues_empty: bool
     visual_reviewer_enabled: bool
-    blocking_severity_min: str
+    blocking_severity_min: SeverityLevel
     stop_when_only_info_severity: bool
     on_max_rounds_exceeded: str
 
@@ -87,7 +88,7 @@ def load_builder_review_loop(data: dict[str, Any]) -> BuilderReviewLoopConfig:
         code_static_forbidden_imports_ok=bool(code_p.get("static_forbidden_imports_ok", True)),
         visual_agent_blocking_issues_empty=bool(vis_p.get("agent_blocking_issues_empty", True)),
         visual_reviewer_enabled=bool(raw.get("visual_reviewer_enabled", True)),
-        blocking_severity_min=str(raw.get("blocking_severity_min") or "warning"),
+        blocking_severity_min=SeverityLevel(str(raw.get("blocking_severity_min") or "warning")),
         stop_when_only_info_severity=bool(raw.get("stop_when_only_info_severity", False)),
         on_max_rounds_exceeded=str(raw.get("on_max_rounds_exceeded") or "hitl_or_fail"),
     )

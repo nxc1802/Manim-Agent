@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any, Generator
 
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -9,14 +10,14 @@ from shared.schemas.review_pipeline import AgentLog
 
 
 @pytest.fixture
-def supabase_config():
+def supabase_config() -> Generator[Any, None, None]:
     with patch("backend.services.supabase_pipeline_rest.settings") as mock_settings:
         mock_settings.supabase_url = "https://example.supabase.co"
         mock_settings.supabase_service_role_key = "service-role-key"
         yield mock_settings
 
 
-def test_insert_pipeline_run_row_success(supabase_config):
+def test_insert_pipeline_run_row_success(supabase_config: Any) -> None:
     rid = uuid4()
     pid = uuid4()
     sid = uuid4()
@@ -35,7 +36,7 @@ def test_insert_pipeline_run_row_success(supabase_config):
         assert mock_instance.post.called
 
 
-def test_insert_pipeline_run_row_fail(supabase_config):
+def test_insert_pipeline_run_row_fail(supabase_config: Any) -> None:
     rid = uuid4()
     pid = uuid4()
     sid = uuid4()
@@ -50,7 +51,7 @@ def test_insert_pipeline_run_row_fail(supabase_config):
         )
 
 
-def test_insert_agent_log_row_success(supabase_config):
+def test_insert_agent_log_row_success(supabase_config: Any) -> None:
     log = AgentLog(
         run_id=uuid4(),
         scene_id=uuid4(),
@@ -70,7 +71,7 @@ def test_insert_agent_log_row_success(supabase_config):
         assert mock_instance.post.called
 
 
-def test_insert_agent_log_row_not_configured():
+def test_insert_agent_log_row_not_configured() -> None:
     with patch("backend.services.supabase_pipeline_rest.settings") as mock_settings:
         mock_settings.supabase_url = None
 

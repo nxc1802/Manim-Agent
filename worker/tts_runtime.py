@@ -8,6 +8,7 @@ import struct
 import subprocess
 import tempfile
 import wave
+from decimal import Decimal
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -364,7 +365,7 @@ def execute_voice_job(job_id: UUID) -> None:
                     scene_id=job.scene_id,
                     audio_url=asset_url,
                     timestamps=ts_payload,
-                    duration_seconds=float(round(duration_f, 3)),
+                    duration_seconds=Decimal(str(round(duration_f, 3))),
                     voice_script=vs if isinstance(vs, str) else None,
                     update_voice_script="voice_script" in scene_updates,
                 )

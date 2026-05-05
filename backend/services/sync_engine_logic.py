@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.voice_segments import VoiceSegmentTimestamps
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def validate_sync_duration(
     video_duration: float, audio_duration: float, threshold: float = 0.5
-) -> dict:
+) -> dict[str, Any]:
     """
     Checks if the generated video duration matches the expected audio duration.
     """
@@ -58,7 +58,7 @@ def align_beats_to_audio(plan: PlannerOutput, timestamps: VoiceSegmentTimestamps
             )
         else:
             # Fallback if plan has more beats than voice segments
-            prev_end = segments[-1]["end"] if segments else 0.0
+            prev_end = cast(float, segments[-1]["end"]) if segments else 0.0
             segments.append(
                 {
                     "step_label": beat.step_label,

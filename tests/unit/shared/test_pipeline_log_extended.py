@@ -16,12 +16,12 @@ from shared.pipeline_log import (
 )
 
 
-def test_pipeline_log_level_fallback():
+def test_pipeline_log_level_fallback() -> None:
     with patch.dict(os.environ, {"LOG_LEVEL": "", "PIPELINE_LOG_LEVEL": "DEBUG"}):
         assert _pipeline_log_level() == logging.DEBUG
 
 
-def test_get_broadcast_redis_fail():
+def test_get_broadcast_redis_fail() -> None:
     with patch.dict(os.environ, {"REDIS_URL": "redis://localhost:6379"}):
         with patch("redis.from_url") as mock_from:
             mock_from.side_effect = Exception("conn failed")
@@ -30,7 +30,7 @@ def test_get_broadcast_redis_fail():
                 assert _get_broadcast_redis() is None
 
 
-def test_trace_id_from_celery_request_none():
+def test_trace_id_from_celery_request_none() -> None:
     assert trace_id_from_celery_request(None) is None
 
     mock_req = MagicMock()
@@ -38,13 +38,13 @@ def test_trace_id_from_celery_request_none():
     assert trace_id_from_celery_request(mock_req) is None
 
 
-def test_celery_trace_headers_empty():
+def test_celery_trace_headers_empty() -> None:
     assert celery_trace_headers(None) == {}
     assert celery_trace_headers(" ") == {}
 
 
 @patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_event_with_redis(mock_get_redis):
+def test_pipeline_event_with_redis(mock_get_redis: MagicMock) -> None:
     mock_r = MagicMock()
     mock_get_redis.return_value = mock_r
 
@@ -55,7 +55,7 @@ def test_pipeline_event_with_redis(mock_get_redis):
 
 
 @patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_debug_with_redis(mock_get_redis):
+def test_pipeline_debug_with_redis(mock_get_redis: MagicMock) -> None:
     mock_r = MagicMock()
     mock_get_redis.return_value = mock_r
 
@@ -64,7 +64,7 @@ def test_pipeline_debug_with_redis(mock_get_redis):
 
 
 @patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_error_with_redis(mock_get_redis):
+def test_pipeline_error_with_redis(mock_get_redis: MagicMock) -> None:
     mock_r = MagicMock()
     mock_get_redis.return_value = mock_r
 

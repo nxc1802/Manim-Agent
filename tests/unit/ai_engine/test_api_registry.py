@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
+import yaml  # type: ignore
 from ai_engine.rag.api_registry import ManimAPIRegistry
 
 
 @pytest.fixture
-def registry_file(tmp_path):
+def registry_file(tmp_path: Path) -> Path:
     p = tmp_path / "registry.yaml"
     data = {
         "entries": [
@@ -25,20 +25,24 @@ def registry_file(tmp_path):
     return p
 
 
-def test_api_registry_load_fail():
+def test_api_registry_load_fail() -> None:
     reg = ManimAPIRegistry(Path("non_existent.yaml"))
     assert reg._data == {"entries": [], "deprecated_aliases": {}}
 
 
-def test_api_registry_lookup_method(registry_file):
+def test_api_registry_lookup_method(registry_file: Path) -> None:
     reg = ManimAPIRegistry(registry_file)
     # Match by full symbol
-    assert reg.lookup_symbol("Scene.play")["symbol"] == "Scene.play"
+    res1 = reg.lookup_symbol("Scene.play")
+    assert res1 is not None
+    assert res1["symbol"] == "Scene.play"
     # Match by suffix
-    assert reg.lookup_symbol("play")["symbol"] == "Scene.play"
+    res2 = reg.lookup_symbol("play")
+    assert res2 is not None
+    assert res2["symbol"] == "Scene.play"
 
 
-def test_api_registry_find_similar(registry_file):
+def test_api_registry_find_similar(registry_file: Path) -> None:
     reg = ManimAPIRegistry(registry_file)
     # entry_sym "create" in "CreateNew"
     sim = reg.find_similar("CreateNew")
@@ -49,7 +53,7 @@ def test_api_registry_find_similar(registry_file):
     assert any(e["symbol"] == "Create" for e in sim2)
 
 
-def test_api_registry_resolve_error(registry_file):
+def test_api_registry_resolve_error(registry_file: Path) -> None:
     reg = ManimAPIRegistry(registry_file)
     assert reg.resolve_error("NameError", None) == []
 

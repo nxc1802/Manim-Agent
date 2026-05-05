@@ -1,22 +1,23 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 from ai_engine.rag.reviewer_context import _format_api_reference, build_reviewer_rag_context
 
 
-def test_build_reviewer_rag_context_empty():
+def test_build_reviewer_rag_context_empty() -> None:
     assert build_reviewer_rag_context("") is None
 
 
 @patch("ai_engine.rag.reviewer_context.parse_render_error")
-def test_build_reviewer_rag_context_parse_fail(mock_parse):
+def test_build_reviewer_rag_context_parse_fail(mock_parse: Any) -> None:
     mock_parse.side_effect = ValueError("boom")
     assert build_reviewer_rag_context("logs") is None
 
 
 @patch("ai_engine.rag.reviewer_context.ManimAPIRegistry")
-def test_build_reviewer_rag_context_no_entries(mock_reg_cls):
+def test_build_reviewer_rag_context_no_entries(mock_reg_cls: Any) -> None:
     mock_reg = mock_reg_cls.return_value
     mock_reg.resolve_error.return_value = []
     mock_reg.find_similar.return_value = []
@@ -24,7 +25,7 @@ def test_build_reviewer_rag_context_no_entries(mock_reg_cls):
 
 
 @patch("ai_engine.rag.reviewer_context.ManimAPIRegistry")
-def test_build_reviewer_rag_context_success(mock_reg_cls):
+def test_build_reviewer_rag_context_success(mock_reg_cls: Any) -> None:
     mock_reg = mock_reg_cls.return_value
     mock_reg.resolve_error.return_value = [{"symbol": "X", "description": "desc"}]
     mock_reg.lookup_deprecated.return_value = None
@@ -35,7 +36,7 @@ def test_build_reviewer_rag_context_success(mock_reg_cls):
     assert "#### `X`" in ctx
 
 
-def test_format_api_reference_deprecated():
+def test_format_api_reference_deprecated() -> None:
     from ai_engine.rag.log_parser import ParsedError
 
     err = ParsedError("NameError", "ShowCreation", None, "", 10, "msg")
@@ -50,7 +51,7 @@ def test_format_api_reference_deprecated():
         assert "DEPRECATED" in res
 
 
-def test_format_api_reference_common_errors():
+def test_format_api_reference_common_errors() -> None:
     from ai_engine.rag.log_parser import ParsedError
 
     err = ParsedError("NameError", "ShowCreation", None, "", 10, "msg")

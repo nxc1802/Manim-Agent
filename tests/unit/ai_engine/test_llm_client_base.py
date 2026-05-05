@@ -5,7 +5,7 @@ from ai_engine.llm_client import FakeLLMClient, LiteLLMClient
 
 
 @pytest.mark.anyio
-async def test_fake_llm_client_all_methods():
+async def test_fake_llm_client_all_methods() -> None:
     client = FakeLLMClient(
         director_text="story",
         planner_json='{"beats": []}',
@@ -65,13 +65,13 @@ async def test_fake_llm_client_all_methods():
     assert res.text == '{"issues": []}'
 
 
-def test_litellm_client_init():
+def test_litellm_client_init() -> None:
     client = LiteLLMClient(api_key="test_key")
     assert client._api_key == "test_key"
 
 
 @pytest.mark.anyio
-async def test_llm_client_abstract():
+async def test_llm_client_abstract() -> None:
     # LLMClient is not abstract in implementation (has default methods that raise?)
     # Actually it's an abstract base class with @abstractmethod usually.
     # Let's check ai_engine/llm_client.py

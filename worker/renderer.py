@@ -215,8 +215,8 @@ def render_manim_scene_to_disk(
 
             full_audio_url = scene.audio_url
             if not full_audio_url.startswith("http"):
-                base_url = settings.supabase_url
-                if not base_url.endswith("/storage/v1"):
+                base_url = (settings.supabase_url or "").strip()
+                if base_url and not base_url.endswith("/storage/v1"):
                     base_url = f"{base_url}/storage/v1"
                 full_audio_url = f"{base_url}{scene.audio_url}"
 

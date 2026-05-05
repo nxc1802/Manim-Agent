@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -12,13 +13,13 @@ from backend.services.supabase_storage_rest import (
 
 
 @pytest.fixture()
-def mock_settings(monkeypatch):
+def mock_settings(monkeypatch: Any) -> None:
     monkeypatch.setattr("backend.core.config.settings.supabase_url", "https://xyz.supabase.co")
     monkeypatch.setattr("backend.core.config.settings.supabase_service_role_key", "secret-key")
     monkeypatch.setattr("backend.core.config.settings.supabase_storage_bucket", "render-bucket")
 
 
-def test_sign_storage_object_read_url(mock_settings) -> None:
+def test_sign_storage_object_read_url(mock_settings: None) -> None:
     object_path = "project-1/job-2.mp4"
 
     with patch("httpx.Client.post") as mock_post:
@@ -36,7 +37,7 @@ def test_sign_storage_object_read_url(mock_settings) -> None:
         assert "Authorization" in kwargs["headers"]
 
 
-def test_upload_render_mp4_and_sign(mock_settings, tmp_path: Path) -> None:
+def test_upload_render_mp4_and_sign(mock_settings: None, tmp_path: Path) -> None:
     video = tmp_path / "test.mp4"
     video.write_bytes(b"data")
     project_id = uuid4()

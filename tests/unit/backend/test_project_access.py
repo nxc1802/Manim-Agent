@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Generator
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client() -> Generator[TestClient, None, None]:
     configure_redis(FakeRedis(decode_responses=True))
     with TestClient(app) as c:
         yield c

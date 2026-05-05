@@ -21,7 +21,7 @@ async def scene_status_websocket(
     scene_id: UUID,
     token: str | None = Query(None),
     store: ContentStore = Depends(get_content_store),  # noqa: B008
-):
+) -> None:
     sid_str = str(scene_id)
 
     # 1. Authenticate

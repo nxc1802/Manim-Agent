@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import httpx
@@ -38,6 +38,6 @@ def list_project_pipeline_runs(
         with httpx.Client(timeout=30.0) as client:
             r = client.get(url, headers=headers, params=params)
             r.raise_for_status()
-            return r.json()
+            return cast(list[dict[str, Any]], r.json())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

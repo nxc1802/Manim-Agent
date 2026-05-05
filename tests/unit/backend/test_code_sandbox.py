@@ -9,24 +9,24 @@ from backend.services.code_sandbox import (
 )
 
 
-def test_validate_manim_code_success():
+def test_validate_manim_code_success() -> None:
     code = "from manim import *\nclass GeneratedScene(Scene):\n    pass"
     validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
 
-def test_validate_manim_code_size_fail():
+def test_validate_manim_code_size_fail() -> None:
     code = "x = 1"
     with pytest.raises(SandboxValidationError, match="Code exceeds max size"):
         validate_manim_code(code, limits=SandboxLimits(max_bytes=2))
 
 
-def test_validate_manim_code_syntax_fail():
+def test_validate_manim_code_syntax_fail() -> None:
     code = "class GeneratedScene(Scene)"  # missing colon
     with pytest.raises(SandboxValidationError, match="Invalid Python syntax"):
         validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
 
-def test_validate_manim_code_policy_fail():
+def test_validate_manim_code_policy_fail() -> None:
     # Disallowed import
     code = "import os\nclass GeneratedScene(Scene): pass"
     with pytest.raises(SandboxValidationError, match="Disallowed import root"):
@@ -48,7 +48,7 @@ def test_validate_manim_code_policy_fail():
         validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
 
-def test_static_check_split():
+def test_static_check_split() -> None:
     limits = SandboxLimits(max_bytes=1000)
 
     # OK

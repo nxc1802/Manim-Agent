@@ -15,12 +15,12 @@ from backend.core.config import settings
 from fastapi import HTTPException
 
 
-def test_get_stores():
+def test_get_stores() -> None:
     assert get_job_store() is not None
     assert get_voice_job_store() is not None
 
 
-def test_get_llm_client(monkeypatch):
+def test_get_llm_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openrouter_api_key", "")
     monkeypatch.setattr(settings, "dashscope_api_key", "")
     from ai_engine.llm_client import FakeLLMClient, LiteLLMClient
@@ -31,14 +31,14 @@ def test_get_llm_client(monkeypatch):
     assert isinstance(get_llm_client(), LiteLLMClient)
 
 
-def test_get_request_user_id_dev(monkeypatch):
+def test_get_request_user_id_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "auth_mode", "off")
     uid = get_request_user_id(None)
     assert isinstance(uid, UUID)
     assert uid == settings.dev_default_user_id
 
 
-def test_get_request_user_id_jwt_fail(monkeypatch):
+def test_get_request_user_id_jwt_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "auth_mode", "jwt")
 
     # Missing auth
@@ -55,15 +55,15 @@ def test_get_request_user_id_jwt_fail(monkeypatch):
         credentials: str
 
     with pytest.raises(HTTPException) as exc:
-        get_request_user_id(Auth(credentials="tok"))
+        get_request_user_id(Auth(credentials="tok"))  # type: ignore
     assert exc.value.status_code == 503
 
 
-def test_get_runtime_limits():
+def test_get_runtime_limits() -> None:
     limits = get_runtime_limits()
     assert limits.llm_timeout_default_seconds > 0
 
 
-def test_get_agent_llm_params():
+def test_get_agent_llm_params() -> None:
     params = get_agent_llm_params("builder")
     assert params.model

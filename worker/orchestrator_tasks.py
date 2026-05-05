@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from celery import Task
+from shared.constants import ReviewLoopMode
 from shared.pipeline_log import (
     pipeline_event,
     pipeline_trace_id_var,
@@ -16,7 +17,7 @@ from worker.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore
     name="manim_agent.run_orchestrator_loop",
     bind=True,
     autoretry_for=(Exception,),
@@ -27,10 +28,10 @@ def run_orchestrator_loop_task(
     self: Task,
     scene_id: str,
     preview_poll_timeout_seconds: float | None = None,
-    mode: Literal["auto", "hitl"] = "hitl",
+    mode: ReviewLoopMode = ReviewLoopMode.HITL,
     extra_rounds: int | None = None,
     use_primitives: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Celery task to run the builder-review loop in the background."""
     from pathlib import Path
 

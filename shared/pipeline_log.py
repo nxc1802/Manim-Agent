@@ -35,7 +35,7 @@ def _get_broadcast_redis() -> redis.Redis | None:
         return None
 
     try:
-        _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)
+        _BROADCAST_REDIS = redis.from_url(url, decode_responses=True)  # type: ignore
         return _BROADCAST_REDIS
     except Exception:
         return None

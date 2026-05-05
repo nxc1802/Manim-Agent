@@ -113,7 +113,7 @@ class GenerateStoryboardBody(BaseModel):
         409: {"description": "Storyboard already approved"},
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("5/minute")  # type: ignore
 async def generate_storyboard(
     request: Request,
     scene_id: UUID,
@@ -207,7 +207,7 @@ def approve_storyboard(
         404: {"description": "Scene not found"},
     },
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute")  # type: ignore  # type: ignore
 async def run_scene_planner(
     request: Request,
     scene_id: UUID,
@@ -239,7 +239,7 @@ async def run_scene_planner(
         model=params.model,
         temperature=params.temperature,
         max_tokens=params.max_tokens,
-        storyboard_text=scene.storyboard_text,
+        storyboard_text=scene.storyboard_text or "",
         use_primitives=use_primitives,
         request_timeout_seconds=rt.llm_timeout_seconds("planner"),
     )
@@ -334,7 +334,7 @@ def sync_timeline_endpoint(
         "mã nguồn Manim Python hoàn chỉnh."
     ),
 )
-@limiter.limit("5/minute")
+@limiter.limit("5/minute")  # type: ignore
 async def generate_scene_code(
     request: Request,
     scene_id: UUID,
@@ -487,9 +487,9 @@ async def run_review_round_endpoint(
         visual_llm=get_agent_llm_params("visual_reviewer"),
         manim_code=(scene.manim_code or "").strip(),
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-        preview_video_path=preview_path,
+        preview_video_path=str(preview_path) if preview_path else None,
         extract_preview_frame=extract_frame_at_timestamp,
-        sync_segments=scene.sync_segments,
+        sync_segments=scene.sync_segments if isinstance(scene.sync_segments, dict) else None,
         runtime_limits=get_runtime_limits(),
     )
     return resp
@@ -506,7 +506,7 @@ async def run_review_round_endpoint(
         "hoặc dừng sớm nếu đạt yêu cầu chất lượng."
     ),
 )
-@limiter.limit("2/minute")
+@limiter.limit("2/minute")  # type: ignore  # type: ignore
 def builder_review_loop_endpoint(
     request: Request,
     scene_id: UUID,
@@ -572,6 +572,7 @@ def hitl_ack_builder_review(
             voice_script_status="pending_review",
             manim_code_version=1,
         )
+        assert updated is not None
         return HitlReviewLoopAckResponse(scene=updated, message="Reverted.")
 
     if body.action == "continue":
@@ -596,4 +597,5 @@ def hitl_ack_builder_review(
 
     # stop action
     updated = store.update_scene(scene_id, review_loop_status="failed")
+    assert updated is not None
     return HitlReviewLoopAckResponse(scene=updated, message="Stopped.")

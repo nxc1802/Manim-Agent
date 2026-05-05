@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Generator
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from backend.api.deps import get_content_store, get_request_user_id
@@ -14,7 +15,7 @@ client = TestClient(app)
 
 
 @pytest.fixture
-def mock_store():
+def mock_store() -> Generator[MagicMock, None, None]:
     store = MagicMock()
     app.dependency_overrides[get_content_store] = lambda: store
     yield store
@@ -22,20 +23,20 @@ def mock_store():
 
 
 @pytest.fixture
-def mock_user():
+def mock_user() -> Generator[UUID, None, None]:
     uid = uuid4()
     app.dependency_overrides[get_request_user_id] = lambda: uid
     yield uid
     app.dependency_overrides.pop(get_request_user_id, None)
 
 
-def test_get_scene_not_found(mock_store, mock_user):
+def test_get_scene_not_found(mock_store: MagicMock, mock_user: UUID) -> None:
     mock_store.get_scene.return_value = None
     resp = client.get(f"/v1/scenes/{uuid4()}")
     assert resp.status_code == 404
 
 
-def test_get_scene_success(mock_store, mock_user):
+def test_get_scene_success(mock_store: MagicMock, mock_user: UUID) -> None:
     sid = uuid4()
     pid = uuid4()
     now = datetime.now(tz=UTC)
@@ -49,7 +50,7 @@ def test_get_scene_success(mock_store, mock_user):
 
 
 @pytest.mark.anyio
-async def test_generate_storyboard_success(mock_store, mock_user):
+async def test_generate_storyboard_success(mock_store: MagicMock, mock_user: UUID) -> None:
     sid = uuid4()
     pid = uuid4()
     now = datetime.now(tz=UTC)
@@ -74,7 +75,7 @@ async def test_generate_storyboard_success(mock_store, mock_user):
         assert resp.status_code == 200
 
 
-def test_approve_storyboard_fail(mock_store, mock_user):
+def test_approve_storyboard_fail(mock_store: MagicMock, mock_user: UUID) -> None:
     sid = uuid4()
     pid = uuid4()
     now = datetime.now(tz=UTC)

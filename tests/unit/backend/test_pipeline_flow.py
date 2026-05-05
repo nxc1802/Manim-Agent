@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Generator
 from uuid import UUID
 
 import pytest
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def api_client() -> TestClient:
+def api_client() -> Generator[TestClient, None, None]:
     from backend.api.deps import get_content_store
     from backend.db.content_store import RedisContentStore
     from backend.services.redis_client import get_redis

@@ -1,7 +1,8 @@
 import re
+from typing import Any
 
 
-def parse_storyboard_to_scenes(text: str) -> list[dict]:
+def parse_storyboard_to_scenes(text: str) -> list[dict[str, Any]]:
     """
     Split Director's storyboard Markdown into individual scenes.
     Expected format for each scene:

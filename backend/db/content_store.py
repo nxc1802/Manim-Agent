@@ -10,7 +10,7 @@ from backend.core.config import settings
 from backend.db.base import ContentStore
 from redis import Redis
 from shared.schemas.project import Project, ProjectStatus
-from shared.schemas.scene import Scene, StoryboardStatus
+from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 
 def _project_key(project_id: UUID) -> str:
@@ -165,6 +165,11 @@ class RedisContentStore(ContentStore):
         self.add_scene_to_project_index(scene)
         self.touch_project(project_id)
         return scene
+
+    def save_scene_code_history(self, history: SceneCodeHistory) -> None:
+        key = f"{settings.redis_prefix}:scene_code_history:{history.scene_id}"
+        payload = history.model_dump(mode="json")
+        self._r.rpush(key, json.dumps(payload))
 
     def resolve_asset_local_path(self, asset_url: str | None) -> Path | None:
         """Handle file:// scheme for local/Redis persistence."""

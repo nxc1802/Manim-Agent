@@ -6,7 +6,7 @@ import hashlib
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any, Coroutine, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
 from backend.core.config import settings
@@ -53,9 +53,9 @@ _SEVERITY_RANK = {
 }
 
 
-def _severity_at_least(sev: str, minimum: str) -> bool:
-    s_val = _SEVERITY_RANK.get(SeverityLevel(sev), 0)
-    m_val = _SEVERITY_RANK.get(SeverityLevel(minimum), 1)
+def _severity_at_least(sev: SeverityLevel, minimum: SeverityLevel) -> bool:
+    s_val = _SEVERITY_RANK.get(sev, 0)
+    m_val = _SEVERITY_RANK.get(minimum, 1)
     return s_val >= m_val
 
 
@@ -101,7 +101,7 @@ def _get_convergence_timestamp(sync_segments: dict[str, Any] | None) -> float | 
         if isinstance(sync_segments, dict):
             sync = VoiceSegmentTimestamps.model_validate(sync_segments)
         else:
-            sync = sync_segments  # type: ignore
+            sync = cast(VoiceSegmentTimestamps, sync_segments)
 
         if sync.segments:
             return sync.segments[-1].end
@@ -197,7 +197,7 @@ async def run_single_review_round_ex(
     truncated_logs = truncate_error_logs(error_logs) if error_logs else None
 
     # 1. Define review tasks
-    async def _invoke_code_reviewer():
+    async def _invoke_code_reviewer() -> tuple[ReviewResult, str, dict[str, Any], str, str]:
         return await _run_agent_with_self_correction(
             "code_reviewer",
             run_code_reviewer,
@@ -212,7 +212,9 @@ async def run_single_review_round_ex(
             request_timeout_seconds=rt.llm_timeout_seconds("code_reviewer"),
         )
 
-    async def _invoke_visual_reviewer():
+    async def _invoke_visual_reviewer() -> (
+        tuple[tuple[ReviewResult, str, dict[str, Any], str, str] | None, str | None]
+    ):
         if not review_cfg.visual_reviewer_enabled:
             return None, "disabled_in_config"
         if not preview_video_path:
@@ -254,7 +256,7 @@ async def run_single_review_round_ex(
             return (err_res, PROMPT_VERSION_VISUAL_REVIEWER, {}, "", ""), "visual_review_error"
 
     # 2. Execute Reviewers in Parallel
-    tasks = [_invoke_code_reviewer()]
+    tasks: list[Coroutine[Any, Any, Any]] = [_invoke_code_reviewer()]
     if not error_logs and review_cfg.visual_reviewer_enabled and preview_video_path:
         tasks.append(_invoke_visual_reviewer())
 
@@ -274,7 +276,10 @@ async def run_single_review_round_ex(
 
     # Process Visual Review result if it was run
     if len(results) > 1:
-        v_res_data, v_skip = results[1]
+        v_res_raw = results[1]
+        v_res_data, v_skip = cast(
+            tuple[tuple[ReviewResult, str, dict[str, Any], str, str] | None, str | None], v_res_raw
+        )
         if v_skip:
             if v_res_data:
                 visual_review, _pv2, vm, vsys, vusr = v_res_data
@@ -283,6 +288,7 @@ async def run_single_review_round_ex(
             visual_passed = False if v_skip == "visual_review_error" else None
             skip_reason = v_skip
         else:
+            assert v_res_data is not None
             visual_review, _pv2, vm, vsys, vusr = v_res_data
             metrics["visual_reviewer"] = vm
             prompts["visual_reviewer"] = {"system": vsys, "user": vusr}
@@ -574,8 +580,8 @@ async def run_builder_loop_phase(
                         scene.project_id,
                         agent_name,
                         "review",
-                        p.get("system"),
-                        p.get("user"),
+                        p.get("system") or "",
+                        p.get("user") or "",
                         output_txt,
                         round_idx=round_idx,
                     )

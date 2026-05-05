@@ -11,11 +11,11 @@ from redis.exceptions import RedisError
 
 
 @pytest.fixture
-def client():
+def client() -> TestClient:
     return TestClient(app)
 
 
-def test_enqueue_render_redis_error(client):
+def test_enqueue_render_redis_error(client: TestClient) -> None:
     pid = uuid4()
     sid = uuid4()
     uid = uuid4()
@@ -38,7 +38,7 @@ def test_enqueue_render_redis_error(client):
     app.dependency_overrides = {}
 
 
-def test_enqueue_render_celery_error(client):
+def test_enqueue_render_celery_error(client: TestClient) -> None:
     pid = uuid4()
     sid = uuid4()
     uid = uuid4()

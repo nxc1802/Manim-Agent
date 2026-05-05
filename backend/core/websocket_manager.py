@@ -19,7 +19,7 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[str, list[WebSocket]] = {}
         self._redis_url = settings.redis_url
-        self._pubsub_task: asyncio.Task | None = None
+        self._pubsub_task: asyncio.Task[None] | None = None
 
     async def connect(self, websocket: WebSocket, scene_id: str) -> None:
         await websocket.accept()
@@ -41,7 +41,7 @@ class ConnectionManager:
     async def _listen_to_redis(self) -> None:
         """Background task to listen to Redis 'manim_agent:events' and broadcast."""
         logger.info("Starting Redis Pub/Sub listener for WebSockets")
-        r = redis.from_url(self._redis_url, decode_responses=True)
+        r = redis.from_url(self._redis_url, decode_responses=True)  # type: ignore
         pubsub = r.pubsub()
         await pubsub.subscribe("manim_agent:events")
 

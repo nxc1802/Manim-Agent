@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any, Generator
 
 import json
 from pathlib import Path
@@ -10,13 +11,13 @@ from worker.renderer import manim_quality_flags, render_manim_scene_to_disk
 
 
 @pytest.fixture()
-def mock_job_store():
+def mock_job_store() -> Generator[Any, None, None]:
     with patch("worker.renderer.RedisRenderJobStore") as mock:
         yield mock.return_value
 
 
 @pytest.fixture()
-def mock_content_store():
+def mock_content_store() -> Generator[Any, None, None]:
     with patch("worker.renderer.get_content_store") as mock:
         yield mock.return_value
 
@@ -99,14 +100,14 @@ def test_render_manim_scene_to_disk_handles_failure(
         render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
 
 
-def test_manim_quality_flags():
+def test_manim_quality_flags() -> None:
     assert manim_quality_flags(job_type="preview", quality="720p") == ["-qh"]
     assert manim_quality_flags(job_type="full", quality="4k") == ["-qk"]
     assert manim_quality_flags(job_type="full", quality="1080p") == ["-qh"]
     assert manim_quality_flags(job_type="full", quality="720p") == ["-qh"]
 
 
-def test_render_manim_scene_to_disk_errors(mock_job_store, mock_content_store):
+def test_render_manim_scene_to_disk_errors(mock_job_store: Any, mock_content_store: Any) -> None:
     job_id = uuid4()
 
     # Job not found

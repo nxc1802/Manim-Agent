@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from ai_engine.rag.api_registry import ManimAPIRegistry
 from ai_engine.rag.log_parser import ParsedError, parse_render_error
 
@@ -36,7 +37,7 @@ def build_reviewer_rag_context(error_logs: str) -> str | None:
         return None
 
 
-def _format_api_reference(error: ParsedError, entries: list[dict]) -> str:
+def _format_api_reference(error: ParsedError, entries: list[dict[str, Any]]) -> str:
     """Format as markdown block for injection into reviewer prompt."""
     lines = [
         "### 📚 MANIM_API_REFERENCE (from official ManimCE v0.20.1 docs)",

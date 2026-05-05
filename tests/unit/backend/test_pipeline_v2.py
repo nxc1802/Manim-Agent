@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Generator
 from uuid import UUID
 
 import pytest
@@ -14,7 +15,7 @@ from worker.runtime import execute_render_job
 
 
 @pytest.fixture()
-def api_client() -> TestClient:
+def api_client() -> Generator[TestClient, None, None]:
     from backend.api.deps import get_content_store
     from backend.db.content_store import RedisContentStore
     from backend.services.redis_client import get_redis
@@ -73,7 +74,7 @@ def test_generate_code_enqueue_preview_mocked_render(
 ) -> None:
     _project_id, scene_id = _bootstrap_planned_scene(api_client)
 
-    def fake_render(*, job_id: UUID, job_type: str, quality: str, **kwargs):  # noqa: ARG001
+    def fake_render(*, job_id: UUID, job_type: str, quality: str, **kwargs: Any) -> Any:  # noqa: ARG001
         from worker.renderer import RenderManimResult
 
         out = tmp_path / f"{job_id}.mp4"

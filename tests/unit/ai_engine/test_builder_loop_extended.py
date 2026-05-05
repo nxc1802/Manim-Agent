@@ -7,10 +7,11 @@ import pytest
 from ai_engine.builder_loop import run_builder_loop_phase, run_single_review_round_ex
 from ai_engine.config import BuilderReviewLoopConfig, RuntimeLimitsConfig
 from ai_engine.llm_client import FakeLLMClient
+from shared.constants import ReviewLoopMode, SeverityLevel
 
 
 @pytest.fixture
-def rt():
+def rt() -> RuntimeLimitsConfig:
     return RuntimeLimitsConfig(
         worker_man_render_timeout_seconds=3600,
         worker_tts_subprocess_timeout_seconds=900,
@@ -22,7 +23,7 @@ def rt():
 
 
 @pytest.mark.anyio
-async def test_run_single_review_round_ex_visual_error(rt):
+async def test_run_single_review_round_ex_visual_error(rt: RuntimeLimitsConfig) -> None:
     llm = FakeLLMClient()
     review_cfg = BuilderReviewLoopConfig(
         max_rounds=3,
@@ -32,7 +33,7 @@ async def test_run_single_review_round_ex_visual_error(rt):
         code_static_forbidden_imports_ok=True,
         visual_agent_blocking_issues_empty=True,
         visual_reviewer_enabled=True,
-        blocking_severity_min="error",
+        blocking_severity_min=SeverityLevel.ERROR,
         stop_when_only_info_severity=False,
         on_max_rounds_exceeded="hitl_or_fail",
     )
@@ -56,7 +57,7 @@ async def test_run_single_review_round_ex_visual_error(rt):
 
 
 @pytest.mark.anyio
-async def test_run_builder_loop_phase_max_rounds(rt):
+async def test_run_builder_loop_phase_max_rounds(rt: RuntimeLimitsConfig) -> None:
     store = MagicMock()
     job_store = MagicMock()
     llm = FakeLLMClient()
@@ -93,7 +94,7 @@ async def test_run_builder_loop_phase_max_rounds(rt):
             yaml_data=yaml_data,
             runtime_limits=rt,
             preview_poll_timeout_seconds=10,
-            mode="auto",
+            mode=ReviewLoopMode.AUTO,
         )
         assert report["final_status"] == "failed"
         assert len(report["rounds"]) == 1

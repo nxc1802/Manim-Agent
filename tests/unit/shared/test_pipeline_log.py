@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from shared.pipeline_log import (
     get_pipeline_trace_id,
@@ -11,7 +11,7 @@ from shared.pipeline_log import (
 )
 
 
-def test_pipeline_trace_id_context():
+def test_pipeline_trace_id_context() -> None:
     pipeline_trace_id_var.set(None)
     assert get_pipeline_trace_id() is None
     pipeline_trace_id_var.set("test-trace")
@@ -21,7 +21,7 @@ def test_pipeline_trace_id_context():
 
 
 @patch("shared.pipeline_log.LOG")
-def test_pipeline_log_methods(mock_log):
+def test_pipeline_log_methods(mock_log: MagicMock) -> None:
     import logging
 
     mock_log.level = logging.INFO
@@ -40,7 +40,7 @@ def test_pipeline_log_methods(mock_log):
 
 
 @patch("shared.pipeline_log.LOG")
-def test_pipeline_log_no_trace(mock_log):
+def test_pipeline_log_no_trace(mock_log: MagicMock) -> None:
     import logging
 
     mock_log.level = logging.INFO

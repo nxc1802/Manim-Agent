@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from unittest.mock import patch
 from uuid import uuid4
@@ -6,7 +7,7 @@ from uuid import uuid4
 from worker.tasks import render_manim_scene
 
 
-def test_render_manim_scene_serialization(celery_config) -> None:
+def test_render_manim_scene_serialization(celery_config: Any) -> None:
     """Test that the task can be called with a string UUID (as it would be from API)."""
     job_id = str(uuid4())
 
@@ -20,7 +21,7 @@ def test_render_manim_scene_serialization(celery_config) -> None:
 
 
 @patch("worker.runtime.execute_render_job")
-def test_task_id_propagation(mock_execute, celery_config) -> None:
+def test_task_id_propagation(mock_execute: Any, celery_config: Any) -> None:
     """Test that trace IDs or other metadata propagate (simulated)."""
     job_id = str(uuid4())
 

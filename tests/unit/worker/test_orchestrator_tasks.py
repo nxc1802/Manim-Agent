@@ -7,7 +7,7 @@ import pytest
 from worker.orchestrator_tasks import run_orchestrator_loop_task
 
 
-def test_run_orchestrator_loop_task_success():
+def test_run_orchestrator_loop_task_success() -> None:
     sid = str(uuid4())
     mock_self = MagicMock()
     mock_self.request.headers = {"trace_id": "t1"}
@@ -31,7 +31,7 @@ def test_run_orchestrator_loop_task_success():
             assert mock_run.called
 
 
-def test_run_orchestrator_loop_task_error():
+def test_run_orchestrator_loop_task_error() -> None:
     sid = str(uuid4())
     mock_self = MagicMock()
     mock_self.request.headers = {}

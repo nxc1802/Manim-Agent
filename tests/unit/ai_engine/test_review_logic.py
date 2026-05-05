@@ -84,7 +84,7 @@ class GeneratedScene(Scene):
         visual_llm=visual_llm,
         manim_code=code,
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-        preview_video_path=video,
+        preview_video_path=str(video),
         extract_preview_frame=extract_end_of_play_jpeg_frame,
     )
     assert rep.code_review_passed
@@ -148,7 +148,7 @@ class GeneratedScene(Scene):
         visual_llm=visual_llm,
         manim_code=code,
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-        preview_video_path=Path("/tmp/fake.mp4"),
+        preview_video_path=str(Path("/tmp/fake.mp4")),
         extract_preview_frame=extract_end_of_play_jpeg_frame,
     )
     assert rep.code_review_passed
@@ -185,7 +185,7 @@ class GeneratedScene(Scene):
         visual_llm=visual_llm,
         manim_code=code,
         sandbox_limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
-        preview_video_path=Path("/tmp/fake.mp4"),
+        preview_video_path=str(Path("/tmp/fake.mp4")),
         extract_preview_frame=extract_end_of_play_jpeg_frame,
     )
     assert rep.code_review_passed

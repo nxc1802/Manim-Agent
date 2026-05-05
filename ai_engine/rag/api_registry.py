@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 class RegistryEntry(TypedDict, total=False):
@@ -40,10 +40,10 @@ class ManimAPIRegistry:
         # Check Scene.method format
         for entry in self._data.get("entries", []):
             if entry["symbol"] == symbol:
-                return entry
+                return cast(dict[str, Any], entry)
             # Allow matching method name only if unique or prioritized
             if "." in entry["symbol"] and entry["symbol"].split(".")[-1] == symbol:
-                return entry
+                return cast(dict[str, Any], entry)
         return None
 
     def lookup_deprecated(self, symbol: str) -> tuple[str, dict[str, Any]] | None:

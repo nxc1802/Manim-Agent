@@ -57,7 +57,10 @@ def parse_json_object(text: str, list_key: str = "beats") -> dict[str, Any]:
 
     # Final attempt at raw loads
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        return {list_key: data} if isinstance(data, list) else {"raw": data}
     except Exception as exc:
         msg = f"Failed to parse resilient JSON: {exc}. Original: {text[:200]}..."
         raise ValueError(msg) from exc

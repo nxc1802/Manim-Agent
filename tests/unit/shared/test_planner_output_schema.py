@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -10,7 +11,7 @@ from shared.schemas.planner_output import PlannerOutput
 
 def _fixture(name: str) -> dict[str, object]:
     path = Path(__file__).resolve().parents[2] / "fixtures" / name
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
 
 
 def test_planner_output_valid_fixture() -> None:

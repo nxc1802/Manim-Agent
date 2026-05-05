@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any, Generator
 
 import os
 from unittest.mock import MagicMock, patch
@@ -9,31 +10,31 @@ from worker.worker_health import _celery_argv, app
 
 
 @pytest.fixture
-def client():
+def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
 
 
-def test_celery_argv_default():
+def test_celery_argv_default() -> None:
     with patch.dict(os.environ, {"WORKER_HEALTH_MODE": "render", "CELERY_LOG_LEVEL": "DEBUG"}):
         argv = _celery_argv()
         assert "render" in argv
         assert "--loglevel=DEBUG" in argv
 
 
-def test_celery_argv_tts():
+def test_celery_argv_tts() -> None:
     with patch.dict(os.environ, {"WORKER_HEALTH_MODE": "tts"}):
         argv = _celery_argv()
         assert "tts" in argv
 
 
-def test_root_endpoint(client):
+def test_root_endpoint(client: TestClient) -> None:
     res = client.get("/")
     assert res.status_code == 200
     assert res.json() == {"status": "ok", "worker": "running"}
 
 
-def test_health_endpoint_success(client):
+def test_health_endpoint_success(client: TestClient) -> None:
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     app.state.proc = mock_proc
@@ -45,7 +46,7 @@ def test_health_endpoint_success(client):
         assert 'redis": true' in res.text
 
 
-def test_health_endpoint_redis_error(client):
+def test_health_endpoint_redis_error(client: TestClient) -> None:
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     app.state.proc = mock_proc
@@ -59,7 +60,7 @@ def test_health_endpoint_redis_error(client):
         assert 'redis": false' in res.text
 
 
-def test_health_endpoint_worker_dead(client):
+def test_health_endpoint_worker_dead(client: TestClient) -> None:
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 1
     app.state.proc = mock_proc
@@ -70,7 +71,7 @@ def test_health_endpoint_worker_dead(client):
 
 
 @pytest.mark.anyio
-async def test_lifespan():
+async def test_lifespan() -> None:
     from worker.worker_health import lifespan
 
     mock_app = MagicMock()

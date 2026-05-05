@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -19,7 +19,7 @@ from worker.tts_runtime import _write_silent_wav, execute_voice_job
 
 
 @pytest.fixture()
-def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
+def api_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Generator[TestClient, None, None]:
     from backend.api.deps import get_content_store
     from backend.db.content_store import RedisContentStore
     from backend.services.redis_client import get_redis

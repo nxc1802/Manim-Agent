@@ -76,6 +76,7 @@ def test_execute_voice_job_piper_updates_scene_and_job(
     assert scene is not None
     assert scene.audio_url
     assert scene.timestamps is not None
+    assert isinstance(scene.timestamps, dict)
     assert scene.timestamps.get("version") == "2"
     assert scene.timestamps.get("segments")
 
@@ -119,7 +120,7 @@ def test_execute_voice_job_piper_subprocess_fail(
 
     import subprocess
 
-    def boom(*args, **kwargs):
+    def boom(*args: Any, **kwargs: Any) -> Any:
         raise subprocess.CalledProcessError(1, "piper", stderr=b"Piper crashed")
 
     monkeypatch.setattr("subprocess.run", boom)
@@ -143,10 +144,10 @@ def test_execute_voice_job_piper_subprocess_fail(
     job = vstore.get(job_id)
     assert job is not None
     assert job.status == "failed"
-    assert "tts_failed" in job.error_code
+    assert job.error_code is not None and "tts_failed" in job.error_code
 
 
-def test_concat_wavs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_concat_wavs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p1 = tmp_path / "1.wav"
     p2 = tmp_path / "2.wav"
     out = tmp_path / "out.wav"
@@ -164,7 +165,7 @@ def test_concat_wavs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert out.exists()
 
 
-def test_run_piper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_run_piper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from ai_engine.piper_config import PiperRuntimeConfig
 
     cfg = PiperRuntimeConfig(
@@ -182,6 +183,6 @@ def test_run_piper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     assert meta[0]["text"] == "hi"
 
 
-def test_execute_voice_job_not_found():
+def test_execute_voice_job_not_found() -> None:
     # Should not raise
     execute_voice_job(uuid4())

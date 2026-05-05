@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 from unittest.mock import MagicMock
 
 import pytest
@@ -61,7 +61,9 @@ def _disable_supabase_http_side_effects(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture(autouse=True)
-def _isolate_redis_client_between_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_redis_client_between_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
     """Every test gets a fresh in-memory Redis and no real Supabase."""
     from backend.core.config import settings
 
@@ -103,7 +105,7 @@ def mock_supabase() -> MagicMock:
 
 
 @pytest.fixture()
-def api_client() -> TestClient:
+def api_client() -> Generator[TestClient, None, None]:
     """Yields a FastAPI TestClient with dependencies overridden for offline testing."""
     from ai_engine.llm_client import FakeLLMClient
     from backend.api.deps import get_content_store, get_llm_client

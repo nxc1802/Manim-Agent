@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from shared.constants import SeverityLevel
 
-ReviewSeverity = Literal["info", "warning", "error", "blocker"]
+ReviewSeverity = SeverityLevel
 
 
 class ReviewIssue(BaseModel):
@@ -12,7 +13,7 @@ class ReviewIssue(BaseModel):
 
     code: str
     message: str
-    severity: ReviewSeverity = "warning"
+    severity: ReviewSeverity = SeverityLevel.WARNING
     line_number: int | None = None
     suggestion: str | None = Field(
         default=None, description="Optional code snippet or instruction to fix the issue"

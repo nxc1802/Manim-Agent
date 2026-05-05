@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 import pytest
 from ai_engine.builder_loop import (
@@ -15,7 +16,7 @@ from shared.schemas.review import ReviewIssue, ReviewResult
 
 
 @pytest.fixture
-def base_cfg():
+def base_cfg() -> BuilderReviewLoopConfig:
     return BuilderReviewLoopConfig(
         max_rounds=3,
         early_stop_require_all=("code_review_passed",),
@@ -24,13 +25,13 @@ def base_cfg():
         code_static_forbidden_imports_ok=True,
         visual_agent_blocking_issues_empty=True,
         visual_reviewer_enabled=True,
-        blocking_severity_min="warning",
+        blocking_severity_min=SeverityLevel.WARNING,
         stop_when_only_info_severity=False,
         on_max_rounds_exceeded="fail",
     )
 
 
-def test_agent_has_blocking_severity(base_cfg):
+def test_agent_has_blocking_severity(base_cfg: BuilderReviewLoopConfig) -> None:
     issues = [ReviewIssue(severity=SeverityLevel.ERROR, code="E", message="err")]
     assert _agent_has_blocking(issues, base_cfg) is True
 
@@ -38,7 +39,7 @@ def test_agent_has_blocking_severity(base_cfg):
     assert _agent_has_blocking(issues, base_cfg) is False
 
 
-def test_agent_has_blocking_info_stop(base_cfg):
+def test_agent_has_blocking_info_stop(base_cfg: BuilderReviewLoopConfig) -> None:
     from dataclasses import replace
 
     cfg = replace(base_cfg, stop_when_only_info_severity=True)
@@ -46,7 +47,7 @@ def test_agent_has_blocking_info_stop(base_cfg):
     assert _agent_has_blocking(issues, cfg) is True
 
 
-def test_code_review_passed_variants(base_cfg):
+def test_code_review_passed_variants(base_cfg: BuilderReviewLoopConfig) -> None:
     res = ReviewResult(issues=[])
     assert (
         _code_review_passed(cfg=base_cfg, syntax_ok=True, policy_ok=True, agent_result=res) is True
@@ -57,18 +58,18 @@ def test_code_review_passed_variants(base_cfg):
     )
 
     # Test agent blocking
-    res_err = ReviewResult(issues=[ReviewIssue(severity="error", code="X", message="!")])
+    res_err = ReviewResult(issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")])
     assert (
         _code_review_passed(cfg=base_cfg, syntax_ok=True, policy_ok=True, agent_result=res_err)
         is False
     )
 
 
-def test_visual_review_passed_variants(base_cfg):
+def test_visual_review_passed_variants(base_cfg: BuilderReviewLoopConfig) -> None:
     res = ReviewResult(issues=[])
     assert _visual_review_passed(cfg=base_cfg, agent_result=res) is True
 
-    res_err = ReviewResult(issues=[ReviewIssue(severity="error", code="X", message="!")])
+    res_err = ReviewResult(issues=[ReviewIssue(severity=SeverityLevel.ERROR, code="X", message="!")])
     assert _visual_review_passed(cfg=base_cfg, agent_result=res_err) is False
 
     # If not checking blocking
@@ -78,7 +79,7 @@ def test_visual_review_passed_variants(base_cfg):
     assert _visual_review_passed(cfg=cfg_no_check, agent_result=res_err) is True
 
 
-def test_truncate_error_logs():
+def test_truncate_error_logs() -> None:
     assert truncate_error_logs("short") == "short"
     long_str = "A" * 3000
     truncated = truncate_error_logs(long_str, max_chars=100)
@@ -86,7 +87,7 @@ def test_truncate_error_logs():
     assert len(truncated) <= 120  # roughly
 
 
-def test_get_convergence_timestamp():
+def test_get_convergence_timestamp() -> None:
     assert _get_convergence_timestamp(None) is None
     sync = {
         "version": "2",
@@ -96,12 +97,12 @@ def test_get_convergence_timestamp():
     assert _get_convergence_timestamp(sync) == 10.5
 
     # invalid
-    assert _get_convergence_timestamp("invalid") is None
+    assert _get_convergence_timestamp({"invalid": "data"}) is None
 
 
 @pytest.mark.anyio
-async def test_run_agent_with_self_correction_success():
-    async def ok_call(result, **kwargs):
+async def test_run_agent_with_self_correction_success() -> None:
+    async def ok_call(result: Any, **kwargs: Any) -> tuple[Any, str, dict[str, Any], str, str]:
         return result, "v1", {}, "sys", "usr"
 
     # No schema
@@ -134,8 +135,8 @@ async def test_run_agent_with_self_correction_success():
 
 
 @pytest.mark.anyio
-async def test_run_agent_with_self_correction_fail():
-    async def fail_call(**kwargs):
+async def test_run_agent_with_self_correction_fail() -> None:
+    async def fail_call(**kwargs: Any) -> Any:
         raise ValueError("LLM fail")
 
     with pytest.raises(ValueError, match="LLM fail"):

@@ -21,7 +21,7 @@ router = APIRouter(tags=["projects"])
     summary="Create project",
     description="Khởi tạo một dự án mới. Đây là bước đầu tiên trong quy trình sản xuất video.",
 )
-@limiter.limit("2/minute")
+@limiter.limit("2/minute")  # type: ignore
 def create_project(
     request: Request,
     body: ProjectCreate,

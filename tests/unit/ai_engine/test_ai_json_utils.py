@@ -4,13 +4,13 @@ import pytest
 from ai_engine.json_utils import parse_json_object, strip_json_fence
 
 
-def test_strip_json_fence():
+def test_strip_json_fence() -> None:
     assert strip_json_fence('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert strip_json_fence("plain") == "plain"
     assert strip_json_fence("  ```\nfoo\n```  ") == "foo"
 
 
-def test_parse_json_object_variants():
+def test_parse_json_object_variants() -> None:
     # Simple dict
     assert parse_json_object('{"a": 1}') == {"a": 1}
 
@@ -28,6 +28,6 @@ def test_parse_json_object_variants():
     assert parse_json_object("[1, 2, ]", list_key="x") == {"x": [1, 2]}
 
 
-def test_parse_json_object_fail():
+def test_parse_json_object_fail() -> None:
     with pytest.raises(ValueError, match="Failed to parse resilient JSON"):
         parse_json_object("no json here")
