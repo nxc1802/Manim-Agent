@@ -414,7 +414,8 @@ class LiteLLMClient:
                     kwargs["api_base"] = ds_base
                 elif "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
                     kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-        elif "openrouter/" in lowered_model or "/" not in model:
+        else:
+            # Default/OpenRouter logic
             if self._api_key:
                 kwargs["api_key"] = self._api_key
             
