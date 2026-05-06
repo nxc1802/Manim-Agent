@@ -55,10 +55,17 @@ def get_llm_client() -> LLMClient:
     key = (settings.openrouter_api_key or "").strip() or None
     ds_key = (settings.dashscope_api_key or "").strip() or None
     if key or ds_key:
+        provider_bases = {}
+        if settings.openrouter_api_base:
+            provider_bases["openrouter"] = settings.openrouter_api_base
+        if settings.dashscope_api_base:
+            provider_bases["dashscope"] = settings.dashscope_api_base
+            
         return LiteLLMClient(
             key,
             api_base=settings.llm_api_base,
             provider_keys={"dashscope": ds_key} if ds_key else None,
+            provider_bases=provider_bases if provider_bases else None,
         )
     return FakeLLMClient()
 

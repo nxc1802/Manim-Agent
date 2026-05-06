@@ -30,6 +30,8 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1",
         validation_alias="LLM_API_BASE",
     )
+    openrouter_api_base: str | None = Field(default=None, validation_alias="OPENROUTER_API_BASE")
+    dashscope_api_base: str | None = Field(default=None, validation_alias="DASHSCOPE_API_BASE")
     dashscope_api_key: str | None = Field(default=None, validation_alias="DASHSCOPE_API_KEY")
     agent_models_yaml: str | None = Field(default=None, validation_alias="AGENT_MODELS_YAML")
     default_agent_model: str = Field(

@@ -358,10 +358,12 @@ class LiteLLMClient:
         *,
         api_base: str | None = None,
         provider_keys: dict[str, str] | None = None,
+        provider_bases: dict[str, str] | None = None,
     ) -> None:
         self._api_key = api_key
         self._api_base = (api_base or "").strip() or None
         self._provider_keys = provider_keys or {}
+        self._provider_bases = provider_bases or {}
 
     def complete(
         self,
@@ -406,15 +408,20 @@ class LiteLLMClient:
             ds_key = self._provider_keys.get("dashscope")
             if ds_key:
                 kwargs["api_key"] = ds_key
-                # Use the compatible-mode base if it's an 'openai/' style call
-                # or we want to force it
-                if "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
+                # Priority: 1. Specific provider base, 2. Global base, 3. Hardcoded fallback
+                ds_base = self._provider_bases.get("dashscope") or self._api_base
+                if ds_base:
+                    kwargs["api_base"] = ds_base
+                elif "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
                     kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
         elif "openrouter/" in lowered_model or "/" not in model:
             if self._api_key:
                 kwargs["api_key"] = self._api_key
-            if self._api_base:
-                kwargs["api_base"] = self._api_base
+            
+            # Priority: 1. Specific provider base, 2. Global base
+            or_base = self._provider_bases.get("openrouter") or self._api_base
+            if or_base:
+                kwargs["api_base"] = or_base
 
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
