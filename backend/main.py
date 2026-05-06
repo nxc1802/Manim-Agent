@@ -41,6 +41,7 @@ Hệ thống điều phối (orchestration) cho quy trình sản xuất video Ma
 👉 **Thử nghiệm Premium API Client mới tại đây:** [/scalar](/scalar)
 """
 
+# Manim Agent API - Redis connection optimized
 app = FastAPI(
     title="Manim Agent API",
     version="0.1.0",

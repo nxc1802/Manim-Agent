@@ -30,7 +30,10 @@ def _repo_root() -> Path:
 
 
 def default_agent_models_path() -> Path:
-    """Bundled example YAML; copy to `agent_models.yaml` and set AGENT_MODELS_YAML to override."""
+    """Prefer agent_models.yaml if it exists, otherwise fallback to bundled example."""
+    p = Path(__file__).resolve().parent / "config" / "agent_models.yaml"
+    if p.exists():
+        return p
     return Path(__file__).resolve().parent / "config" / "agent_models.example.yaml"
 
 
