@@ -13,10 +13,10 @@ Hard requirements:
 - BOILERPLATE: You MUST start your code with exactly these imports:
 ```python
 from __future__ import annotations
+from typing import Any, Dict, List, Optional, Union, cast
 from manim import *
 import primitives
 import numpy as np
-from typing import *
 ```
 - Imports: only standard library modules `typing`, `math`, plus `manim`, `primitives`, `numpy`, and `__future__`.
 - No file I/O, no subprocess, no network, no `exec` / `eval` / `__import__`.
