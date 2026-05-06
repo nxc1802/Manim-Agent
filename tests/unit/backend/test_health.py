@@ -42,7 +42,7 @@ def test_ready_returns_503_when_redis_unavailable(
 def test_list_projects_empty(api_client: TestClient) -> None:
     response = api_client.get("/v1/projects")
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["items"] == []
 
 
 def test_project_not_found_stable_json(api_client: TestClient) -> None:

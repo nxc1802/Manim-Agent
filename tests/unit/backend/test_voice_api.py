@@ -91,7 +91,7 @@ def test_voice_enqueue_completes_and_updates_scene(api_client: TestClient) -> No
 
     scenes = api_client.get(f"/v1/projects/{project_id}/scenes")
     assert scenes.status_code == 200
-    body = scenes.json()
+    body = scenes.json()["items"]
     assert len(body) == 1
     sc = body[0]
     assert sc["id"] == str(scene_id)
@@ -134,7 +134,7 @@ def test_voice_override_persisted_on_scene(api_client: TestClient) -> None:
     assert r.status_code == 202, r.text
     voice_job_id = UUID(r.json()["voice_job_id"])
     assert api_client.get(f"/v1/voice-jobs/{voice_job_id}").json()["status"] == "completed"
-    scenes = api_client.get(f"/v1/projects/{project_id}/scenes").json()
+    scenes = api_client.get(f"/v1/projects/{project_id}/scenes").json()["items"]
     sc = scenes[0]
     assert sc["voice_script"] == "First block.\n\nSecond block here."
     segs = sc["timestamps"]["segments"]
