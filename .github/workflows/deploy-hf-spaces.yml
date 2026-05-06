@@ -96,14 +96,15 @@ jobs:
 
       - name: Smoke test API
         if: steps.should_run.outputs.deploy == 'true'
-        env:
-          MANIM_AGENT_API_HF: "https://${{ vars.HF_SPACE_API_REPO }}.hf.space"
         run: |
+          # Convert "User/Repo" to "user-repo" for HF subdomain DNS
+          SUBDOMAIN=$(echo "${{ vars.HF_SPACE_API_REPO }}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+          export MANIM_AGENT_API_HF="https://${SUBDOMAIN}.hf.space"
+          
           chmod +x scripts/ops/smoke_hf_spaces.sh
-          # Wait a bit for HF build to at least start/provision
           echo "Waiting for HF deployment to stabilize..."
-          sleep 30 
-          # Note: Smoke test might fail if HF build is slow, but it's a good signal
+          echo "Testing API at: $MANIM_AGENT_API_HF"
+          sleep 45
           bash scripts/ops/smoke_hf_spaces.sh
 
   deploy-render:
