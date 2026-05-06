@@ -7,6 +7,10 @@ RENDER_TIMEOUT=300
 
 log() { echo "[*] $1"; }
 
+# 0. Reset Redis Connections (to avoid "max number of clients reached")
+log "Step 0: Resetting Redis connections..."
+python3 scripts/ops/reset_redis_connections.py || log "Warning: Failed to reset some connections, continuing anyway..."
+
 req() {
   local method="$1"
   local path="$2"
