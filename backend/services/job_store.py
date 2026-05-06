@@ -71,3 +71,16 @@ class RedisRenderJobStore:
         updated = job.model_copy(update=fields)
         self.save(updated)
         return updated
+
+    def get_idempotent_job_id(self, key: str) -> UUID | None:
+        raw = self._r.get(f"{settings.redis_prefix}:idempotency:{key}")
+        if raw is None:
+            return None
+        return UUID(cast(str, raw))
+
+    def set_idempotent_job_id(self, key: str, job_id: UUID, expiry: int = 86400) -> None:
+        self._r.setex(
+            f"{settings.redis_prefix}:idempotency:{key}",
+            expiry,
+            str(job_id),
+        )

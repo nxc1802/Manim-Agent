@@ -56,15 +56,30 @@ class SupabaseContentStore(ContentStore):
                 return Project.model_validate(r.json()[0])
         return None
 
-    def list_projects_for_user(self, user_id: UUID) -> list[Project]:
+    def list_projects_for_user(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[Project], int]:
         if not self._headers:
-            return []
-        url = f"{self._base_url}/rest/v1/projects?user_id=eq.{user_id}&order=created_at.asc"
-        with self._get_client() as client:
+            return [], 0
+        url = (
+            f"{self._base_url}/rest/v1/projects?user_id=eq.{user_id}"
+            f"&order=created_at.desc&limit={limit}&offset={offset}"
+        )
+        headers = dict(self._headers)
+        headers["Prefer"] = "count=exact"
+        with httpx.Client(headers=headers, timeout=30.0) as client:
             r = client.get(url)
             if r.status_code == 200:
-                return [Project.model_validate(p) for p in r.json()]
-        return []
+                total = 0
+                range_header = r.headers.get("Content-Range")
+                if range_header and "/" in range_header:
+                    total = int(range_header.split("/")[-1])
+                return [Project.model_validate(p) for p in r.json()], total
+        return [], 0
 
     def save_scene(self, scene: Scene) -> None:
         if not self._headers:
@@ -84,18 +99,30 @@ class SupabaseContentStore(ContentStore):
                 return Scene.model_validate(r.json()[0])
         return None
 
-    def list_scenes_for_project(self, project_id: UUID) -> list[Scene]:
+    def list_scenes_for_project(
+        self,
+        project_id: UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[Scene], int]:
         if not self._headers:
-            return []
+            return [], 0
         url = (
             f"{self._base_url}/rest/v1/scenes?project_id=eq.{project_id}"
-            "&order=scene_order.asc,created_at.asc"
+            f"&order=scene_order.asc,created_at.asc&limit={limit}&offset={offset}"
         )
-        with self._get_client() as client:
+        headers = dict(self._headers)
+        headers["Prefer"] = "count=exact"
+        with httpx.Client(headers=headers, timeout=30.0) as client:
             r = client.get(url)
             if r.status_code == 200:
-                return [Scene.model_validate(s) for s in r.json()]
-        return []
+                total = 0
+                range_header = r.headers.get("Content-Range")
+                if range_header and "/" in range_header:
+                    total = int(range_header.split("/")[-1])
+                return [Scene.model_validate(s) for s in r.json()], total
+        return [], 0
 
     def create_project(
         self,
@@ -194,6 +221,24 @@ class SupabaseContentStore(ContentStore):
                 return self.get_project(project_id)
         return None
 
+    def update_project(self, project_id: UUID, **kwargs: Any) -> Project | None:
+        if not self._headers:
+            return None
+        url = f"{self._base_url}/rest/v1/projects?id=eq.{project_id}"
+        with self._get_client() as client:
+            r = client.patch(url, json=kwargs)
+            r.raise_for_status()
+            return self.get_project(project_id)
+
+    def delete_project(self, project_id: UUID) -> None:
+        if not self._headers:
+            return
+        # PostgREST DELETE
+        url = f"{self._base_url}/rest/v1/projects?id=eq.{project_id}"
+        with self._get_client() as client:
+            r = client.delete(url)
+            r.raise_for_status()
+
     def save_scene_code_history(self, history: SceneCodeHistory) -> None:
         if not self._headers:
             return
@@ -204,6 +249,28 @@ class SupabaseContentStore(ContentStore):
             if r.status_code >= 400:
                 logger.error(f"Supabase save_scene_code_history failed: {r.status_code} {r.text}")
             r.raise_for_status()
+
+    def delete_scene(self, scene_id: UUID) -> None:
+        if not self._headers:
+            return
+        url = f"{self._base_url}/rest/v1/scenes?id=eq.{scene_id}"
+        with self._get_client() as client:
+            r = client.delete(url)
+            r.raise_for_status()
+
+    def batch_upsert_scenes(self, project_id: UUID, scenes: list[Scene]) -> list[Scene]:
+        if not self._headers:
+            return []
+        url = f"{self._base_url}/rest/v1/scenes"
+        payload = [s.model_dump(mode="json") for s in scenes]
+        headers = dict(self._headers)
+        headers["Prefer"] = "return=representation, resolution=merge-duplicates"
+        with httpx.Client(headers=headers, timeout=60.0) as client:
+            r = client.post(url, json=payload)
+            if r.status_code >= 400:
+                logger.error(f"Supabase batch_upsert_scenes failed: {r.status_code} {r.text}")
+            r.raise_for_status()
+            return [Scene.model_validate(s) for s in r.json()]
 
     def add_scene_to_project_index(self, scene: Scene) -> None:
         """Supabase handles indexing via foreign keys, so this is a no-op."""

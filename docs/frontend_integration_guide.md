@@ -123,16 +123,35 @@ sequenceDiagram
 ```
 
 #### `GET /v1/projects` — Danh sách dự án
-- **Response** `200`: `Project[]`
+- **Pagination**: Mặc định 20 items/page. Sử dụng query params `page` và `limit`.
+- **Response** `200`: `PaginatedResponse<Project>`
+```json
+{
+  "items": [...],
+  "total": 150,
+  "page": 1,
+  "limit": 20,
+  "pages": 8
+}
+```
 
 #### `GET /v1/projects/{project_id}` — Chi tiết dự án
 - **Response** `200`: `Project`
 - **Error** `404`: Project không tồn tại hoặc không thuộc user
 
+#### `PATCH /v1/projects/{project_id}` — Cập nhật dự án
+- **Request Body**: `ProjectUpdate` (title, description, source_language, status, ...)
+- **Response** `200`: `Project`
+
+#### `DELETE /v1/projects/{project_id}` — Xóa dự án
+- **Response** `204`: No Content
+
 #### `GET /v1/projects/{project_id}/scenes` — Danh sách scenes
-- **Response** `200`: `Scene[]`
+- **Pagination**: Mặc định 100 items/page.
+- **Response** `200`: `PaginatedResponse<Scene>`
 
 #### `POST /v1/projects/{project_id}/scenes` — Tạo scene mới
+- **Rate limit**: 10/minute
 - **Request Body**:
 ```json
 {
@@ -142,6 +161,10 @@ sequenceDiagram
 }
 ```
 - **Response** `201`: `Scene`
+
+#### `POST /v1/projects/{project_id}/scenes/batch` — Tạo/Cập nhật hàng loạt scene
+- **Request Body**: `Scene[]`
+- **Response** `200`: `Scene[]`
 
 #### `POST /v1/projects/{project_id}/approve-storyboard` — Duyệt tất cả storyboard
 - **Response** `200`: `Scene[]` (tất cả scenes đã được approve)
@@ -169,6 +192,16 @@ sequenceDiagram
 #### `POST /v1/scenes/{scene_id}/approve-storyboard` — Duyệt storyboard
 - **Response** `200`: `Scene` với `storyboard_status = "approved"`
 - **Errors**: `409` không ở trạng thái `pending_review` · `400` storyboard trống
+
+#### `PATCH /v1/scenes/{scene_id}` — Cập nhật scene
+- **Request Body**: `SceneUpdate` (scene_order, storyboard_text, voice_script, ...)
+- **Response** `200`: `Scene`
+
+#### `DELETE /v1/scenes/{scene_id}` — Xóa scene
+- **Response** `204`: No Content
+
+#### `POST /v1/scenes/{scene_id}/approve` — Duyệt storyboard (Individual)
+- Tương đương với `approve-storyboard`.
 
 #### `POST /v1/scenes/{scene_id}/plan` — Planner Agent
 - **Rate limit**: 10/minute · **Sync** (10-20s)
@@ -283,6 +316,8 @@ sequenceDiagram
 ### 3.3 Render Jobs
 
 #### `POST /v1/projects/{project_id}/render` — Tạo render job
+- **Rate limit**: 5/minute
+- **Idempotency**: Gửi Header `X-Idempotency-Key` để tránh tạo job trùng lặp khi retry.
 - **Request Body**:
 ```json
 {
@@ -489,16 +524,20 @@ Gửi `"ping"` → nhận `"pong"`
 ## 7. Error Handling
 
 ### Error Envelope
+Mọi lỗi nghiệp vụ đều trả về cấu trúc `AppException` chuẩn hóa:
 ```json
 {
   "error": {
-    "code": "validation_error",
-    "message": "Request validation failed",
-    "request_id": "correlation-uuid"
-  },
-  "details": [...]
+    "code": "insufficient_funds",
+    "message": "Không đủ tài nguyên để thực hiện thao tác",
+    "request_id": "req_123456789",
+    "details": {
+      "missing": "..."
+    }
+  }
 }
 ```
+> **request_id**: Luôn đính kèm trong header `X-Request-ID` của mọi response.
 
 ### Error Code Catalog
 

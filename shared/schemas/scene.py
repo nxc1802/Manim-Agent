@@ -25,6 +25,19 @@ class SceneCreate(BaseModel):
     )
 
 
+class SceneUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene_order: int | None = Field(default=None, ge=0)
+    storyboard_text: str | None = None
+    voice_script: str | None = None
+    storyboard_status: StoryboardStatus | None = None
+    plan_status: PlanStatus | None = None
+    voice_script_status: VoiceScriptStatus | None = None
+    review_loop_status: ReviewLoopStatus | None = None
+    manim_code: str | None = None
+
+
 class Scene(BaseModel):
     """Row shape for `public.scenes`."""
 

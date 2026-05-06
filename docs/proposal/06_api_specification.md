@@ -16,13 +16,16 @@ Dự án tích hợp **Supabase Auth**. Mọi yêu cầu (ngoại trừ các end
 
 ## 2. Quản lý Dự án (Projects)
 
-### `GET /v1/projects`
-
-Lấy danh sách tất cả dự án của người dùng hiện tại.
+Lấy danh sách tất cả dự án của người dùng hiện tại (có hỗ trợ phân trang).
 
 ### `POST /v1/projects`
-
 Khởi tạo một dự án mới.
+
+### `PATCH /v1/projects/{id}`
+Cập nhật thông tin dự án.
+
+### `DELETE /v1/projects/{id}`
+Xóa dự án.
 
 - **Body:**
   ```json
@@ -63,7 +66,7 @@ Tạo audio thuyết minh và trích xuất dữ liệu timestamp.
 
 ### `POST /v1/projects/{id}/render`
 
-Kích hoạt tiến trình render cho dự án.
+Kích hoạt tiến trình render cho dự án. Hỗ trợ `X-Idempotency-Key` để chống trùng lặp.
 
 - **Body:**
   ```json

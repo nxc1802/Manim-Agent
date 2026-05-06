@@ -48,6 +48,17 @@ class ProjectCreate(BaseModel):
     )
 
 
+class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=20_000)
+    source_language: str | None = Field(default=None, min_length=2, max_length=16)
+    target_scenes: int | None = Field(default=None, ge=1, le=20)
+    status: ProjectStatus | None = None
+    config: dict[str, Any] | None = None
+
+
 class Project(BaseModel):
     """Row shape for `public.projects` (see docs/proposal/09_supabase_schema.md)."""
 

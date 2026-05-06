@@ -15,6 +15,21 @@ from backend.core.correlation import get_request_id
 
 logger = logging.getLogger(__name__)
 
+class AppException(Exception):
+    def __init__(
+        self,
+        *,
+        code: str,
+        message: str,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+        details: Any | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.details = details
+        super().__init__(message)
+
 # RFC 9110 name; Python 3.13+ exposes `UNPROCESSABLE_CONTENT` (422).
 _VALIDATION_STATUS = getattr(HTTPStatus, "UNPROCESSABLE_CONTENT", HTTPStatus.UNPROCESSABLE_ENTITY)
 
@@ -39,6 +54,19 @@ def _error_payload(
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(AppException)
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+        rid = get_request_id()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_payload(
+                code=exc.code,
+                message=exc.message,
+                request_id=rid,
+                details=exc.details,
+            ),
+        )
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(
         request: Request,
