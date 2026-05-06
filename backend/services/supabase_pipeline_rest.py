@@ -106,8 +106,11 @@ def insert_worker_service_audit_row(
     }
     url = f"{base}/rest/v1/worker_service_audit"
     try:
+        # Use UPSERT to avoid 409 Conflict if log is retried
+        put_headers = dict(headers)
+        put_headers["Prefer"] = "return=minimal, resolution=merge-duplicates"
         with httpx.Client(timeout=30.0) as client:
-            r = client.post(url, headers=headers, json=[row])
+            r = client.post(url, headers=put_headers, json=[row])
             r.raise_for_status()
     except Exception:
         logger.exception(
