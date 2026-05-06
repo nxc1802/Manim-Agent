@@ -17,7 +17,7 @@ from worker.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(  # type: ignore
+@celery_app.task(
     name="manim_agent.run_orchestrator_loop",
     bind=True,
     autoretry_for=(Exception,),

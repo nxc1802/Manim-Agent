@@ -7,8 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from redis.exceptions import RedisError
 from shared.pipeline_log import setup_pipeline_logging
-from slowapi import _rate_limit_exceeded_handler  # type: ignore
-from slowapi.errors import RateLimitExceeded  # type: ignore
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from backend.api.v1.router import api_router
 from backend.core.config import settings
@@ -52,7 +52,7 @@ app = FastAPI(
     },
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 register_exception_handlers(app)
 

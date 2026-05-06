@@ -117,6 +117,11 @@ def api_client() -> Generator[TestClient, None, None]:
 
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
     app.dependency_overrides[get_content_store] = lambda: RedisContentStore(get_redis())
+    
+    # Disable rate limiting for tests
+    if hasattr(app.state, "limiter"):
+        app.state.limiter.enabled = False
+        
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

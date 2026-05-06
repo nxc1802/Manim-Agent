@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from slowapi import Limiter  # type: ignore
-from slowapi.util import get_remote_address  # type: ignore
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 
 def get_user_id_key(request: Any) -> str:
