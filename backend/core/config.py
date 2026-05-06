@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     )
 
     redis_url: str = Field(default="redis://localhost:6379/0", validation_alias="REDIS_URL")
+    redis_max_connections: int = Field(default=10, validation_alias="REDIS_MAX_CONNECTIONS")
     redis_prefix: str = Field(default="manim_agent", validation_alias="REDIS_PREFIX")
     celery_broker_url: str | None = Field(default=None, validation_alias="CELERY_BROKER_URL")
     celery_result_backend: str | None = Field(

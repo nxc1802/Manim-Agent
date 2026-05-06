@@ -18,6 +18,9 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_routes={"manim_agent.synthesize_voice": {"queue": "tts"}},
+    # Optimize connection usage for cloud free tiers
+    broker_pool_limit=1,
+    redis_max_connections=5,
 )
 
 from shared.pipeline_log import setup_pipeline_logging  # noqa: E402

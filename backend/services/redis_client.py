@@ -19,6 +19,7 @@ def get_redis() -> Redis:
         _client = RedisCls.from_url(
             settings.redis_url,
             decode_responses=True,
+            max_connections=settings.redis_max_connections,
         )
     return _client
 
