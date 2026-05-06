@@ -26,19 +26,8 @@ _EXPLICIT_REDIS_URL: str | None = None
 
 
 def _get_broadcast_redis() -> redis.Redis | None:
-    global _BROADCAST_REDIS
-    if _BROADCAST_REDIS is not None:
-        return _BROADCAST_REDIS
-
-    url = _EXPLICIT_REDIS_URL or os.environ.get("REDIS_URL")
-    if not url:
-        return None
-
-    try:
-        _BROADCAST_REDIS = redis.from_url(url, decode_responses=True, max_connections=1)  # type: ignore
-        return _BROADCAST_REDIS
-    except Exception:
-        return None
+    # Feature disabled to save Redis connections on free tiers.
+    return None
 
 
 def get_pipeline_trace_id() -> str | None:
