@@ -206,7 +206,8 @@ def approve_project_storyboard(
 ) -> list[Scene]:
     project_readable_by_user(store, project_id, user_id)
     # Note: list_scenes_for_project is now paginated, but here we might need ALL scenes.
-    # For HITL approval, we usually want all. Let's fetch a large limit or add a non-paginated method.
+    # For HITL approval, we usually want all.
+    # Let's fetch a large limit or add a non-paginated method.
     # For now, let's use a large limit.
     scenes, _ = store.list_scenes_for_project(project_id, limit=1000)
     if not scenes:
