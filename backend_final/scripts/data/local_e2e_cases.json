@@ -1,0 +1,52 @@
+[
+  {
+    "id": "derivative_graph",
+    "title": "Derivative & Tangent",
+    "prompt": "Giải thích đạo hàm bằng đồ thị hàm số y=x^2. Vẽ tiếp tuyến tại một điểm và cho thấy độ dốc thay đổi khi điểm di chuyển. Dành cho học sinh trung học."
+  },
+  {
+    "id": "limit_shorts",
+    "title": "Limit Explanation (TikTok)",
+    "prompt": "Video 30–45s giải thích khái niệm giới hạn (limit). Sử dụng phong cách TikTok/Reels với text overlay lớn, màu sắc rực rỡ và animation nhanh."
+  },
+  {
+    "id": "linear_vs_exponential",
+    "title": "Linear vs Exponential",
+    "prompt": "So sánh trực quan sự khác biệt giữa tăng trưởng tuyến tính (y=2x) và tăng trưởng mũ (y=2^x). Hiển thị điểm giao nhau và sự bùng nổ của hàm mũ."
+  },
+  {
+    "id": "linear_regression_intro",
+    "title": "Linear Regression Intuition",
+    "prompt": "Giải thích hồi quy tuyến tính (linear regression) một cách trực quan: vẽ các điểm dữ liệu phân tán và một đường thẳng 'vừa vặn nhất' (best fit) đi qua chúng mà không dùng công thức phức tạp."
+  },
+  {
+    "id": "big_data_model",
+    "title": "Data vs Model Quality",
+    "prompt": "Animation minh họa: khi số lượng điểm dữ liệu tăng lên, đường ranh giới phân loại (decision boundary) trở nên chính xác và ổn định hơn. 'Vì sao dữ liệu nhiều giúp mô hình tốt hơn'."
+  },
+  {
+    "id": "matrix_det_3x3",
+    "title": "3x3 Matrix Determinant",
+    "prompt": "Minh họa từng bước tính định thức ma trận 3x3 bằng quy tắc Sarrus hoặc khai triển Laplace. Sử dụng màu sắc để highlight các đường chéo hoặc phần tử đang tính."
+  },
+  {
+    "id": "population_storytelling",
+    "title": "Population Growth Data",
+    "prompt": "Kể chuyện bằng dữ liệu: Dùng biểu đồ cột hoặc đường để hiển thị dân số thế giới tăng từ năm 1900 đến 2024. Thêm chú thích cho các cột mốc quan trọng."
+  },
+  {
+    "id": "vector_real_world",
+    "title": "Vector Motion",
+    "prompt": "Giải thích vector bằng ví dụ một chiếc máy bay đang bay: hiển thị vector vận tốc và vector gió ảnh hưởng đến hướng đi thực tế. Sử dụng animation để mô phỏng chuyển động."
+  },
+  {
+    "id": "fractions_for_kids",
+    "title": "Fractions for Kids",
+    "prompt": "Dạy phân số cho trẻ em: Vẽ một chiếc bánh pizza, chia thành 4 phần, lấy đi 1 phần và hiển thị phân số 1/4, 3/4 bằng animation vui nhộn."
+  },
+  {
+    "id": "function_to_app",
+    "title": "Function -> Graph -> App",
+    "prompt": "Chuỗi 3 giai đoạn trong 1 video: 1. Hàm số (f(x)=sin(x)), 2. Đồ thị sóng âm, 3. Ứng dụng thực tế là sóng radio hoặc âm nhạc."
+  }
+]
