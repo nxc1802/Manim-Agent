@@ -8,7 +8,6 @@ from shared.pipeline_log import (
     LOG,
     _pipeline_log_level,
     celery_trace_headers,
-    pipeline_debug,
     pipeline_error,
     pipeline_event,
     trace_id_from_celery_request,
@@ -38,7 +37,8 @@ def test_pipeline_event_with_supabase(mock_httpx: MagicMock) -> None:
     mock_client = MagicMock()
     mock_httpx.return_value.__enter__.return_value = mock_client
 
-    with patch.dict(os.environ, {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}):
+    env = {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}
+    with patch.dict(os.environ, env):
         from shared.pipeline_log import setup_pipeline_logging
         setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
         
@@ -53,7 +53,8 @@ def test_pipeline_error_with_supabase(mock_httpx: MagicMock) -> None:
     mock_client = MagicMock()
     mock_httpx.return_value.__enter__.return_value = mock_client
 
-    with patch.dict(os.environ, {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}):
+    env = {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}
+    with patch.dict(os.environ, env):
         from shared.pipeline_log import setup_pipeline_logging
         setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
         

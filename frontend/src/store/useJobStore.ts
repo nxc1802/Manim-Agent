@@ -1,13 +1,13 @@
 import { create } from 'zustand';
 import { jobService } from '../services/api';
-import { RenderJob } from '../types/api';
+import type { Job } from '../types/api';
 
 interface JobState {
-  jobs: RenderJob[];
+  jobs: Job[];
   loading: boolean;
   error: string | null;
   fetchJobs: () => Promise<void>;
-  updateJob: (job: RenderJob) => void;
+  updateJob: (job: Job) => void;
 }
 
 export const useJobStore = create<JobState>((set) => ({
@@ -18,8 +18,7 @@ export const useJobStore = create<JobState>((set) => ({
   fetchJobs: async () => {
     set({ loading: true, error: null });
     try {
-      // Assuming we want to fetch recent jobs, maybe add a list method to jobService if missing
-      // For now, let's just keep it as a placeholder or use it for active jobs
+      // For now, job listing is handled per project or recently, but let's keep it simple
       set({ loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch jobs', loading: false });

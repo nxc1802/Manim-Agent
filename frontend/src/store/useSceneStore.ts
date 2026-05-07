@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { sceneService } from '../services/api';
-import { Scene } from '../types/api';
+import type { Scene } from '../types/api';
 
 interface SceneState {
   currentScene: Scene | null;
@@ -22,8 +22,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   fetchScene: async (sceneId) => {
     set({ loading: true, error: null });
     try {
-      const scene = await sceneService.get(sceneId);
-      set({ currentScene: scene, loading: false });
+      const response = await sceneService.getById(sceneId);
+      set({ currentScene: response.data, loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch scene', loading: false });
     }
@@ -36,8 +36,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   generateStoryboard: async (sceneId, briefOverride) => {
     set({ loading: true, error: null });
     try {
-      const scene = await sceneService.generateStoryboard(sceneId, briefOverride);
-      set({ currentScene: scene, loading: false });
+      const response = await sceneService.generateStoryboard(sceneId, briefOverride);
+      set({ currentScene: response.data, loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to generate storyboard', loading: false });
     }
@@ -46,8 +46,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   approveStoryboard: async (sceneId) => {
     set({ loading: true, error: null });
     try {
-      const scene = await sceneService.approveStoryboard(sceneId);
-      set({ currentScene: scene, loading: false });
+      const response = await sceneService.approveStoryboard(sceneId);
+      set({ currentScene: response.data, loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to approve storyboard', loading: false });
     }
@@ -56,8 +56,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   planBeats: async (sceneId) => {
     set({ loading: true, error: null });
     try {
-      const scene = await sceneService.plan(sceneId);
-      set({ currentScene: scene, loading: false });
+      const response = await sceneService.plan(sceneId);
+      set({ currentScene: response.data, loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to plan beats', loading: false });
     }
@@ -66,8 +66,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   approvePlan: async (sceneId) => {
     set({ loading: true, error: null });
     try {
-      const scene = await sceneService.approvePlan(sceneId);
-      set({ currentScene: scene, loading: false });
+      const response = await sceneService.approvePlan(sceneId);
+      set({ currentScene: response.data, loading: false });
     } catch (err: any) {
       set({ error: err.message || 'Failed to approve plan', loading: false });
     }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { projectService } from '../services/api';
-import { Project, DashboardStats } from '../types/api';
+import type { Project, DashboardStats } from '../types/api';
 
 interface ProjectState {
   projects: Project[];
@@ -23,8 +23,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
   fetchProjects: async (page = 1, limit = 10) => {
     set({ loading: true, error: null });
     try {
-      const response = await projectService.list(page, limit);
-      set({ projects: response.items, totalProjects: response.total, loading: false });
+      const response = await projectService.getAll(page, limit);
+      set({ 
+        projects: response.data.items, 
+        totalProjects: response.data.total, 
+        loading: false 
+      });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch projects', loading: false });
     }
@@ -42,7 +46,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   createProject: async (data) => {
     set({ loading: true, error: null });
     try {
-      const project = await projectService.create(data);
+      const response = await projectService.create(data);
+      const project = response.data;
       set((state) => ({ projects: [project, ...state.projects], loading: false }));
       return project;
     } catch (err: any) {
