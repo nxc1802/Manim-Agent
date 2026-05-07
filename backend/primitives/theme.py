@@ -1,0 +1,14 @@
+from __future__ import annotations
+
+# 3Blue1Brown-inspired color palette
+COLOR_3B1B_BLUE = "#58C4DD"
+COLOR_3B1B_YELLOW = "#FFFF00"
+COLOR_3B1B_GREEN = "#83C167"
+COLOR_3B1B_RED = "#FC6255"
+COLOR_3B1B_PINK = "#D147BD"
+COLOR_3B1B_TEAL = "#ACEAD7"
+
+# Default aesthetic tokens
+DEFAULT_STROKE_WIDTH = 3.0
+DEFAULT_FILL_OPACITY = 0.7
+DEFAULT_MOBJECT_COLOR = "#FFFFFF"

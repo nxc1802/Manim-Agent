@@ -1,0 +1,135 @@
+version: "0.20.1"
+entries:
+  # --- Scene Methods ---
+  - symbol: "Scene.play"
+    module_path: "manim.scene.scene"
+    category: "scene_method"
+    signature: "play(*animations, subcaption=None, subcaption_duration=None, **kwargs)"
+    description: "Play one or more Animation objects."
+    example: "self.play(Write(text), FadeIn(circle), run_time=2)"
+    common_errors:
+      - pattern: "play_text|play_write"
+        fix: "Use self.play(Write(Text('...'))) — play() takes Animation objects, not strings"
+      - pattern: "ShowCreation"
+        fix: "ShowCreation was renamed to Create in ManimCE v0.16+"
+
+  - symbol: "Scene.wait"
+    module_path: "manim.scene.scene"
+    category: "scene_method"
+    signature: "wait(duration=DEFAULT_WAIT_TIME, stop_condition=None, frozen_frame=None)"
+    description: "Wait for a given duration. Duration must be positive (>0)."
+    common_errors:
+      - pattern: "wait(0)"
+        fix: "self.wait(0) raises ValueError. Use self.wait(0.01) or remove the call."
+
+  # --- Animations: Creation ---
+  - symbol: "Create"
+    module_path: "manim.animation.creation"
+    category: "animation"
+    signature: "Create(mobject, run_time=1.0, rate_func=linear, **kwargs)"
+    description: "Animates the creation of a VMobject by drawing its stroke."
+    example: "self.play(Create(circle))"
+    deprecated_aliases: ["ShowCreation"]
+
+  - symbol: "Write"
+    module_path: "manim.animation.creation"
+    category: "animation"
+    signature: "Write(mobject, run_time=None, rate_func=None, lag_ratio=None, **kwargs)"
+    description: "Display a mobject as if it's being written."
+    example: "self.play(Write(text))"
+
+  - symbol: "Uncreate"
+    module_path: "manim.animation.creation"
+    category: "animation"
+    signature: "Uncreate(mobject, run_time=1.0, rate_func=linear, **kwargs)"
+    description: "Inverse of Create."
+
+  # --- Animations: Fading ---
+  - symbol: "FadeIn"
+    module_path: "manim.animation.fading"
+    category: "animation"
+    signature: "FadeIn(mobject, shift=None, target_position=None, scale=1, **kwargs)"
+    description: "Fade in a mobject."
+    example: "self.play(FadeIn(mobj, shift=UP))"
+
+  - symbol: "FadeOut"
+    module_path: "manim.animation.fading"
+    category: "animation"
+    signature: "FadeOut(mobject, shift=None, target_position=None, scale=1, **kwargs)"
+    description: "Fade out a mobject."
+
+  # --- Animations: Transform ---
+  - symbol: "ReplacementTransform"
+    module_path: "manim.animation.transform"
+    category: "animation"
+    signature: "ReplacementTransform(mobject, target_mobject, **kwargs)"
+    description: "Replaces the first mobject with the second."
+
+  - symbol: "TransformMatchingTex"
+    module_path: "manim.animation.transform_matching_parts"
+    category: "animation"
+    signature: "TransformMatchingTex(mobject, target_mobject, **kwargs)"
+    description: "Transforms parts of a MathTex by matching TeX strings."
+    example: "self.play(TransformMatchingTex(eq1, eq2))"
+
+  # --- Animations: Composition ---
+  - symbol: "LaggedStart"
+    module_path: "manim.animation.composition"
+    category: "animation"
+    signature: "LaggedStart(*animations, lag_ratio=0.05, **kwargs)"
+    description: "Plays animations with staggered start times."
+    example: "self.play(LaggedStart(*[FadeIn(m) for m in group]))"
+
+  - symbol: "AnimationGroup"
+    module_path: "manim.animation.composition"
+    category: "animation"
+    signature: "AnimationGroup(*animations, lag_ratio=0, **kwargs)"
+    description: "Group multiple animations to be played together."
+
+  # --- Mobjects: Geometry ---
+  - symbol: "Text"
+    module_path: "manim.mobject.text.text_mobject"
+    category: "mobject"
+    signature: "Text(text, font='', font_size=48, color=WHITE, weight=NORMAL, slant=NORMAL, ...)"
+    description: "Display non-LaTeX text. Does NOT require LaTeX installation."
+    example: 'Text("Hello World", font_size=48, color=BLUE)'
+
+  - symbol: "Circle"
+    module_path: "manim.mobject.geometry.arc"
+    category: "mobject"
+    signature: "Circle(radius=1.0, color=WHITE, **kwargs)"
+    description: "A circle mobject."
+
+  - symbol: "Square"
+    module_path: "manim.mobject.geometry.polygram"
+    category: "mobject"
+    signature: "Square(side_length=2.0, color=WHITE, **kwargs)"
+
+  - symbol: "Line"
+    module_path: "manim.mobject.geometry.line"
+    category: "mobject"
+    signature: "Line(start=LEFT, end=RIGHT, **kwargs)"
+
+  # --- Mobjects: Graphing ---
+  - symbol: "Axes"
+    module_path: "manim.mobject.graphing.coordinate_systems"
+    category: "mobject"
+    signature: "Axes(x_range=None, y_range=None, x_length=None, y_length=None, axis_config=None, ...)"
+    description: "2D coordinate system with x and y axes."
+    example: "axes = Axes(x_range=[-3, 3], y_range=[-2, 2])"
+
+  - symbol: "NumberPlane"
+    module_path: "manim.mobject.graphing.coordinate_systems"
+    category: "mobject"
+    signature: "NumberPlane(x_range=[-7.11, 7.11, 1], y_range=[-4, 4, 1], ...)"
+
+deprecated_aliases:
+  ShowCreation: "Create"
+  DrawBorderThenFill: "Create"
+  ShowCreationThenDestruction: "ShowPassingFlash"
+  FadeInFrom: "FadeIn"
+  FadeOutAndShift: "FadeOut"
+  get_graph: "plot"
+  get_implicit_graph: "plot_implicit"
+  coords_to_point: "c2p"
+  point_to_coords: "p2c"
