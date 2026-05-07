@@ -21,16 +21,17 @@ from shared.pipeline_log import pipeline_event
 from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.scene import Scene
 from shared.schemas.voice_segments import VoiceSegmentTimestamps
+from worker.tasks import render_manim_scene
+from worker.tts_tasks import synthesize_voice
 
 from backend.core.config import settings
+from backend.core.errors import ResourceNotFound
 from backend.db.base import ContentStore
 from backend.services.code_sandbox import SandboxLimits, validate_manim_code
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.supabase_voice_rest import insert_voice_job_row
 from backend.services.sync_engine_logic import align_beats_to_audio
 from backend.services.voice_job_store import RedisVoiceJobStore
-from worker.tasks import render_manim_scene
-from worker.tts_tasks import synthesize_voice
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class SceneService:
     ) -> Scene:
         scene = self.store.get_scene(scene_id)
         if not scene:
-            raise ValueError(f"Scene not found: {scene_id}")
+            raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
         project = project_readable_by_user(self.store, scene.project_id, user_id)
@@ -115,7 +116,7 @@ class SceneService:
     async def run_planner(self, scene_id: UUID, user_id: UUID) -> Scene:
         scene = self.store.get_scene(scene_id)
         if not scene:
-            raise ValueError(f"Scene not found: {scene_id}")
+            raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
         project = project_readable_by_user(self.store, scene.project_id, user_id)
@@ -170,7 +171,7 @@ class SceneService:
     def sync_timeline(self, scene_id: UUID, user_id: UUID) -> Scene:
         scene = self.store.get_scene(scene_id)
         if not scene:
-            raise ValueError(f"Scene not found: {scene_id}")
+            raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
         project_readable_by_user(self.store, scene.project_id, user_id)
@@ -201,7 +202,7 @@ class SceneService:
     ) -> tuple[Scene, UUID | None]:
         scene = self.store.get_scene(scene_id)
         if not scene:
-            raise ValueError(f"Scene not found: {scene_id}")
+            raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
         project = project_readable_by_user(self.store, scene.project_id, user_id)
@@ -264,7 +265,7 @@ class SceneService:
     ) -> UUID:
         scene = self.store.get_scene(scene_id)
         if not scene:
-            raise ValueError(f"Scene not found: {scene_id}")
+            raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
         project_readable_by_user(self.store, scene.project_id, user_id)

@@ -13,25 +13,14 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-import redis
-
 LOG = logging.getLogger("manim.pipeline")
 
 pipeline_trace_id_var: ContextVar[str | None] = ContextVar("pipeline_trace_id", default=None)
 pipeline_scene_id_var: ContextVar[str | None] = ContextVar("pipeline_scene_id", default=None)
 
-# Global Redis client for event broadcasting (deprecated for frontend logs)
-_BROADCAST_REDIS: redis.Redis | None = None
-_EXPLICIT_REDIS_URL: str | None = None
-
 # Supabase Realtime broadcasting config
-_SUPABASE_URL: str | None = None
-_SUPABASE_KEY: str | None = None
-
-
-def _get_broadcast_redis() -> redis.Redis | None:
-    # Feature disabled to save Redis connections on free tiers.
-    return None
+_SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
+_SUPABASE_KEY: str | None = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 
 def get_pipeline_trace_id() -> str | None:
@@ -53,14 +42,11 @@ def _pipeline_log_level() -> int:
 
 def setup_pipeline_logging(
     level: str | int | None = None,
-    redis_url: str | None = None,
     supabase_url: str | None = None,
     supabase_key: str | None = None,
 ) -> None:
     """Attach a single stdout handler so each event is one JSON line (idempotent)."""
-    global _EXPLICIT_REDIS_URL, _SUPABASE_URL, _SUPABASE_KEY
-    if redis_url:
-        _EXPLICIT_REDIS_URL = redis_url
+    global _SUPABASE_URL, _SUPABASE_KEY
     if supabase_url:
         _SUPABASE_URL = supabase_url
     if supabase_key:
@@ -205,39 +191,7 @@ def pipeline_event(
     )
     LOG.info(json.dumps(payload, default=str, ensure_ascii=False))
 
-    # Broadcast to Supabase (Realtime)
-    if _SUPABASE_URL and _SUPABASE_KEY:
-        try:
-            # We use a simple HTTP post to avoiding adding heavy dependencies to shared.
-            # In a high-traffic system, we might queue these or use a background thread.
-            import httpx
-            
-            # Project ID is mandatory for RLS
-            project_id = fields.get("project_id")
-            if project_id:
-                row = {
-                    "project_id": str(project_id),
-                    "scene_id": str(fields.get("scene_id")) if fields.get("scene_id") else payload.get("scene_id"),
-                    "component": component,
-                    "phase": phase,
-                    "message": message,
-                    "details": details or {},
-                    "trace_id": payload.get("trace_id"),
-                }
-                url = f"{_SUPABASE_URL.rstrip('/')}/rest/v1/pipeline_events"
-                headers = {
-                    "apikey": _SUPABASE_KEY,
-                    "Authorization": f"Bearer {_SUPABASE_KEY}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal",
-                }
-                # Sync call for simplicity in logging utility, though async would be better if we were in an async loop.
-                # Since pipeline_event is often called from sync code (Celery, etc), we use sync httpx.
-                with httpx.Client(timeout=5.0) as client:
-                    client.post(url, headers=headers, json=row)
-        except Exception:
-            # Logging should not crash the app
-            pass
+    _push_to_supabase(component, phase, message, details, payload, fields)
 
     # Even in INFO mode, if it's an important event, show a summary
     if LOG.isEnabledFor(logging.DEBUG):
@@ -288,33 +242,53 @@ def pipeline_error(
     )
     LOG.error(json.dumps(payload, default=str, ensure_ascii=False))
 
-    # Broadcast to Supabase (Realtime) - Errors are important
-    if _SUPABASE_URL and _SUPABASE_KEY:
-        try:
-            import httpx
-            project_id = fields.get("project_id")
-            if project_id:
-                row = {
-                    "project_id": str(project_id),
-                    "scene_id": str(fields.get("scene_id")) if fields.get("scene_id") else payload.get("scene_id"),
-                    "component": component,
-                    "phase": phase,
-                    "message": message,
-                    "details": details or {},
-                    "trace_id": payload.get("trace_id"),
-                }
-                url = f"{_SUPABASE_URL.rstrip('/')}/rest/v1/pipeline_events"
-                headers = {
-                    "apikey": _SUPABASE_KEY,
-                    "Authorization": f"Bearer {_SUPABASE_KEY}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal",
-                }
-                with httpx.Client(timeout=5.0) as client:
-                    client.post(url, headers=headers, json=row)
-        except Exception:
-            pass
+    _push_to_supabase(component, phase, message, details, payload, fields)
 
     # Always show human readable block for errors in console if it's not totally suppressed
     if LOG.level <= logging.ERROR:
         _emit_human_readable(component, phase, message, details)
+
+
+def _push_to_supabase(
+    component: str,
+    phase: str,
+    message: str,
+    details: dict[str, Any] | None,
+    payload: dict[str, Any],
+    fields: dict[str, Any],
+) -> None:
+    """Helper to push events to Supabase REST for Realtime broadcasting."""
+    if not (_SUPABASE_URL and _SUPABASE_KEY):
+        return
+
+    try:
+        import httpx
+
+        # Project ID is mandatory for RLS
+        project_id = fields.get("project_id")
+        if not project_id:
+            return
+
+        scene_id = fields.get("scene_id") or payload.get("scene_id")
+        row = {
+            "project_id": str(project_id),
+            "scene_id": str(scene_id) if scene_id else None,
+            "component": component,
+            "phase": phase,
+            "message": message,
+            "details": details or {},
+            "trace_id": payload.get("trace_id"),
+        }
+        url = f"{_SUPABASE_URL.rstrip('/')}/rest/v1/pipeline_events"
+        headers = {
+            "apikey": _SUPABASE_KEY,
+            "Authorization": f"Bearer {_SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+        # Since pipeline_event is often called from sync code (Celery, etc), we use sync httpx.
+        with httpx.Client(timeout=5.0) as client:
+            client.post(url, headers=headers, json=row)
+    except Exception:
+        # Logging should not crash the app
+        pass

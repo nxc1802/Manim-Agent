@@ -89,7 +89,7 @@ def test_generate_code_enqueue_preview_mocked_render(
         assert isinstance(a, (list, tuple))
         execute_render_job(UUID(str(a[0])))
 
-    monkeypatch.setattr("backend.api.v1.scenes.render_manim_scene.apply_async", immediate)
+    monkeypatch.setattr("backend.services.scene_service.render_manim_scene.apply_async", immediate)
 
     r = api_client.post(f"/v1/scenes/{scene_id}/generate-code", json={"enqueue_preview": True})
     assert r.status_code == 200, r.text

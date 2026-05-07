@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from shared.pipeline_log import (
     LOG,
-    _get_broadcast_redis,
     _pipeline_log_level,
     celery_trace_headers,
     pipeline_debug,
@@ -19,15 +18,6 @@ from shared.pipeline_log import (
 def test_pipeline_log_level_fallback() -> None:
     with patch.dict(os.environ, {"LOG_LEVEL": "", "PIPELINE_LOG_LEVEL": "DEBUG"}):
         assert _pipeline_log_level() == logging.DEBUG
-
-
-def test_get_broadcast_redis_fail() -> None:
-    with patch.dict(os.environ, {"REDIS_URL": "redis://localhost:6379"}):
-        with patch("redis.from_url") as mock_from:
-            mock_from.side_effect = Exception("conn failed")
-            # Clear cache
-            with patch("shared.pipeline_log._BROADCAST_REDIS", None):
-                assert _get_broadcast_redis() is None
 
 
 def test_trace_id_from_celery_request_none() -> None:
@@ -43,30 +33,29 @@ def test_celery_trace_headers_empty() -> None:
     assert celery_trace_headers(" ") == {}
 
 
-@patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_event_with_redis(mock_get_redis: MagicMock) -> None:
-    mock_r = MagicMock()
-    mock_get_redis.return_value = mock_r
+@patch("httpx.Client")
+def test_pipeline_event_with_supabase(mock_httpx: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_httpx.return_value.__enter__.return_value = mock_client
 
-    # Force DEBUG level to trigger _emit_human_readable
-    with patch.object(LOG, "level", logging.DEBUG):
-        pipeline_event("comp", "phase", "msg", details={"a": "b" * 1001})
-        assert mock_r.publish.called
-
-
-@patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_debug_with_redis(mock_get_redis: MagicMock) -> None:
-    mock_r = MagicMock()
-    mock_get_redis.return_value = mock_r
-
-    pipeline_debug("comp", "phase", "msg")
-    assert mock_r.publish.called
+    with patch.dict(os.environ, {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}):
+        from shared.pipeline_log import setup_pipeline_logging
+        setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
+        
+        # Force DEBUG level to trigger _emit_human_readable
+        with patch.object(LOG, "level", logging.DEBUG):
+            pipeline_event("comp", "phase", "msg", project_id="123")
+            assert mock_client.post.called
 
 
-@patch("shared.pipeline_log._get_broadcast_redis")
-def test_pipeline_error_with_redis(mock_get_redis: MagicMock) -> None:
-    mock_r = MagicMock()
-    mock_get_redis.return_value = mock_r
+@patch("httpx.Client")
+def test_pipeline_error_with_supabase(mock_httpx: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_httpx.return_value.__enter__.return_value = mock_client
 
-    pipeline_error("comp", "phase", "msg")
-    assert mock_r.publish.called
+    with patch.dict(os.environ, {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}):
+        from shared.pipeline_log import setup_pipeline_logging
+        setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
+        
+        pipeline_error("comp", "phase", "msg", project_id="123")
+        assert mock_client.post.called

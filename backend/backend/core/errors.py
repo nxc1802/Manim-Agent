@@ -30,6 +30,15 @@ class AppException(Exception):
         self.details = details
         super().__init__(message)
 
+class ResourceNotFound(AppException):
+    def __init__(self, resource: str, identifier: Any):
+        super().__init__(
+            code="not_found",
+            message=f"{resource} not found: {identifier}",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
 # RFC 9110 name; Python 3.13+ exposes `UNPROCESSABLE_CONTENT` (422).
 _VALIDATION_STATUS = getattr(HTTPStatus, "UNPROCESSABLE_CONTENT", HTTPStatus.UNPROCESSABLE_ENTITY)
 

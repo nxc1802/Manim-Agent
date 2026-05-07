@@ -58,7 +58,7 @@ def api_client(
         execute_voice_job(UUID(str(a[0])))
 
     mock_task.apply_async.side_effect = _run
-    monkeypatch.setattr("backend.api.v1.scenes.synthesize_voice", mock_task)
+    monkeypatch.setattr("backend.services.scene_service.synthesize_voice", mock_task)
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

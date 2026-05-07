@@ -2,27 +2,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from ai_engine.agents.builder import run_builder
 from ai_engine.config import (
     default_agent_models_path,
     load_agent_models_yaml,
     load_builder_review_loop,
 )
 from ai_engine.llm_client import LLMClient
-from ai_engine.orchestrator import (
-    run_planning_phase,
-    run_storyboard_phase,
-)
-from ai_engine.utils.storage_helper import save_agent_interaction
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from shared.code_utils import extract_python_code
-from shared.pipeline_log import pipeline_event
 from shared.schemas.builder_api import GenerateCodeBody, GenerateCodeResponse
-from shared.schemas.planner_output import PlannerOutput
 from shared.schemas.review_pipeline import (
     BuilderReviewLoopRequest,
     BuilderReviewLoopResponse,
@@ -34,8 +24,6 @@ from shared.schemas.review_pipeline import (
 from shared.schemas.scene import Scene, SceneUpdate
 from shared.schemas.voice_api import VoiceEnqueueResponse, VoiceSynthesizeBody
 from worker.orchestrator_tasks import run_orchestrator_loop_task
-from worker.tasks import render_manim_scene
-from worker.tts_tasks import synthesize_voice
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import (
@@ -44,11 +32,13 @@ from backend.api.deps import (
     get_job_store,
     get_llm_client,
     get_request_user_id,
+    get_runtime_limits,
     get_scene_service,
 )
 from backend.core.config import settings
 from backend.core.limiter import limiter
 from backend.db.base import ContentStore
+from backend.services.code_sandbox import SandboxLimits
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.scene_service import SceneService
 
@@ -154,7 +144,7 @@ async def generate_storyboard(
             scene_id, user_id, body.brief_override if body else None
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/{scene_id}/approve-storyboard", response_model=Scene)
@@ -209,7 +199,7 @@ async def run_scene_planner(
     try:
         return await service.run_planner(scene_id, user_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/{scene_id}/approve-plan", response_model=Scene)
@@ -256,7 +246,7 @@ def sync_timeline_endpoint(
     try:
         return service.sync_timeline(scene_id, user_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post(
@@ -283,7 +273,7 @@ async def generate_scene_code(
         )
         return GenerateCodeResponse(scene=updated, preview_job_id=job_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post(
@@ -309,7 +299,7 @@ def enqueue_scene_voice(
             voice_job_id=job_id, status="queued", poll_path=f"/v1/voice-jobs/{job_id}"
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/{scene_id}/review-round", response_model=ReviewRoundResponse)

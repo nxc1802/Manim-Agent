@@ -67,7 +67,7 @@ async def test_generate_storyboard_success(mock_store: MagicMock, mock_user: UUI
         id=pid, user_id=mock_user, title="T", description="D", target_scenes=None
     )
 
-    with patch("backend.api.v1.scenes.run_storyboard_phase") as mock_run:
+    with patch("backend.services.scene_service.run_storyboard_phase") as mock_run:
         mock_run.return_value = ("story text", "v1", {"duration_ms": 1}, "sys", "usr")
         mock_store.update_scene.return_value = mock_scene
 
