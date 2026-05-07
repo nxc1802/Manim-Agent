@@ -74,3 +74,10 @@ class Project(BaseModel):
     status: ProjectStatus = "draft"
     created_at: datetime
     updated_at: datetime
+
+
+class DashboardStats(BaseModel):
+    total_projects: int
+    active_jobs: int
+    total_tokens_used: int
+    total_render_time_hours: float

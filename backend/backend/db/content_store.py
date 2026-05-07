@@ -9,7 +9,7 @@ from uuid import UUID
 from backend.core.config import settings
 from backend.db.base import ContentStore
 from redis import Redis
-from shared.schemas.project import Project, ProjectStatus
+from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 
@@ -103,6 +103,15 @@ class RedisContentStore(ContentStore):
                 scenes.append(s)
         scenes.sort(key=lambda s: (s.scene_order, s.created_at))
         return scenes, total
+
+    def get_dashboard_stats(self, user_id: UUID) -> DashboardStats:
+        ids = cast(set[str], self._r.smembers(_user_projects_key(user_id)))
+        return DashboardStats(
+            total_projects=len(ids),
+            active_jobs=0,
+            total_tokens_used=0,
+            total_render_time_hours=0.0,
+        )
 
     def create_project(
         self,

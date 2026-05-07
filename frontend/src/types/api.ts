@@ -13,6 +13,13 @@ export interface Project {
   updated_at: string;
 }
 
+export interface DashboardStats {
+  total_projects: number;
+  active_jobs: number;
+  total_tokens_used: number;
+  total_render_time_hours: number;
+}
+
 export type StoryboardStatus = 'missing' | 'pending_review' | 'approved';
 export type PlanStatus = 'missing' | 'pending_review' | 'approved';
 export type VoiceScriptStatus = 'missing' | 'pending_review' | 'approved';
@@ -90,10 +97,14 @@ export interface PaginatedResponse<T> {
 }
 
 export interface PipelineEvent {
+  id: string;
   ts: string;
   component: string;
   phase: string;
   message: string;
   scene_id: string;
-  payload?: any;
+  project_id: string;
+  details: Record<string, any>;
+  trace_id?: string;
+  created_at: string;
 }

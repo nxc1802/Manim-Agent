@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from shared.schemas.pagination import PaginatedResponse, PaginationParams
-from shared.schemas.project import Project, ProjectCreate, ProjectUpdate
+from shared.schemas.project import DashboardStats, Project, ProjectCreate, ProjectUpdate
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 
 from backend.api.access import project_readable_by_user
@@ -69,6 +69,15 @@ def list_projects(
         limit=params.limit,
         pages=(total + params.limit - 1) // params.limit,
     )
+
+
+@router.get("/stats", response_model=DashboardStats, summary="Get dashboard stats")
+def get_dashboard_stats(
+    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
+) -> DashboardStats:
+    """Lấy số liệu thống kê tổng quan của người dùng (projects, jobs, tokens, time)."""
+    return store.get_dashboard_stats(user_id)
 
 
 @router.get(

@@ -25,4 +25,9 @@ celery_app.conf.update(
 
 from shared.pipeline_log import setup_pipeline_logging  # noqa: E402
 
-setup_pipeline_logging(level=settings.log_level, redis_url=settings.redis_url)
+setup_pipeline_logging(
+    level=settings.log_level,
+    redis_url=settings.redis_url,
+    supabase_url=settings.supabase_url,
+    supabase_key=settings.supabase_service_role_key,
+)

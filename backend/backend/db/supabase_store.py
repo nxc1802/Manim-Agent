@@ -9,7 +9,7 @@ from uuid import UUID
 import httpx
 from backend.core.config import settings
 from backend.db.base import ContentStore
-from shared.schemas.project import Project, ProjectStatus
+from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 logger = logging.getLogger(__name__)
@@ -271,6 +271,20 @@ class SupabaseContentStore(ContentStore):
                 logger.error(f"Supabase batch_upsert_scenes failed: {r.status_code} {r.text}")
             r.raise_for_status()
             return [Scene.model_validate(s) for s in r.json()]
+
+    def get_dashboard_stats(self, user_id: UUID) -> DashboardStats:
+        if not self._headers:
+            return DashboardStats(
+                total_projects=0, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0
+            )
+        url = f"{self._base_url}/rest/v1/rpc/get_dashboard_stats"
+        with self._get_client() as client:
+            r = client.post(url, json={"user_id_param": str(user_id)})
+            if r.status_code == 200:
+                return DashboardStats.model_validate(r.json())
+        return DashboardStats(
+            total_projects=0, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0
+        )
 
     def add_scene_to_project_index(self, scene: Scene) -> None:
         """Supabase handles indexing via foreign keys, so this is a no-op."""

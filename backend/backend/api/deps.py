@@ -21,6 +21,7 @@ from backend.core.supabase_jwt import JwtValidationError, user_id_from_supabase_
 from backend.db.content_store import get_content_store as get_content_store
 from backend.services.job_store import RedisRenderJobStore
 from backend.services.redis_client import get_redis
+from backend.services.scene_service import SceneService
 from backend.services.voice_job_store import RedisVoiceJobStore
 
 security = HTTPBearer(auto_error=False)
@@ -32,6 +33,15 @@ def get_job_store() -> RedisRenderJobStore:
 
 def get_voice_job_store() -> RedisVoiceJobStore:
     return RedisVoiceJobStore(get_redis())
+
+
+def get_scene_service(
+    store=Depends(get_content_store),
+    llm=Depends(get_llm_client),
+    job_store=Depends(get_job_store),
+    vstore=Depends(get_voice_job_store),
+) -> SceneService:
+    return SceneService(store=store, llm=llm, job_store=job_store, vstore=vstore)
 
 
 def _resolved_agent_models_path() -> Path:

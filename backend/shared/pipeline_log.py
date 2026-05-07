@@ -20,9 +20,13 @@ LOG = logging.getLogger("manim.pipeline")
 pipeline_trace_id_var: ContextVar[str | None] = ContextVar("pipeline_trace_id", default=None)
 pipeline_scene_id_var: ContextVar[str | None] = ContextVar("pipeline_scene_id", default=None)
 
-# Global Redis client for event broadcasting
+# Global Redis client for event broadcasting (deprecated for frontend logs)
 _BROADCAST_REDIS: redis.Redis | None = None
 _EXPLICIT_REDIS_URL: str | None = None
+
+# Supabase Realtime broadcasting config
+_SUPABASE_URL: str | None = None
+_SUPABASE_KEY: str | None = None
 
 
 def _get_broadcast_redis() -> redis.Redis | None:
@@ -47,11 +51,20 @@ def _pipeline_log_level() -> int:
     return getattr(logging, raw, logging.INFO)
 
 
-def setup_pipeline_logging(level: str | int | None = None, redis_url: str | None = None) -> None:
+def setup_pipeline_logging(
+    level: str | int | None = None,
+    redis_url: str | None = None,
+    supabase_url: str | None = None,
+    supabase_key: str | None = None,
+) -> None:
     """Attach a single stdout handler so each event is one JSON line (idempotent)."""
-    global _EXPLICIT_REDIS_URL
+    global _EXPLICIT_REDIS_URL, _SUPABASE_URL, _SUPABASE_KEY
     if redis_url:
         _EXPLICIT_REDIS_URL = redis_url
+    if supabase_url:
+        _SUPABASE_URL = supabase_url
+    if supabase_key:
+        _SUPABASE_KEY = supabase_key
 
     if LOG.handlers:
         return
@@ -192,13 +205,38 @@ def pipeline_event(
     )
     LOG.info(json.dumps(payload, default=str, ensure_ascii=False))
 
-    # Broadcast to Redis Pub/Sub
-    r = _get_broadcast_redis()
-    if r:
+    # Broadcast to Supabase (Realtime)
+    if _SUPABASE_URL and _SUPABASE_KEY:
         try:
-            LOG.debug(f"Publishing to Redis: {payload.get('message')}")
-            r.publish("manim_agent:events", json.dumps(payload, default=str))
+            # We use a simple HTTP post to avoiding adding heavy dependencies to shared.
+            # In a high-traffic system, we might queue these or use a background thread.
+            import httpx
+            
+            # Project ID is mandatory for RLS
+            project_id = fields.get("project_id")
+            if project_id:
+                row = {
+                    "project_id": str(project_id),
+                    "scene_id": str(fields.get("scene_id")) if fields.get("scene_id") else payload.get("scene_id"),
+                    "component": component,
+                    "phase": phase,
+                    "message": message,
+                    "details": details or {},
+                    "trace_id": payload.get("trace_id"),
+                }
+                url = f"{_SUPABASE_URL.rstrip('/')}/rest/v1/pipeline_events"
+                headers = {
+                    "apikey": _SUPABASE_KEY,
+                    "Authorization": f"Bearer {_SUPABASE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                }
+                # Sync call for simplicity in logging utility, though async would be better if we were in an async loop.
+                # Since pipeline_event is often called from sync code (Celery, etc), we use sync httpx.
+                with httpx.Client(timeout=5.0) as client:
+                    client.post(url, headers=headers, json=row)
         except Exception:
+            # Logging should not crash the app
             pass
 
     # Even in INFO mode, if it's an important event, show a summary
@@ -226,15 +264,7 @@ def pipeline_debug(
     )
     LOG.debug(json.dumps(payload, default=str, ensure_ascii=False))
 
-    # Broadcast to Redis Pub/Sub
-    r = _get_broadcast_redis()
-    if r:
-        try:
-            # print(f"DEBUG: Debug-Publishing to Redis: {payload.get('message')}", flush=True)
-            r.publish("manim_agent:events", json.dumps(payload, default=str))
-        except Exception:
-            pass
-
+    # (Debug logs typically don't go to Supabase to save on DB writes)
     _emit_human_readable(component, phase, message, details)
 
 
@@ -258,11 +288,30 @@ def pipeline_error(
     )
     LOG.error(json.dumps(payload, default=str, ensure_ascii=False))
 
-    # Broadcast to Redis Pub/Sub
-    r = _get_broadcast_redis()
-    if r:
+    # Broadcast to Supabase (Realtime) - Errors are important
+    if _SUPABASE_URL and _SUPABASE_KEY:
         try:
-            r.publish("manim_agent:events", json.dumps(payload, default=str))
+            import httpx
+            project_id = fields.get("project_id")
+            if project_id:
+                row = {
+                    "project_id": str(project_id),
+                    "scene_id": str(fields.get("scene_id")) if fields.get("scene_id") else payload.get("scene_id"),
+                    "component": component,
+                    "phase": phase,
+                    "message": message,
+                    "details": details or {},
+                    "trace_id": payload.get("trace_id"),
+                }
+                url = f"{_SUPABASE_URL.rstrip('/')}/rest/v1/pipeline_events"
+                headers = {
+                    "apikey": _SUPABASE_KEY,
+                    "Authorization": f"Bearer {_SUPABASE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                }
+                with httpx.Client(timeout=5.0) as client:
+                    client.post(url, headers=headers, json=row)
         except Exception:
             pass
 

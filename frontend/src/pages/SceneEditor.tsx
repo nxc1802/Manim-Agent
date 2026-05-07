@@ -1,70 +1,47 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import PipelineVisualizer from '../components/PipelineVisualizer';
 import type { Stage } from '../components/PipelineVisualizer';
 import CodePreview from '../components/CodePreview';
 import { ArrowLeft, Check, AlertTriangle, Activity, Loader2, Play, Music, Layout, Wand2 } from 'lucide-react';
-import { sceneService, jobService } from '../services/api';
+import { sceneService } from '../services/api';
 import { useSceneWebSocket } from '../hooks/useSceneWebSocket';
-import { useJobPolling } from '../hooks/useJobPolling';
-import type { Scene, VoiceJob } from '../types/api';
+import { useSceneStore } from '../store/useSceneStore';
+import styles from './SceneEditor.module.css';
 
 const SceneEditor = () => {
   const { sceneId } = useParams<{ sceneId: string }>();
   const navigate = useNavigate();
-  const [scene, setScene] = useState<Scene | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const { currentScene: scene, loading, fetchScene, updateSceneState, generateStoryboard, approveStoryboard, planBeats, approvePlan } = useSceneStore();
 
   const { events, isConnected, lastEvent } = useSceneWebSocket(sceneId);
 
-  const fetchScene = useCallback(async () => {
-    if (!sceneId) return;
-    try {
-      const res = await sceneService.getById(sceneId);
-      setScene(res.data);
-    } catch (err) {
-      console.error('Failed to fetch scene', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [sceneId]);
-
   useEffect(() => {
-    fetchScene();
-  }, [fetchScene]);
+    if (sceneId) {
+      fetchScene(sceneId);
+    }
+  }, [sceneId, fetchScene]);
 
   // Sync scene state if WS event indicates completion
   useEffect(() => {
     if (lastEvent?.phase?.endsWith('_ok') || lastEvent?.phase === 'completed' || lastEvent?.phase === 'job_completed') {
-      fetchScene();
+      if (sceneId) fetchScene(sceneId);
     }
-  }, [lastEvent, fetchScene]);
-
-  // Voice Job Polling
-  const { startPolling: _pollVoice } = useJobPolling<VoiceJob>({
-    fetchFn: () => jobService.getVoiceJob(scene?.id || ''), // This will be set when action starts
-    isCompleted: (job) => job.status === 'completed',
-    isFailed: (job) => job.status === 'failed',
-    onSuccess: () => fetchScene(),
-  });
+  }, [lastEvent, sceneId, fetchScene]);
 
   const handleAction = async (name: string, fn: () => Promise<any>) => {
-    setActionLoading(name);
     try {
       await fn();
-      await fetchScene();
+      if (sceneId) fetchScene(sceneId);
     } catch (err) {
       console.error(`Action ${name} failed`, err);
-    } finally {
-      setActionLoading(null);
     }
   };
 
   if (loading || !scene) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'white' }}>
+      <div className={styles.loaderContainer} style={{ minHeight: '100vh', color: 'white' }}>
         <Loader2 className="spin" />
       </div>
     );
@@ -98,59 +75,55 @@ const SceneEditor = () => {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className={styles.container}>
       <Sidebar />
       
-      <main style={{ marginLeft: '300px', padding: '40px 60px', width: '100%' }}>
-        <header style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
-          <div className="glass" style={{ padding: '10px', borderRadius: '12px', cursor: 'pointer' }} onClick={() => navigate(-1)}>
+      <main className={styles.main}>
+        <header className={styles.header}>
+          <div className={`glass ${styles.backButton}`} onClick={() => navigate(-1)}>
             <ArrowLeft size={20} />
           </div>
           <div>
-            <h1 style={{ fontSize: '1.8rem' }}>Scene Editor</h1>
-            <p style={{ color: 'var(--text-secondary)' }}>Scene #{scene.scene_order + 1} • {scene.id.split('-')[0]}</p>
+            <h1 className={styles.title}>Scene Editor</h1>
+            <p className={styles.subtitle}>Scene #{scene.scene_order + 1} • {scene.id.split('-')[0]}</p>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <div style={{ 
-              width: '8px', height: '8px', borderRadius: '50%', 
-              background: isConnected ? 'var(--accent-success)' : '#ef4444' 
-            }} />
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          <div className={styles.statusIndicator}>
+            <div className={`${styles.statusDot} ${isConnected ? styles.dotConnected : styles.dotDisconnected}`} />
+            <span className={styles.statusText}>
               {isConnected ? 'Live Connected' : 'Disconnected'}
             </span>
           </div>
         </header>
 
-        <section style={{ marginBottom: '40px' }}>
+        <section className={styles.visualizerSection}>
           <PipelineVisualizer stages={stages} />
         </section>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '32px' }}>
+        <div className={styles.editorGrid}>
           {/* Main Content Area */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+          <div className={styles.contentColumn}>
             
             {/* 1. Storyboard Section */}
             <div className="glass-card" style={{ padding: '32px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className={styles.cardHeader}>
+                <div className={styles.cardTitleWrapper}>
                   <Layout size={20} color="var(--accent-primary)" />
-                  <h3 style={{ fontSize: '1.25rem' }}>Storyboard & Script</h3>
+                  <h3 className={styles.cardTitle}>Storyboard & Script</h3>
                 </div>
                 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   {scene.storyboard_status === 'missing' && (
                     <button 
-                      onClick={() => handleAction('storyboard', () => sceneService.generateStoryboard(scene.id))}
+                      onClick={() => handleAction('storyboard', () => generateStoryboard(scene.id))}
                       className="btn-primary"
-                      disabled={!!actionLoading}
                     >
-                      {actionLoading === 'storyboard' ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
+                      <Wand2 size={18} />
                       Generate Storyboard
                     </button>
                   )}
                   {scene.storyboard_status === 'pending_review' && (
                     <button 
-                      onClick={() => handleAction('approve-storyboard', () => sceneService.approveStoryboard(scene.id))}
+                      onClick={() => handleAction('approve-storyboard', () => approveStoryboard(scene.id))}
                       className="btn-primary"
                       style={{ background: 'var(--accent-success)' }}
                     >
@@ -160,7 +133,7 @@ const SceneEditor = () => {
                   )}
                 </div>
               </div>
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid var(--surface-border)' }}>
+              <div className={styles.contentBox}>
                 {scene.storyboard_text ? (
                   <p style={{ color: '#cbd5e1', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{scene.storyboard_text}</p>
                 ) : (
@@ -172,24 +145,24 @@ const SceneEditor = () => {
             {/* 2. Planner Section (Visible if storyboard approved) */}
             {scene.storyboard_status === 'approved' && (
               <div className="glass-card" style={{ padding: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.cardTitleWrapper}>
                     <Play size={20} color="var(--accent-primary)" />
-                    <h3 style={{ fontSize: '1.25rem' }}>Execution Plan</h3>
+                    <h3 className={styles.cardTitle}>Execution Plan</h3>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     {scene.plan_status === 'missing' && (
                       <button 
-                        onClick={() => handleAction('plan', () => sceneService.plan(scene.id))}
+                        onClick={() => handleAction('plan', () => planBeats(scene.id))}
                         className="btn-primary"
                       >
-                        {actionLoading === 'plan' ? <Loader2 size={18} className="spin" /> : <Wand2 size={18} />}
+                        <Wand2 size={18} />
                         Design Beats
                       </button>
                     )}
                     {scene.plan_status === 'pending_review' && (
                       <button 
-                        onClick={() => handleAction('approve-plan', () => sceneService.approvePlan(scene.id))}
+                        onClick={() => handleAction('approve-plan', () => approvePlan(scene.id))}
                         className="btn-primary"
                         style={{ background: 'var(--accent-success)' }}
                       >
@@ -200,7 +173,7 @@ const SceneEditor = () => {
                   </div>
                 </div>
                 {scene.planner_output ? (
-                  <pre style={{ fontSize: '0.9rem', color: '#94a3b8', background: '#0f172a', padding: '16px', borderRadius: '8px', overflow: 'auto' }}>
+                  <pre className={styles.pre}>
                     {JSON.stringify(scene.planner_output, null, 2)}
                   </pre>
                 ) : (
@@ -212,22 +185,21 @@ const SceneEditor = () => {
             {/* 3. Audio Section (Visible if plan approved) */}
             {scene.plan_status === 'approved' && (
               <div className="glass-card" style={{ padding: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.cardTitleWrapper}>
                     <Music size={20} color="var(--accent-primary)" />
-                    <h3 style={{ fontSize: '1.25rem' }}>Voice & Audio</h3>
+                    <h3 className={styles.cardTitle}>Voice & Audio</h3>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     {!scene.audio_url && (
                       <button 
                         onClick={() => handleAction('voice', async () => {
                           const res = await sceneService.generateVoice(scene.id);
-                          // Polling logic would go here, or we wait for WS
                           return res;
                         })}
                         className="btn-primary"
                       >
-                        {actionLoading === 'voice' ? <Loader2 size={18} className="spin" /> : <Music size={18} />}
+                        <Music size={18} />
                         Synthesize Voice
                       </button>
                     )}
@@ -246,7 +218,7 @@ const SceneEditor = () => {
                         onClick={() => handleAction('sync', () => sceneService.syncTimeline(scene.id))}
                         className="btn-primary"
                       >
-                        {actionLoading === 'sync' ? <Loader2 size={18} className="spin" /> : <Activity size={18} />}
+                        <Activity size={18} />
                         Sync Timeline
                       </button>
                     )}
@@ -265,7 +237,7 @@ const SceneEditor = () => {
 
             {/* 4. Builder Section (Visible if sync ok) */}
             {scene.sync_segments && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              <div className={styles.contentColumn}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                    {scene.review_loop_status === 'idle' && (
                       <button 
@@ -273,7 +245,6 @@ const SceneEditor = () => {
                         className="btn-primary"
                         style={{ padding: '12px 32px', fontSize: '1rem' }}
                       >
-                        {actionLoading === 'builder' ? <Loader2 size={18} className="spin" /> : <Loader2 size={18} />}
                         Start Builder Agent
                       </button>
                     )}
@@ -284,24 +255,24 @@ const SceneEditor = () => {
           </div>
 
           {/* Sidebar Area (Events & Logs) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="glass" style={{ padding: '24px', height: '500px', display: 'flex', flexDirection: 'column' }}>
+          <div className={styles.sidebarColumn}>
+            <div className={`glass ${styles.activityFeed}`}>
               <h4 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Activity size={18} color="var(--accent-primary)" />
                 Agent Activity
               </h4>
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className={styles.activityList}>
                 {events.length === 0 ? (
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Waiting for agent events...</p>
                 ) : (
                   events.map((ev, i) => (
-                    <div key={i} style={{ fontSize: '0.8rem', display: 'flex', gap: '10px', borderLeft: '2px solid var(--surface-border)', paddingLeft: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    <div key={i} className={styles.activityItem}>
+                      <span className={styles.activityTime}>
                         {new Date(ev.ts).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
                       <div>
-                        <div style={{ fontWeight: 600, color: 'var(--accent-primary)', fontSize: '0.7rem', textTransform: 'uppercase' }}>{ev.phase}</div>
-                        <div style={{ color: 'white' }}>{ev.message}</div>
+                        <div className={styles.activityPhase}>{ev.phase}</div>
+                        <div className={styles.activityMessage}>{ev.message}</div>
                       </div>
                     </div>
                   ))
@@ -311,10 +282,10 @@ const SceneEditor = () => {
 
             {/* HITL Control Panel */}
             {scene.review_loop_status === 'hitl_pending' && (
-              <div className="glass" style={{ padding: '24px', border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', marginBottom: '12px' }}>
+              <div className={`glass ${styles.hitlPanel}`}>
+                <div className={styles.hitlHeader}>
                   <AlertTriangle size={20} />
-                  <span style={{ fontWeight: 600 }}>Human-In-The-Loop</span>
+                  <span>Human-In-The-Loop</span>
                 </div>
                 <p style={{ fontSize: '0.9rem', marginBottom: '16px', color: 'var(--text-secondary)' }}>
                   AI is struggling to pass visual review. It needs your guidance or more rounds.

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
-from shared.schemas.project import Project, ProjectStatus
+from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
 
@@ -68,3 +68,5 @@ class ContentStore(Protocol):
     def save_scene_code_history(self, history: SceneCodeHistory) -> None: ...
     def delete_scene(self, scene_id: UUID) -> None: ...
     def batch_upsert_scenes(self, project_id: UUID, scenes: list[Scene]) -> list[Scene]: ...
+
+    def get_dashboard_stats(self, user_id: UUID) -> DashboardStats: ...

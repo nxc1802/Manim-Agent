@@ -17,7 +17,12 @@ from backend.core.errors import register_exception_handlers
 from backend.core.limiter import limiter
 from backend.services.redis_client import get_redis
 
-setup_pipeline_logging(level=settings.log_level, redis_url=settings.redis_url)
+setup_pipeline_logging(
+    level=settings.log_level,
+    redis_url=settings.redis_url,
+    supabase_url=settings.supabase_url,
+    supabase_key=settings.supabase_service_role_key,
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")
 logger.info(f"Initialized pipeline logging with level: {settings.log_level}")
@@ -68,7 +73,13 @@ if settings.cors_origins_list:
         allow_headers=["*"],
     )
 
-app.include_router(api_router, prefix="/v1")
+app.include_router(jobs.router, prefix="/v1/jobs")
+app.include_router(pipeline_runs.router, prefix="/v1/pipeline-runs")
+app.include_router(primitives.router, prefix="/v1/primitives")
+app.include_router(projects.router, prefix="/v1/projects")
+app.include_router(render.router, prefix="/v1/render")
+app.include_router(scenes.router, prefix="/v1/scenes")
+app.include_router(voice_jobs.router, prefix="/v1/voice-jobs")
 
 
 @app.get("/health", tags=["health"])

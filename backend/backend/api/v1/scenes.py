@@ -44,17 +44,13 @@ from backend.api.deps import (
     get_job_store,
     get_llm_client,
     get_request_user_id,
-    get_runtime_limits,
-    get_voice_job_store,
+    get_scene_service,
 )
 from backend.core.config import settings
 from backend.core.limiter import limiter
 from backend.db.base import ContentStore
-from backend.services.code_sandbox import SandboxLimits, validate_manim_code
 from backend.services.job_store import RedisRenderJobStore
-from backend.services.supabase_voice_rest import insert_voice_job_row
-from backend.services.sync_engine_logic import align_beats_to_audio
-from backend.services.voice_job_store import RedisVoiceJobStore
+from backend.services.scene_service import SceneService
 
 logger = logging.getLogger(__name__)
 
@@ -151,50 +147,14 @@ async def generate_storyboard(
     scene_id: UUID,
     body: GenerateStoryboardBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-    llm: LLMClient = Depends(get_llm_client),  # noqa: B008
+    service: SceneService = Depends(get_scene_service),  # noqa: B008
 ) -> Scene:
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+    try:
+        return await service.generate_storyboard(
+            scene_id, user_id, body.brief_override if body else None
         )
-    project = project_readable_by_user(store, scene.project_id, user_id)
-    if scene.storyboard_status == "approved":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Storyboard already approved"
-        )
-
-    yaml_data = load_agent_models_yaml(_agent_models_path())
-    params = get_agent_llm_params("director")
-
-    # Use project-level target_scenes if set, else fallback to agent_models.yaml default
-    target_scenes = project.target_scenes
-    if target_scenes is None:
-        target_scenes = yaml_data.get("agents", {}).get("director", {}).get("target_scenes")
-
-    pipeline_event(
-        "api.scenes", "storyboard_start", "Director: generating storyboard", scene_id=str(scene_id)
-    )
-
-    text, _pv, _metrics, _sys, _usr = await run_storyboard_phase(
-        llm=llm,
-        model=params.model,
-        temperature=params.temperature,
-        max_tokens=params.max_tokens,
-        project_title=project.title,
-        project_description=project.description,
-        target_scenes=target_scenes,
-        extra_brief=body.brief_override if body else None,
-    )
-    save_agent_interaction(scene.project_id, "director", "storyboard", _sys, _usr, text)
-
-    updated = store.update_scene(scene_id, storyboard_text=text, storyboard_status="pending_review")
-    pipeline_event(
-        "api.scenes", "storyboard_ok", "Director: storyboard generated", scene_id=str(scene_id)
-    )
-    assert updated is not None
-    return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/{scene_id}/approve-storyboard", response_model=Scene)
@@ -244,48 +204,12 @@ async def run_scene_planner(
     request: Request,
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-    llm: LLMClient = Depends(get_llm_client),  # noqa: B008
+    service: SceneService = Depends(get_scene_service),  # noqa: B008
 ) -> Scene:
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
-        )
-    project = project_readable_by_user(store, scene.project_id, user_id)
-    if scene.storyboard_status != "approved":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Storyboard must be approved before planning",
-        )
-    use_primitives = project.config.get("use_primitives", True)
-
-    params = get_agent_llm_params("planner")
-    rt = get_runtime_limits()
-    pipeline_event(
-        "api.scenes", "plan_start", "Planner: generating execution plan", scene_id=str(scene_id)
-    )
-
-    plan, _pv, _metrics, _sys, _usr = await run_planning_phase(
-        llm=llm,
-        model=params.model,
-        temperature=params.temperature,
-        max_tokens=params.max_tokens,
-        storyboard_text=scene.storyboard_text or "",
-        use_primitives=use_primitives,
-        request_timeout_seconds=rt.llm_timeout_seconds("planner"),
-    )
-    save_agent_interaction(scene.project_id, "planner", "plan", _sys, _usr, plan)
-
-    updated = store.update_scene(
-        scene_id,
-        planner_output=plan.model_dump(mode="json"),
-        plan_status="pending_review",
-        voice_script_status="pending_review",
-    )
-    pipeline_event("api.scenes", "plan_ok", "Planner: plan generated", scene_id=str(scene_id))
-    assert updated is not None
-    return updated
+    try:
+        return await service.run_planner(scene_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/{scene_id}/approve-plan", response_model=Scene)
@@ -326,35 +250,13 @@ def approve_voice_script(
 def sync_timeline_endpoint(
     scene_id: UUID,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
+    service: SceneService = Depends(get_scene_service),  # noqa: B008
 ) -> Scene:
     """Run deterministic Sync Engine to align beats to audio timestamps."""
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
-        )
-    project_readable_by_user(store, scene.project_id, user_id)
-
-    if not scene.planner_output:
-        raise HTTPException(status_code=400, detail="Missing execution plan for synchronization")
-    if not scene.timestamps:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing voice timestamps for synchronization. Please run TTS first.",
-        )
-
-    from shared.schemas.voice_segments import VoiceSegmentTimestamps
-
-    plan = PlannerOutput.model_validate(scene.planner_output)
-    ts = VoiceSegmentTimestamps.model_validate(scene.timestamps)
-
-    sync_segments = align_beats_to_audio(plan, ts)
-
-    updated = store.update_scene(scene_id, sync_segments=sync_segments)
-    pipeline_event("api.scenes", "sync_ok", "Sync: beats aligned to audio", scene_id=str(scene_id))
-    assert updated is not None
-    return updated
+    try:
+        return service.sync_timeline(scene_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
@@ -372,65 +274,16 @@ async def generate_scene_code(
     scene_id: UUID,
     body: GenerateCodeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-    llm: LLMClient = Depends(get_llm_client),  # noqa: B008
-    job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
+    service: SceneService = Depends(get_scene_service),  # noqa: B008
 ) -> GenerateCodeResponse:
     opts = body or GenerateCodeBody()
-    logger.debug(f"generate_scene_code scene_id={scene_id} enqueue_preview={opts.enqueue_preview}")
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+    try:
+        updated, job_id = await service.generate_code(
+            scene_id, user_id, enqueue_preview=opts.enqueue_preview
         )
-    project = project_readable_by_user(store, scene.project_id, user_id)
-    if scene.storyboard_status != "approved":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Storyboard must be approved before planning",
-        )
-    use_primitives = project.config.get("use_primitives", True)
-
-    plan = PlannerOutput.model_validate(scene.planner_output)
-    excerpt = scene.storyboard_text[:4000] if scene.storyboard_text else None
-    params = get_agent_llm_params("builder")
-    rt = get_runtime_limits()
-    raw_code, _pv, _bm, _sys, _usr = await run_builder(
-        llm=llm,
-        model=params.model,
-        temperature=params.temperature,
-        max_tokens=params.max_tokens,
-        planner=plan,
-        sync_segments=scene.sync_segments,
-        storyboard_excerpt=excerpt,
-        use_primitives=use_primitives,
-        request_timeout_seconds=rt.llm_timeout_seconds("builder"),
-    )
-    code = extract_python_code(raw_code)
-    limits = SandboxLimits(max_bytes=settings.max_manim_code_bytes)
-    validate_manim_code(code, limits=limits)
-
-    updated = store.update_scene(
-        scene_id, manim_code=code.strip(), manim_code_version=scene.manim_code_version + 1
-    )
-    assert updated is not None
-
-    preview_job_id: UUID | None = None
-    if opts.enqueue_preview:
-        job_id = uuid4()
-        job_store.create_queued_job(
-            job_id=job_id,
-            project_id=scene.project_id,
-            scene_id=scene_id,
-            job_type="preview",
-            render_quality="720p",
-            webhook_url=None,
-            docker_image_tag=settings.worker_image_tag,
-        )
-        render_manim_scene.apply_async(args=[str(job_id)])
-        preview_job_id = job_id
-
-    return GenerateCodeResponse(scene=updated, preview_job_id=preview_job_id)
+        return GenerateCodeResponse(scene=updated, preview_job_id=job_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post(
@@ -447,40 +300,16 @@ def enqueue_scene_voice(
     scene_id: UUID,
     body: VoiceSynthesizeBody | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-    vstore: RedisVoiceJobStore = Depends(get_voice_job_store),  # noqa: B008
+    service: SceneService = Depends(get_scene_service),  # noqa: B008
 ) -> VoiceEnqueueResponse:
     opts = body or VoiceSynthesizeBody()
-    scene = store.get_scene(scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Scene not found: {scene_id}"
+    try:
+        job_id = service.enqueue_voice(scene_id, user_id, opts.voice_script_override)
+        return VoiceEnqueueResponse(
+            voice_job_id=job_id, status="queued", poll_path=f"/v1/voice-jobs/{job_id}"
         )
-    project_readable_by_user(store, scene.project_id, user_id)
-    if scene.storyboard_status != "approved":
-        raise HTTPException(status_code=400, detail="Storyboard not approved")
-
-    text = (opts.voice_script_override or scene.voice_script or scene.storyboard_text or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Missing synthesis text (script or storyboard)")
-    job_id = uuid4()
-    metadata: dict[str, Any] = {"synthesis_text": text}
-    if opts.voice_script_override:
-        metadata["voice_script_override"] = opts.voice_script_override.strip()
-
-    job = vstore.create_queued_job(
-        job_id=job_id,
-        project_id=scene.project_id,
-        scene_id=scene_id,
-        metadata=metadata,
-        voice_engine="piper",
-        docker_image_tag=settings.tts_worker_image_tag,
-    )
-    insert_voice_job_row(job)
-    synthesize_voice.apply_async(args=[str(job_id)])
-    return VoiceEnqueueResponse(
-        voice_job_id=job_id, status="queued", poll_path=f"/v1/voice-jobs/{job_id}"
-    )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/{scene_id}/review-round", response_model=ReviewRoundResponse)

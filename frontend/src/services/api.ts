@@ -6,6 +6,7 @@ import type {
   Job, 
   VoiceJob, 
   PaginatedResponse,
+  DashboardStats,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/v1';
@@ -69,6 +70,9 @@ export const projectService = {
     
   render: (projectId: string, data: { render_type: string, quality: string, scene_id?: string }) => 
     api.post<{ job_id: string, status: string }>(`/projects/${projectId}/render`, data),
+    
+  getStats: () => 
+    api.get<DashboardStats>('/projects/stats'),
 };
 
 export const sceneService = {
