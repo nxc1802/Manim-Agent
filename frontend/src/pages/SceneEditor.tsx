@@ -43,7 +43,7 @@ const SceneEditor = () => {
   }, [lastEvent, fetchScene]);
 
   // Voice Job Polling
-  const { startPolling: pollVoice } = useJobPolling<VoiceJob>({
+  const { startPolling: _pollVoice } = useJobPolling<VoiceJob>({
     fetchFn: () => jobService.getVoiceJob(scene?.id || ''), // This will be set when action starts
     isCompleted: (job) => job.status === 'completed',
     isFailed: (job) => job.status === 'failed',
