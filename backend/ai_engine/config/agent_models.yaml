@@ -2,8 +2,8 @@ defaults:
   temperature: 0.4
   max_tokens: 2048
 
-stable_or: &stable_or dashscope/qwen-plus
-stable_qwen: &stable_qwen dashscope/qwen-plus
+stable_or: &stable_or openrouter/google/gemma-4-31b-it:free
+stable_qwen: &stable_qwen dashscope/qwen3-coder-plus
 stable_visual: &stable_visual openrouter/google/gemma-4-31b-it:free
 
 agents:

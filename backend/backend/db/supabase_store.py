@@ -73,7 +73,7 @@ class SupabaseContentStore(ContentStore):
         headers["Prefer"] = "count=exact"
         with httpx.Client(headers=headers, timeout=30.0) as client:
             r = client.get(url)
-            if r.status_code == 200:
+            if r.status_code in (200, 206):
                 total = 0
                 range_header = r.headers.get("Content-Range")
                 if range_header and "/" in range_header:
@@ -116,7 +116,7 @@ class SupabaseContentStore(ContentStore):
         headers["Prefer"] = "count=exact"
         with httpx.Client(headers=headers, timeout=30.0) as client:
             r = client.get(url)
-            if r.status_code == 200:
+            if r.status_code in (200, 206):
                 total = 0
                 range_header = r.headers.get("Content-Range")
                 if range_header and "/" in range_header:
@@ -277,13 +277,24 @@ class SupabaseContentStore(ContentStore):
             return DashboardStats(
                 total_projects=0, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0
             )
+        
+        # Try RPC first
         url = f"{self._base_url}/rest/v1/rpc/get_dashboard_stats"
-        with self._get_client() as client:
-            r = client.post(url, json={"user_id_param": str(user_id)})
-            if r.status_code == 200:
-                return DashboardStats.model_validate(r.json())
+        try:
+            with self._get_client() as client:
+                r = client.post(url, json={"user_id_param": str(user_id)})
+                if r.status_code == 200:
+                    return DashboardStats.model_validate(r.json())
+        except Exception as e:
+            logger.warning(f"Dashboard RPC failed: {e}")
+
+        # Fallback to manual count
+        projects, total = self.list_projects_for_user(user_id, limit=1)
         return DashboardStats(
-            total_projects=0, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0
+            total_projects=total,
+            active_jobs=0,
+            total_tokens_used=0,
+            total_render_time_hours=0.0,
         )
 
     def add_scene_to_project_index(self, scene: Scene) -> None:
