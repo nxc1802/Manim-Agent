@@ -65,7 +65,7 @@ def _validate_generated_scene_class(tree: ast.Module) -> None:
 
 
 def validate_manim_code(source: str, *, limits: SandboxLimits) -> None:
-    """Static checks: size, syntax, import policy, required class name."""
+    """Static checks: size, syntax, import policy, required class name, and extended checks."""
     data = source.encode("utf-8")
     if len(data) > limits.max_bytes:
         msg = f"Code exceeds max size ({limits.max_bytes} bytes)"
@@ -81,11 +81,24 @@ def validate_manim_code(source: str, *, limits: SandboxLimits) -> None:
     _validate_imports(tree)
     _validate_generated_scene_class(tree)
 
+    from shared.constants import SeverityLevel
+
+    from backend.services.manim_validator import validate_manim_code_extended
+    res = validate_manim_code_extended(source)
+    if not res.passed:
+        errors = [
+            i.message
+            for i in res.issues
+            if i.severity in (SeverityLevel.ERROR, SeverityLevel.BLOCKER)
+        ]
+        msg = "Extended Manim validation failed: " + "; ".join(errors)
+        raise SandboxValidationError(msg)
+
 
 def static_check_split(source: str, *, limits: SandboxLimits) -> tuple[bool, bool, str | None]:
     """Return (syntax_ok, policy_ok, error_code).
 
-    ``syntax_ok`` means Python parses. ``policy_ok`` adds import rules + GeneratedScene class.
+    ``syntax_ok`` means Python parses. ``policy_ok`` adds import rules + GeneratedScene class + extended validations.
     """
     data = source.encode("utf-8")
     if len(data) > limits.max_bytes:
@@ -99,6 +112,10 @@ def static_check_split(source: str, *, limits: SandboxLimits) -> tuple[bool, boo
     try:
         _validate_imports(tree)
         _validate_generated_scene_class(tree)
+        from backend.services.manim_validator import validate_manim_code_extended
+        res = validate_manim_code_extended(source)
+        if not res.passed:
+            raise SandboxValidationError("Extended validation failed")
     except SandboxValidationError:
         return True, False, "policy_error"
     return True, True, None

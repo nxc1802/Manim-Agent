@@ -29,6 +29,7 @@ from worker.tasks import render_manim_scene
 
 from ai_engine.agents.builder import run_builder
 from ai_engine.agents.code_reviewer import run_code_reviewer
+from ai_engine.agents.scene_designer import run_scene_designer
 from ai_engine.agents.visual_reviewer import run_visual_reviewer
 from ai_engine.config import (
     AgentLLMParams,
@@ -37,7 +38,6 @@ from ai_engine.config import (
     load_builder_review_loop,
     resolve_agent_params,
 )
-from ai_engine.json_utils import parse_json_object
 from ai_engine.llm_client import LLMClient
 from ai_engine.prompts import PROMPT_VERSION_VISUAL_REVIEWER
 from ai_engine.utils.storage_helper import save_agent_interaction
@@ -125,36 +125,7 @@ def truncate_error_logs(logs: str, max_chars: int = 2000) -> str:
     return f"{logs[:limit]}{msg}{logs[-limit:]}"
 
 
-async def _run_agent_with_self_correction(
-    agent_name: str, call_fn: Any, schema: type[T] | None, **kwargs: Any
-) -> tuple[Any, str, dict[str, Any], str, str]:
-    """Helper to call agent and validate schema."""
-    try:
-        # call_fn is assumed to be async now
-        result, version, metrics, system, user = await call_fn(**kwargs)
-
-        if schema is None:
-            return result, version, metrics, system, user
-
-        if isinstance(result, str):
-            data = parse_json_object(result)
-            validated = schema.model_validate(data)
-            return validated, version, metrics, system, user
-        else:
-            if isinstance(result, schema):
-                return result, version, metrics, system, user
-            validated = schema.model_validate(result)
-            return validated, version, metrics, system, user
-
-    except Exception as e:
-        logger.error(f"Agent {agent_name} failed: {str(e)}")
-        pipeline_event(
-            f"ai_engine.{agent_name}",
-            "agent_failed",
-            "Agent call or validation failed",
-            details={"error": str(e)},
-        )
-        raise
+from ai_engine.agent_runner import _run_agent_with_self_correction
 
 
 async def run_single_review_round_ex(
@@ -424,23 +395,100 @@ async def run_builder_loop_phase(
             )
 
             # 3a. Builder Agent
-            code, _pv_b, b_met, b_sys, b_usr = await run_builder(
-                llm=llm,
-                model=builder_llm.model,
-                temperature=builder_llm.temperature,
-                max_tokens=builder_llm.max_tokens,
-                planner=plan,
-                sync_segments=scene.sync_segments,
-                storyboard_excerpt=excerpt,
-                use_primitives=use_primitives,
-                review_feedback=feedback,
-                chat_history=chat_history,
-                request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
-                is_fix_mode=(round_idx > 1),
-            )
-            save_agent_interaction(
-                scene.project_id, "builder", "generate", b_sys, b_usr, code, round_idx=round_idx
-            )
+            code = ""
+            _pv_b = ""
+            b_met: dict[str, Any] = {}
+            b_sys = ""
+            b_usr = ""
+            is_dsl_successful = False
+
+            if review_cfg.use_dsl_pipeline and round_idx == 1:
+                from ai_engine.dsl_compiler import compile_dsl_to_manim, parse_python_class_dsl
+
+                designer_llm = resolve_agent_params(yaml_data, "scene_designer")
+                pipeline_event(
+                    "builder.review_loop",
+                    "scene_designer_start",
+                    "Designing scene using Scene DSL",
+                    scene_id=str(scene_id),
+                )
+                try:
+                    dsl_raw_output, _pv_b, b_met, b_sys, b_usr = await run_scene_designer(
+                        llm=llm,
+                        model=designer_llm.model,
+                        temperature=designer_llm.temperature,
+                        max_tokens=designer_llm.max_tokens,
+                        planner=plan,
+                        sync_segments=scene.sync_segments,
+                        storyboard_excerpt=excerpt,
+                        request_timeout_seconds=runtime_limits.llm_timeout_seconds("scene_designer"),
+                    )
+
+                    dsl_stripped = extract_python_code(dsl_raw_output).strip()
+                    scene_dsl_obj = parse_python_class_dsl(dsl_stripped)
+
+                    # Update scene with DSL content
+                    scene = store.update_scene(
+                        scene_id,
+                        scene_dsl=scene_dsl_obj.model_dump(mode="json"),
+                        scene_dsl_version=scene.scene_dsl_version + 1,
+                    )
+                    assert scene is not None
+
+                    code = compile_dsl_to_manim(scene_dsl_obj)
+                    is_dsl_successful = True
+
+                    save_agent_interaction(
+                        scene.project_id,
+                        "scene_designer",
+                        "generate",
+                        b_sys,
+                        b_usr,
+                        dsl_raw_output,
+                        round_idx=round_idx,
+                    )
+
+                    # Save design agent log
+                    try:
+                        insert_agent_log_row(
+                            AgentLog(
+                                run_id=run_id,
+                                scene_id=scene_id,
+                                round_idx=round_idx,
+                                agent_name="scene_designer",
+                                attempt=1,
+                                prompt_version=_pv_b,
+                                system_prompt=b_sys,
+                                user_prompt=b_usr,
+                                output_text=dsl_raw_output,
+                                metrics=b_met,
+                            )
+                        )
+                    except Exception:
+                        logger.warning("Failed to insert scene_designer agent log to Supabase")
+                except Exception as dsl_err:
+                    logger.exception(
+                        "Scene DSL pipeline failed, falling back to Builder: %s", dsl_err
+                    )
+
+            if not is_dsl_successful:
+                code, _pv_b, b_met, b_sys, b_usr = await run_builder(
+                    llm=llm,
+                    model=builder_llm.model,
+                    temperature=builder_llm.temperature,
+                    max_tokens=builder_llm.max_tokens,
+                    planner=plan,
+                    sync_segments=scene.sync_segments,
+                    storyboard_excerpt=excerpt,
+                    use_primitives=use_primitives,
+                    review_feedback=feedback,
+                    chat_history=chat_history,
+                    request_timeout_seconds=runtime_limits.llm_timeout_seconds("builder"),
+                    is_fix_mode=(round_idx > 1),
+                )
+                save_agent_interaction(
+                    scene.project_id, "builder", "generate", b_sys, b_usr, code, round_idx=round_idx
+                )
 
             builder_block = {
                 "prompt_version": _pv_b,
@@ -492,6 +540,75 @@ async def run_builder_loop_phase(
                 )
             except Exception:
                 logger.exception("Failed to save scene_code_history")
+
+            # Pre-render Validation and Repair
+            if review_cfg.pre_render_validation:
+                from backend.services.manim_validator import validate_manim_code_extended
+
+                from ai_engine.agents.repair import run_repair
+
+                val_res = validate_manim_code_extended(stripped)
+                repair_count = 0
+                while not val_res.passed and repair_count < review_cfg.repair_max_attempts:
+                    repair_count += 1
+                    pipeline_event(
+                        "builder.review_loop",
+                        "repair_start",
+                        f"Validation failed. Attempting repair {repair_count}/{review_cfg.repair_max_attempts}",
+                        scene_id=str(scene_id),
+                        details={"errors": [i.model_dump() for i in val_res.issues]},
+                    )
+
+                    repair_llm = resolve_agent_params(yaml_data, "repair")
+                    repaired_code, _pv_r, r_met, r_sys, r_usr = await run_repair(
+                        llm=llm,
+                        model=repair_llm.model,
+                        temperature=repair_llm.temperature,
+                        max_tokens=repair_llm.max_tokens,
+                        original_code=stripped,
+                        validation_errors=val_res.issues,
+                        request_timeout_seconds=runtime_limits.llm_timeout_seconds("repair"),
+                    )
+
+                    stripped = repaired_code
+                    next_ver = scene.manim_code_version + 1
+                    scene = store.update_scene(scene_id, manim_code=stripped, manim_code_version=next_ver)
+                    assert scene is not None
+
+                    # Save repair log
+                    try:
+                        insert_agent_log_row(
+                            AgentLog(
+                                run_id=run_id,
+                                scene_id=scene_id,
+                                round_idx=round_idx,
+                                agent_name="repair",
+                                attempt=repair_count,
+                                prompt_version=_pv_r,
+                                system_prompt=r_sys,
+                                user_prompt=r_usr,
+                                output_text=repaired_code,
+                                metrics=r_met,
+                            )
+                        )
+                    except Exception:
+                        logger.warning("Failed to insert repair agent log to Supabase")
+
+                    # Save history snapshot
+                    try:
+                        store.save_scene_code_history(
+                            SceneCodeHistory(
+                                scene_id=scene_id,
+                                run_id=run_id,
+                                version=next_ver,
+                                round_idx=round_idx,
+                                manim_code=stripped,
+                            )
+                        )
+                    except Exception:
+                        logger.exception("Failed to save scene_code_history in repair")
+
+                    val_res = validate_manim_code_extended(stripped)
 
             job_id = uuid4()
             job_store.create_queued_job(

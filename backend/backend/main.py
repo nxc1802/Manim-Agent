@@ -15,7 +15,10 @@ from backend.core.config import settings
 from backend.core.correlation import CorrelationIdMiddleware
 from backend.core.errors import register_exception_handlers
 from backend.core.limiter import limiter
+from backend.core.sentry_setup import init_sentry
 from backend.services.redis_client import get_redis
+
+init_sentry()
 
 setup_pipeline_logging(
     level=settings.log_level,

@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+
+
+@pytest.fixture()
+def anyio_backend() -> str:
+    return "asyncio"
 from ai_engine.builder_loop import run_builder_loop_phase
 from ai_engine.config import RuntimeLimitsConfig
 from shared.schemas.review import ReviewResult
@@ -59,9 +64,8 @@ async def test_builder_loop_early_stop_on_success(
     job_store = MagicMock()
     llm = MagicMock()
 
-    # Round 1: Builder returns code, Wait returns completed job, Review returns early_stop=True
     mock_builder.return_value = (
-        "class GeneratedScene:\n    pass",
+        "class GeneratedScene:\n    def construct(self):\n        pass",
         "v1",
         {"duration_ms": 100},
         "sys",
@@ -92,7 +96,7 @@ async def test_builder_loop_early_stop_on_success(
         store=store,
         job_store=job_store,
         llm=llm,
-        yaml_data={},
+        yaml_data={"builder_review_loop": {"use_dsl_pipeline": False}},
         runtime_limits=mock_runtime_limits,
         preview_poll_timeout_seconds=10,
     )
@@ -124,7 +128,7 @@ async def test_builder_loop_max_rounds_exceeded(
 
     # Always fail review
     mock_builder.return_value = (
-        "class GeneratedScene:\n    pass",
+        "class GeneratedScene:\n    def construct(self):\n        pass",
         "v1",
         {"duration_ms": 100},
         "sys",
@@ -150,13 +154,12 @@ async def test_builder_loop_max_rounds_exceeded(
         {"code_reviewer": {"system": "s", "user": "u"}},
     )
 
-    # Set max_rounds to 2 via yaml_data or extra_rounds param
     scene_out, report = await run_builder_loop_phase(
         scene_id=mock_scene.id,
         store=store,
         job_store=job_store,
         llm=llm,
-        yaml_data={"builder_review_loop": {"max_rounds": 2}},
+        yaml_data={"builder_review_loop": {"max_rounds": 2, "use_dsl_pipeline": False}},
         runtime_limits=mock_runtime_limits,
         preview_poll_timeout_seconds=10,
         extra_rounds=2,

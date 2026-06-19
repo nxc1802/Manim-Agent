@@ -2,36 +2,64 @@ defaults:
   temperature: 0.4
   max_tokens: 2048
 
-stable_or: &stable_or openrouter/google/gemma-4-31b-it:free
+providers:
+  google_ai_studio:
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    keys: []
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    keys:
+      - "${OPENROUTER_API_KEY}"
+  dashscope:
+    base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    keys:
+      - "${DASHSCOPE_API_KEY}"
+
+stable_gemini: &stable_gemini gemini-2.5-flash
 stable_qwen: &stable_qwen dashscope/qwen3-coder-plus
-stable_visual: &stable_visual openrouter/google/gemma-4-31b-it:free
 
 agents:
   director:
-    model: *stable_or
+    model: *stable_gemini
+    provider: google_ai_studio
     temperature: 0.5
     max_tokens: 2048
     target_scenes: 1
   planner:
-    model: *stable_or
+    model: *stable_gemini
+    provider: google_ai_studio
     temperature: 0.3
     max_tokens: 6144
   builder:
-    model: *stable_qwen
+    model: *stable_gemini
+    provider: google_ai_studio
     temperature: 0.1
     max_tokens: 4096
   code_reviewer:
-    model: *stable_or
+    model: *stable_gemini
+    provider: google_ai_studio
     temperature: 0.1
     max_tokens: 4096
   visual_reviewer:
-    model: *stable_visual
+    model: *stable_gemini
+    provider: google_ai_studio
     temperature: 0.1
+    max_tokens: 4096
+  repair:
+    model: *stable_gemini
+    provider: google_ai_studio
+    temperature: 0.05
+    max_tokens: 4096
+  scene_designer:
+    model: *stable_gemini
+    provider: google_ai_studio
+    temperature: 0.2
     max_tokens: 4096
 
 builder_review_loop:
   max_rounds: 3
   visual_reviewer_enabled: true
+  use_dsl_pipeline: true
   early_stop:
     require_all:
       - code_review_passed
@@ -46,6 +74,8 @@ builder_review_loop:
   blocking_severity_min: warning
   stop_when_only_info_severity: false
   on_max_rounds_exceeded: fail
+  pre_render_validation: true
+  repair_max_attempts: 2
 
 runtime_limits:
   worker:
@@ -60,3 +90,5 @@ runtime_limits:
     builder: 1200
     code_reviewer: 600
     visual_reviewer: 600
+    repair: 600
+    scene_designer: 600

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from primitives.registry import build_primitives_catalog
 from shared.pipeline_log import pipeline_debug
@@ -34,7 +34,7 @@ async def run_planner(
         details={"model": model, "system": system_with_catalog, "user": storyboard_text},
     )
 
-    completion = await llm.acomplete_ex(
+    completion = await cast(Any, llm).acomplete_ex(
         model=model,
         system=system_with_catalog,
         user=storyboard_text,
@@ -42,6 +42,7 @@ async def run_planner(
         temperature=temperature,
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
+        agent_name="planner",
     )
 
     pipeline_debug(

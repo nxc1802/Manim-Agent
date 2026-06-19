@@ -37,6 +37,8 @@ export interface Scene {
   sync_segments: any | null;
   manim_code: string | null;
   manim_code_version: number;
+  scene_dsl: any | null;
+  scene_dsl_version: number;
 
   // Audio
   audio_url: string | null;

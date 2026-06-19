@@ -1,9 +1,12 @@
 import json
 import logging
+import os
+import shutil
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from backend.core.config import settings
@@ -19,6 +22,8 @@ from shared.pipeline_log import (
 from shared.schemas.render_job import RenderJobType, RenderQuality
 
 logger = logging.getLogger(__name__)
+
+IS_POSIX = os.name == "posix"
 
 
 class RenderManimResult(NamedTuple):
@@ -52,6 +57,14 @@ def render_manim_scene_to_disk(
     repo_root = Path(settings.repo_root).resolve()
     # Create a temporary directory for this job to ensure no local leakage
     job_dir = Path(tempfile.mkdtemp(prefix=f"manim_job_{job_id}_")).resolve()
+
+    # Disk space check
+    total, used, free = shutil.disk_usage(str(job_dir))
+    if free < 500 * 1024 * 1024:
+        msg = f"Insufficient disk space. Free: {free / (1024 * 1024):.1f} MB, required: 500.0 MB"
+        logger.error(msg)
+        raise RuntimeError(msg)
+
     media_dir = job_dir / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,15 +150,60 @@ def render_manim_scene_to_disk(
         job_id=str(job_id),
         details={"argv": cmd},
     )
+    is_posix = IS_POSIX
+    popen_kwargs: dict[str, Any] = {}
+    if is_posix:
+        mem_limit = int(os.environ.get("RENDERER_MAX_VMEM_BYTES", 2 * 1024 * 1024 * 1024))
+        fsize_limit = int(os.environ.get("RENDERER_MAX_FSIZE_BYTES", 500 * 1024 * 1024))
+        cpu_limit = timeout + 10
+
+        def set_limits() -> None:
+            os.setsid()  # type: ignore[attr-defined]
+            try:
+                import resource  # type: ignore[import-not-found, unused-ignore]
+
+                # CPU time limit in seconds
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 5))  # type: ignore[attr-defined]
+                # Memory (address space/virtual memory size) limit
+                resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))  # type: ignore[attr-defined]
+                # Max file size limit
+                resource.setrlimit(resource.RLIMIT_FSIZE, (fsize_limit, fsize_limit))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+        popen_kwargs["preexec_fn"] = set_limits
+
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(repo_root),
-            check=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            **popen_kwargs,
         )
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            if is_posix:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # type: ignore[attr-defined]
+                except Exception as e:
+                    logger.warning("Failed to kill process group on POSIX: %s", e)
+            else:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True
+                    )
+                except Exception as e:
+                    logger.warning("Failed to kill process tree on Windows: %s", e)
+            proc.wait()
+            raise subprocess.TimeoutExpired(
+                cmd, timeout, output=exc.output, stderr=exc.stderr
+            ) from exc
+
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd, output=stdout, stderr=stderr)
     except subprocess.TimeoutExpired as exc:
         pipeline_error(
             "worker.manim",
@@ -173,8 +231,8 @@ def render_manim_scene_to_disk(
         detail = (stderr_tail or stdout_tail or "").strip() or f"manim exit code {exc.returncode}"
         raise RuntimeError(detail) from exc
 
-    stdout_tail = (proc.stdout or "")[-8000:]
-    stderr_tail = (proc.stderr or "")[-8000:]
+    stdout_tail = (stdout or "")[-8000:]
+    stderr_tail = (stderr or "")[-8000:]
 
     matches = sorted(media_dir.rglob(f"{scene_class}.mp4"))
     if not matches:

@@ -17,6 +17,7 @@ from shared.schemas.review import ReviewIssue, ReviewResult
 from shared.schemas.review_pipeline import ReviewRoundRequest, ReviewRoundResponse
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
 from shared.schemas.storage_api import SignedVideoUrlResponse
+from shared.schemas.validation import ValidationIssue, ValidationResult
 from shared.schemas.voice_api import (
     VoiceEnqueueResponse,
     VoiceJobStatusResponse,
@@ -59,4 +60,6 @@ __all__ = [
     "VoiceSegmentTimestamps",
     "VoiceTimestamps",
     "WordSpan",
+    "ValidationIssue",
+    "ValidationResult",
 ]

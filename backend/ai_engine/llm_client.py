@@ -2,20 +2,45 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+import re
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable, cast
 
 logger = logging.getLogger(__name__)
 
 
+class KeyRotator:
+    def __init__(self, keys: list[str]):
+        self._keys = keys
+        self._index = 0
+        self._lock = threading.Lock()
+
+    def get_next_key(self) -> str:
+        if not self._keys:
+            return ""
+        with self._lock:
+            key = self._keys[self._index]
+            self._index = (self._index + 1) % len(self._keys)
+            # Resolve env vars like ${KEY} dynamically
+            match = re.match(r"\$\{(.+)\}", key)
+            if match:
+                return os.environ.get(match.group(1), "")
+            return key
+
+
 @dataclass(frozen=True)
 class LLMUsage:
-    prompt_tokens: int | None
-    completion_tokens: int | None
-    duration_ms: int
+    bytes: None = None  # Add placeholder to avoid signature changes if any
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    duration_ms: int = 0
 
 
+# Keep structural fields matching existing constructor
 @dataclass(frozen=True)
 class LLMCompletion:
     text: str
@@ -23,20 +48,7 @@ class LLMCompletion:
 
 
 @runtime_checkable
-class LLMClient(Protocol):
-    """Text + optional single-image completion (all LLM agents run in the API process)."""
-
-    def complete(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
-
+class SyncLLMClient(Protocol):
     def complete_ex(
         self,
         *,
@@ -47,17 +59,8 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
-
-    def complete_chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
 
     def complete_chat_ex(
         self,
@@ -68,19 +71,8 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
-
-    def complete_with_images(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        image_jpeg: bytes,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
 
     def complete_with_images_ex(
         self,
@@ -93,19 +85,12 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
 
-    async def acomplete(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
 
+@runtime_checkable
+class AsyncLLMClient(Protocol):
     async def acomplete_ex(
         self,
         *,
@@ -116,17 +101,8 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
-
-    async def acomplete_chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
 
     async def acomplete_chat_ex(
         self,
@@ -137,19 +113,8 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
-
-    async def acomplete_with_images(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        image_jpeg: bytes,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str: ...
 
     async def acomplete_with_images_ex(
         self,
@@ -162,7 +127,152 @@ class LLMClient(Protocol):
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion: ...
+
+
+# Backward-compatible union
+LLMClient = SyncLLMClient | AsyncLLMClient
+
+
+class LLMClientMixin:
+    """Provides standard convenience methods calling the _ex variants."""
+
+    def complete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        return cast(SyncLLMClient, self).complete_ex(
+            model=model,
+            system=system,
+            user=user,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        ).text
+
+    def complete_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        return cast(SyncLLMClient, self).complete_chat_ex(
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        ).text
+
+    def complete_with_images(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        image_jpeg: bytes,
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        return cast(SyncLLMClient, self).complete_with_images_ex(
+            model=model,
+            system=system,
+            user=user,
+            image_jpeg=image_jpeg,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        ).text
+
+    async def acomplete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        res = await cast(AsyncLLMClient, self).acomplete_ex(
+            model=model,
+            system=system,
+            user=user,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        )
+        return res.text
+
+    async def acomplete_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        res = await cast(AsyncLLMClient, self).acomplete_chat_ex(
+            model=model,
+            messages=messages,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        )
+        return res.text
+
+    async def acomplete_with_images(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        image_jpeg: bytes,
+        json_mode: bool,
+        temperature: float,
+        max_tokens: int,
+        agent_name: str | None = None,
+    ) -> str:
+        res = await cast(AsyncLLMClient, self).acomplete_with_images_ex(
+            model=model,
+            system=system,
+            user=user,
+            image_jpeg=image_jpeg,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_timeout_seconds=None,
+            agent_name=agent_name,
+        )
+        return res.text
+
 
 
 _DEFAULT_BUILDER_CODE = """from __future__ import annotations
@@ -176,7 +286,7 @@ class GeneratedScene(Scene):
 """
 
 
-class FakeLLMClient:
+class FakeLLMClient(LLMClientMixin):
     """Deterministic client for CI and integration tests (no network)."""
 
     def __init__(
@@ -222,19 +332,6 @@ class FakeLLMClient:
             return self._code_review_json
         return self._director_text
 
-    def complete(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        _ = (model, temperature, max_tokens)
-        return self._fake_text(system=system, user=user, json_mode=json_mode)
-
     def complete_ex(
         self,
         *,
@@ -245,31 +342,14 @@ class FakeLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
-        _ = (model, temperature, max_tokens, request_timeout_seconds)
+        _ = (model, temperature, max_tokens, request_timeout_seconds, agent_name)
         text = self._fake_text(system=system, user=user, json_mode=json_mode)
         return LLMCompletion(
             text=text,
             usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
         )
-
-    def complete_chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        return self.complete_chat_ex(
-            model=model,
-            messages=messages,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        ).text
 
     def complete_chat_ex(
         self,
@@ -280,8 +360,9 @@ class FakeLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
-        _ = (model, temperature, max_tokens, request_timeout_seconds)
+        _ = (model, temperature, max_tokens, request_timeout_seconds, agent_name)
         system = next((m["content"] for m in messages if m["role"] == "system"), "")
         user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         text = self._fake_text(system=system, user=user, json_mode=json_mode)
@@ -289,28 +370,6 @@ class FakeLLMClient:
             text=text,
             usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
         )
-
-    def complete_with_images(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        image_jpeg: bytes,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        return self.complete_with_images_ex(
-            model=model,
-            system=system,
-            user=user,
-            image_jpeg=image_jpeg,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        ).text
 
     def complete_with_images_ex(
         self,
@@ -323,33 +382,25 @@ class FakeLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
-        _ = (model, system, user, image_jpeg, temperature, max_tokens, request_timeout_seconds)
+        _ = (model, system, user, image_jpeg, temperature, max_tokens, request_timeout_seconds, agent_name)
         return LLMCompletion(
             text=self._visual_review_json,
             usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
         )
 
-    async def acomplete(self, **kwargs: Any) -> str:
-        return self.complete(**kwargs)
-
     async def acomplete_ex(self, **kwargs: Any) -> LLMCompletion:
         return self.complete_ex(**kwargs)
 
-    async def acomplete_chat(self, **kwargs: Any) -> str:
-        return self.complete_chat(**kwargs)
-
     async def acomplete_chat_ex(self, **kwargs: Any) -> LLMCompletion:
         return self.complete_chat_ex(**kwargs)
-
-    async def acomplete_with_images(self, **kwargs: Any) -> str:
-        return self.complete_with_images(**kwargs)
 
     async def acomplete_with_images_ex(self, **kwargs: Any) -> LLMCompletion:
         return self.complete_with_images_ex(**kwargs)
 
 
-class LiteLLMClient:
+class LiteLLMClient(LLMClientMixin):
     """LiteLLM-backed client (OpenRouter or any LiteLLM-supported provider)."""
 
     def __init__(
@@ -365,25 +416,44 @@ class LiteLLMClient:
         self._provider_keys = provider_keys or {}
         self._provider_bases = provider_bases or {}
 
-    def complete(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        return self.complete_ex(
-            model=model,
-            system=system,
-            user=user,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        ).text
+        # Load agent_models.yaml config
+        from backend.core.config import settings
+
+        from ai_engine.config import default_agent_models_path, load_agent_models_yaml
+        
+        cfg_path = Path(settings.agent_models_yaml).expanduser() if settings.agent_models_yaml else default_agent_models_path()
+        try:
+            self._config_data = load_agent_models_yaml(cfg_path)
+        except Exception as e:
+            logger.warning(f"Could not load agent models yaml from {cfg_path}: {e}")
+            self._config_data = {}
+
+        self._rotators: dict[str, KeyRotator] = {}
+        providers = self._config_data.get("providers") or {}
+        for provider_name, provider_cfg in providers.items():
+            if isinstance(provider_cfg, dict):
+                keys = provider_cfg.get("keys") or []
+                if not isinstance(keys, list):
+                    keys = []
+
+                if provider_name == "google_ai_studio":
+                    env_keys = []
+                    if "GOOGLE_API_KEY" in os.environ:
+                        val = os.environ["GOOGLE_API_KEY"]
+                        env_keys = [k.strip() for k in val.split(",") if k.strip()]
+                    else:
+                        idx = 1
+                        while True:
+                            k_val = os.environ.get(f"GOOGLE_API_KEY_{idx}")
+                            if not k_val:
+                                break
+                            env_keys.append(k_val.strip())
+                            idx += 1
+                    if env_keys:
+                        keys = env_keys
+
+                if keys:
+                    self._rotators[provider_name] = KeyRotator([str(k) for k in keys])
 
     def _get_completion_kwargs(
         self,
@@ -393,6 +463,7 @@ class LiteLLMClient:
         max_tokens: int,
         json_mode: bool,
         timeout: float,
+        agent_name: str | None = None,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": model,
@@ -402,37 +473,50 @@ class LiteLLMClient:
             "timeout": timeout,
         }
 
-        # Multi-provider logic
-        lowered_model = model.lower()
-        if "dashscope/" in lowered_model or "qwen" in lowered_model:
-            ds_key = self._provider_keys.get("dashscope")
-            if ds_key:
-                kwargs["api_key"] = ds_key
-                # Priority: 1. Specific provider base, 2. Global base, 3. Hardcoded fallback
-                ds_base = self._provider_bases.get("dashscope") or self._api_base
-                if ds_base:
-                    kwargs["api_base"] = ds_base
-                elif "openai/" in lowered_model or "dashscope-intl" not in lowered_model:
-                    kwargs["api_base"] = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-        else:
-            # Default/OpenRouter logic
-            if self._api_key:
-                kwargs["api_key"] = self._api_key
-            
-            # Priority: 1. Specific provider base, 2. Global base
-            or_base = self._provider_bases.get("openrouter") or self._api_base
-            if or_base:
-                kwargs["api_base"] = or_base
+        # Determine provider and credentials based on agent_name
+        provider_name = None
+        if agent_name and hasattr(self, "_config_data"):
+            agents_cfg = self._config_data.get("agents") or {}
+            agent_cfg = agents_cfg.get(agent_name)
+            if isinstance(agent_cfg, dict):
+                provider_name = agent_cfg.get("provider")
+
+        # Get key and base url from rotator/config if provider is found
+        api_key = None
+        api_base = None
+
+        if provider_name and provider_name in self._rotators:
+            api_key = self._rotators[provider_name].get_next_key()
+            providers_cfg = self._config_data.get("providers") or {}
+            prov_cfg = providers_cfg.get(provider_name) or {}
+            if isinstance(prov_cfg, dict):
+                api_base = prov_cfg.get("base_url")
+
+        # Fallback to defaults
+        if not api_key:
+            lowered_model = model.lower()
+            if "dashscope/" in lowered_model or "qwen" in lowered_model:
+                api_key = self._provider_keys.get("dashscope")
+                api_base = self._provider_bases.get("dashscope") or self._api_base
+                if not api_base and ("openai/" in lowered_model or "dashscope-intl" not in lowered_model):
+                    api_base = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            else:
+                api_key = self._api_key
+                api_base = self._provider_bases.get("openrouter") or self._api_base
+
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_base:
+            kwargs["api_base"] = api_base
 
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        # Ollama specific overrides
         effective_base = kwargs.get("api_base") or self._api_base or ""
         if "11434" in effective_base:
             kwargs["extra_body"] = {"num_ctx": 16384, "num_predict": -1}
 
-        # reasoning specific overrides
+        lowered_model = model.lower()
         if "reasoning" in lowered_model:
             eb = kwargs.get("extra_body") or {}
             eb["reasoning"] = {"enabled": True}
@@ -450,9 +534,8 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
-
-        time.monotonic()
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -464,25 +547,8 @@ class LiteLLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             request_timeout_seconds=request_timeout_seconds,
+            agent_name=agent_name,
         )
-
-    def complete_chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        return self.complete_chat_ex(
-            model=model,
-            messages=messages,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        ).text
 
     def complete_chat_ex(
         self,
@@ -493,6 +559,7 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
         import litellm
         from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -508,7 +575,7 @@ class LiteLLMClient:
                     litellm.ServiceUnavailableError,  # type: ignore
                     litellm.InternalServerError,  # type: ignore
                     litellm.APIError,  # type: ignore
-                    RuntimeError,  # covers "LLM returned empty content"
+                    RuntimeError,
                 )
             ),
             reraise=True,
@@ -523,15 +590,14 @@ class LiteLLMClient:
                 max_tokens=max_tokens,
                 json_mode=json_mode,
                 timeout=timeout,
+                agent_name=agent_name,
             )
 
             resp = litellm.completion(**kwargs)
             msg = resp.choices[0].message
             content = getattr(msg, "content", None)
 
-            # Debug: Check for reasoning content or other fields if standard content is empty
             if not content:
-                # msg.model_dump() provides a dict view in Pydantic v2
                 fields = list(msg.model_dump().keys()) if hasattr(msg, "model_dump") else []
                 logger.debug(f"DEBUG: LLM message fields: {fields}")
                 for field in ["reasoning", "reasoning_content", "thought"]:
@@ -545,7 +611,7 @@ class LiteLLMClient:
                 logger.error(
                     "LiteLLM returned empty content (model=%s). Message fields: %s",
                     model,
-                    list(msg.keys()),
+                    list(msg.keys()) if hasattr(msg, "keys") else [],
                 )
                 raise RuntimeError("LLM returned empty content")
             duration_ms = int((time.monotonic() - t0) * 1000)
@@ -561,28 +627,6 @@ class LiteLLMClient:
 
         return _call_with_retry()
 
-    def complete_with_images(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        image_jpeg: bytes,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        return self.complete_with_images_ex(
-            model=model,
-            system=system,
-            user=user,
-            image_jpeg=image_jpeg,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        ).text
-
     def complete_with_images_ex(
         self,
         *,
@@ -594,6 +638,7 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
         import litellm
         from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -637,6 +682,7 @@ class LiteLLMClient:
                 max_tokens=max_tokens,
                 json_mode=json_mode,
                 timeout=timeout,
+                agent_name=agent_name,
             )
 
             resp = litellm.completion(**kwargs)
@@ -659,27 +705,6 @@ class LiteLLMClient:
 
         return _call_with_retry()
 
-    async def acomplete(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        res = await self.acomplete_ex(
-            model=model,
-            system=system,
-            user=user,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        )
-        return res.text
-
     async def acomplete_ex(
         self,
         *,
@@ -690,6 +715,7 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
@@ -702,26 +728,8 @@ class LiteLLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             request_timeout_seconds=request_timeout_seconds,
+            agent_name=agent_name,
         )
-
-    async def acomplete_chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        res = await self.acomplete_chat_ex(
-            model=model,
-            messages=messages,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        )
-        return res.text
 
     async def acomplete_chat_ex(
         self,
@@ -732,6 +740,7 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
         import litellm
         from tenacity import (
@@ -750,6 +759,7 @@ class LiteLLMClient:
             max_tokens=max_tokens,
             json_mode=json_mode,
             timeout=timeout,
+            agent_name=agent_name,
         )
 
         async for attempt in AsyncRetrying(
@@ -793,29 +803,6 @@ class LiteLLMClient:
         )
         return LLMCompletion(text=text, usage=usage)
 
-    async def acomplete_with_images(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        image_jpeg: bytes,
-        json_mode: bool,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        res = await self.acomplete_with_images_ex(
-            model=model,
-            system=system,
-            user=user,
-            image_jpeg=image_jpeg,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-        )
-        return res.text
-
     async def acomplete_with_images_ex(
         self,
         *,
@@ -827,6 +814,7 @@ class LiteLLMClient:
         temperature: float,
         max_tokens: int,
         request_timeout_seconds: int | None,
+        agent_name: str | None = None,
     ) -> LLMCompletion:
         import litellm
         from tenacity import (
@@ -856,6 +844,7 @@ class LiteLLMClient:
             max_tokens=max_tokens,
             json_mode=json_mode,
             timeout=timeout,
+            agent_name=agent_name,
         )
 
         async for attempt in AsyncRetrying(

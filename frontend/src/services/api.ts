@@ -114,6 +114,15 @@ export const sceneService = {
     
   hitlAck: (id: string, data: { action: 'continue' | 'revert' | 'stop', extra_rounds?: number }) => 
     api.post<{ scene: Scene, message: string }>(`/scenes/${id}/hitl-ack-builder-review`, data),
+
+  getVersions: (id: string, entityType?: string) =>
+    api.get<any[]>(`/scenes/${id}/versions`, { params: { entity_type: entityType } }),
+
+  rollback: (id: string, data: { entity_type: string, target_version: number }) =>
+    api.post<any>(`/scenes/${id}/rollback`, data),
+
+  patchDsl: (id: string, data: { dsl_code: string }) =>
+    api.patch<{ scene: Scene, preview_job_id: string }>(`/scenes/${id}/dsl`, data),
 };
 
 export const jobService = {

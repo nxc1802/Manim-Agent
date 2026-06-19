@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from shared.pipeline_log import pipeline_debug
 from shared.schemas.review import ReviewResult
@@ -62,13 +62,14 @@ async def run_code_reviewer(
     )
 
     # 2. Execute LLM call
-    comp = await llm.acomplete_chat_ex(
+    comp = await cast(Any, llm).acomplete_chat_ex(
         model=model,
         messages=messages,
         json_mode=True,
         temperature=temperature,
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
+        agent_name="code_reviewer",
     )
 
     pipeline_debug(

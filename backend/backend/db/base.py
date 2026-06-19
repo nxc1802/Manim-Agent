@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
+from shared.schemas.artifact_version import ArtifactVersion
 from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
@@ -70,3 +71,11 @@ class ContentStore(Protocol):
     def batch_upsert_scenes(self, project_id: UUID, scenes: list[Scene]) -> list[Scene]: ...
 
     def get_dashboard_stats(self, user_id: UUID) -> DashboardStats: ...
+
+    def save_artifact_version(self, version: ArtifactVersion) -> None: ...
+    def get_artifact_version(
+        self, entity_type: str, entity_id: UUID, version: int
+    ) -> ArtifactVersion | None: ...
+    def list_artifact_versions(
+        self, entity_type: str, entity_id: UUID
+    ) -> list[ArtifactVersion]: ...

@@ -9,6 +9,7 @@ from uuid import UUID
 import httpx
 from backend.core.config import settings
 from backend.db.base import ContentStore
+from shared.schemas.artifact_version import ArtifactVersion
 from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
@@ -318,3 +319,45 @@ class SupabaseContentStore(ContentStore):
             f"resolve_asset_local_path: Download logic for {asset_url} not yet implemented."
         )
         return None
+
+    def save_artifact_version(self, version: ArtifactVersion) -> None:
+        if not self._headers:
+            return
+        payload = version.model_dump(mode="json")
+        url = f"{self._base_url}/rest/v1/artifact_versions"
+        with self._get_client() as client:
+            r = client.post(url, json=payload)
+            if r.status_code >= 400:
+                logger.error(f"Supabase save_artifact_version failed: {r.status_code} {r.text}")
+            r.raise_for_status()
+
+    def get_artifact_version(
+        self, entity_type: str, entity_id: UUID, version: int
+    ) -> ArtifactVersion | None:
+        if not self._headers:
+            return None
+        url = (
+            f"{self._base_url}/rest/v1/artifact_versions"
+            f"?entity_type=eq.{entity_type}&entity_id=eq.{entity_id}&version=eq.{version}"
+        )
+        with self._get_client() as client:
+            r = client.get(url)
+            if r.status_code == 200 and r.json():
+                return ArtifactVersion.model_validate(r.json()[0])
+        return None
+
+    def list_artifact_versions(
+        self, entity_type: str, entity_id: UUID
+    ) -> list[ArtifactVersion]:
+        if not self._headers:
+            return []
+        url = (
+            f"{self._base_url}/rest/v1/artifact_versions"
+            f"?entity_type=eq.{entity_type}&entity_id=eq.{entity_id}"
+            f"&order=version.desc"
+        )
+        with self._get_client() as client:
+            r = client.get(url)
+            if r.status_code == 200:
+                return [ArtifactVersion.model_validate(x) for x in r.json()]
+        return []

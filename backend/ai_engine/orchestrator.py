@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from shared.schemas.planner_output import PlannerOutput
 
+from ai_engine.agent_runner import _run_agent_with_self_correction
 from ai_engine.agents.director import run_director
 from ai_engine.agents.planner import run_planner
 from ai_engine.builder_loop import (
@@ -20,33 +20,6 @@ from ai_engine.builder_loop import (
     truncate_error_logs as truncate_error_logs,
 )
 from ai_engine.llm_client import LLMClient
-
-logger = logging.getLogger(__name__)
-
-
-async def _run_agent_with_self_correction(
-    agent_name: str, call_fn: Any, schema: Any, **kwargs: Any
-) -> tuple[Any, str, dict[str, Any], str, str]:
-    """Helper to call agent and validate schema."""
-    try:
-        result, version, metrics, system, user = await call_fn(**kwargs)
-        if schema is None:
-            return result, version, metrics, system, user
-
-        from ai_engine.json_utils import parse_json_object
-
-        if isinstance(result, str):
-            data = parse_json_object(result)
-            validated = schema.model_validate(data)
-            return validated, version, metrics, system, user
-        else:
-            if isinstance(result, schema):
-                return result, version, metrics, system, user
-            validated = schema.model_validate(result)
-            return validated, version, metrics, system, user
-    except Exception as e:
-        logger.error(f"Agent {agent_name} failed: {str(e)}")
-        raise
 
 
 async def run_storyboard_phase(

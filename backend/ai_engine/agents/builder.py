@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from primitives.registry import build_primitives_catalog
 from shared.pipeline_log import pipeline_debug
@@ -83,13 +83,14 @@ async def run_builder(
         details={"model": model, "messages": messages},
     )
 
-    comp = await llm.acomplete_chat_ex(
+    comp = await cast(Any, llm).acomplete_chat_ex(
         model=model,
         messages=messages,
         json_mode=False,
         temperature=temperature,
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
+        agent_name="builder",
     )
 
     pipeline_debug(

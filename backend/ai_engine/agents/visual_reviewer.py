@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from shared.pipeline_log import pipeline_debug
 from shared.schemas.review import ReviewResult
@@ -37,7 +37,7 @@ async def run_visual_reviewer(
         details={"model": model, "system": system, "user": user, "image_size": len(frame_jpeg)},
     )
 
-    comp = await llm.acomplete_with_images_ex(
+    comp = await cast(Any, llm).acomplete_with_images_ex(
         model=model,
         system=system,
         user=user,
@@ -46,6 +46,7 @@ async def run_visual_reviewer(
         temperature=temperature,
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
+        agent_name="visual_reviewer",
     )
 
     pipeline_debug(

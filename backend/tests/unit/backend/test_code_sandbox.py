@@ -10,7 +10,7 @@ from backend.services.code_sandbox import (
 
 
 def test_validate_manim_code_success() -> None:
-    code = "from manim import *\nclass GeneratedScene(Scene):\n    pass"
+    code = "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass"
     validate_manim_code(code, limits=SandboxLimits(max_bytes=1000))
 
 
@@ -53,7 +53,7 @@ def test_static_check_split() -> None:
 
     # OK
     ok, pol, err = static_check_split(
-        "from manim import *\nclass GeneratedScene(Scene): pass", limits=limits
+        "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass", limits=limits
     )
     assert ok and pol and err is None
 

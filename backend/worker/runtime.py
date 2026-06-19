@@ -244,7 +244,10 @@ def execute_render_job(job_id: UUID) -> None:
                 logger.warning("Failed to save structured outputs: %s", local_err)
 
             logger.info("Cleaning up job_dir: %s", job_dir)
-            shutil.rmtree(job_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(job_dir)
+            except Exception as cleanup_err:
+                logger.warning("Failed to clean up job_dir %s: %s", job_dir, cleanup_err)
 
 
 def _post_webhook(

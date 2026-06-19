@@ -36,6 +36,8 @@ class SceneUpdate(BaseModel):
     voice_script_status: VoiceScriptStatus | None = None
     review_loop_status: ReviewLoopStatus | None = None
     manim_code: str | None = None
+    scene_dsl: dict[str, Any] | list[Any] | None = None
+    scene_dsl_version: int | None = None
 
 
 class Scene(BaseModel):
@@ -75,6 +77,10 @@ class Scene(BaseModel):
         default="idle",
         description="Trạng thái vòng lặp review (idle, running, completed, hitl_pending, failed)",
     )
+    scene_dsl: dict[str, Any] | list[Any] | None = Field(
+        default=None, description="Scene DSL structure in JSON format"
+    )
+    scene_dsl_version: int = Field(default=0, description="Scene DSL version number")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

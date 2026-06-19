@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from shared.pipeline_log import pipeline_debug
 
@@ -40,7 +40,7 @@ async def run_director(
         details={"model": model, "system": system, "user": user},
     )
 
-    completion = await llm.acomplete_ex(
+    completion = await cast(Any, llm).acomplete_ex(
         model=model,
         system=system,
         user=user,
@@ -48,6 +48,7 @@ async def run_director(
         temperature=temperature,
         max_tokens=max_tokens,
         request_timeout_seconds=request_timeout_seconds,
+        agent_name="director",
     )
 
     pipeline_debug(

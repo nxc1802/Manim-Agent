@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", validation_alias="APP_ENV")
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     cors_origins: str = Field(default="", validation_alias="CORS_ORIGINS")
+    sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
 
     dev_default_user_id: UUID = Field(
         default=UUID("00000000-0000-0000-0000-000000000001"),

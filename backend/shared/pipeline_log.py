@@ -249,6 +249,40 @@ def pipeline_error(
         _emit_human_readable(component, phase, message, details)
 
 
+def pipeline_warn(
+    component: str,
+    phase: str,
+    message: str,
+    *,
+    trace_id: str | None = None,
+    details: dict[str, Any] | None = None,
+    **fields: Any,
+) -> None:
+    """Warning messages; emitted at **WARNING** level."""
+    payload = _pipeline_payload(
+        component,
+        phase,
+        message,
+        trace_id=trace_id,
+        details=details,
+        **fields,
+    )
+    LOG.warning(json.dumps(payload, default=str, ensure_ascii=False))
+
+    _push_to_supabase(component, phase, message, details, payload, fields)
+
+    if LOG.level <= logging.WARNING:
+        _emit_human_readable(component, phase, message, details)
+
+
+_supabase_push_failures: int = 0
+
+
+def get_supabase_push_failures() -> int:
+    """Get count of failed Supabase event pushes."""
+    return _supabase_push_failures
+
+
 def _push_to_supabase(
     component: str,
     phase: str,
@@ -258,6 +292,7 @@ def _push_to_supabase(
     fields: dict[str, Any],
 ) -> None:
     """Helper to push events to Supabase REST for Realtime broadcasting."""
+    global _supabase_push_failures
     if not (_SUPABASE_URL and _SUPABASE_KEY):
         return
 
@@ -289,6 +324,6 @@ def _push_to_supabase(
         # Since pipeline_event is often called from sync code (Celery, etc), we use sync httpx.
         with httpx.Client(timeout=5.0) as client:
             client.post(url, headers=headers, json=row)
-    except Exception:
-        # Logging should not crash the app
-        pass
+    except Exception as e:
+        _supabase_push_failures += 1
+        sys.stderr.write(f"WARNING: Failed to push event to Supabase: {str(e)} (Total failures: {_supabase_push_failures})\n")

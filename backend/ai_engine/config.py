@@ -15,6 +15,8 @@ AgentName = Literal[
     "code_reviewer",
     "visual_reviewer",
     "voice",
+    "repair",
+    "scene_designer",
 ]
 
 
@@ -71,6 +73,9 @@ class BuilderReviewLoopConfig:
     blocking_severity_min: SeverityLevel
     stop_when_only_info_severity: bool
     on_max_rounds_exceeded: str
+    pre_render_validation: bool = True
+    repair_max_attempts: int = 2
+    use_dsl_pipeline: bool = True
 
 
 def load_builder_review_loop(data: dict[str, Any]) -> BuilderReviewLoopConfig:
@@ -94,6 +99,9 @@ def load_builder_review_loop(data: dict[str, Any]) -> BuilderReviewLoopConfig:
         blocking_severity_min=SeverityLevel(str(raw.get("blocking_severity_min") or "warning")),
         stop_when_only_info_severity=bool(raw.get("stop_when_only_info_severity", False)),
         on_max_rounds_exceeded=str(raw.get("on_max_rounds_exceeded") or "hitl_or_fail"),
+        pre_render_validation=bool(raw.get("pre_render_validation", True)),
+        repair_max_attempts=int(raw.get("repair_max_attempts", 2)),
+        use_dsl_pipeline=bool(raw.get("use_dsl_pipeline", True)),
     )
 
 
