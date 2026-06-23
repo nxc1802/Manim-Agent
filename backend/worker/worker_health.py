@@ -40,21 +40,45 @@ def _celery_argv() -> list[str]:
     return argv
 
 
+def _orchestrator_argv() -> list[str]:
+    celery_log = (os.environ.get("CELERY_LOG_LEVEL") or "INFO").strip().upper()
+    host = socket.gethostname()
+    return [
+        "celery",
+        "-A",
+        _CELERY_APP,
+        "worker",
+        f"--loglevel={celery_log}",
+        "--concurrency=1",
+        "-Q",
+        "orchestrator",
+        "-n",
+        f"orchestrator@{host}",
+    ]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     argv = _celery_argv()
     proc = subprocess.Popen(argv)  # noqa: S603
     app.state.proc = proc
+    mode = (os.environ.get("WORKER_HEALTH_MODE") or "render").strip().lower()
+    orchestrator_proc = None
+    if mode not in ("tts", "tts-worker"):
+        orchestrator_proc = subprocess.Popen(_orchestrator_argv())  # noqa: S603
+    app.state.orchestrator_proc = orchestrator_proc
     try:
         yield
     finally:
-        if proc.poll() is None:
-            proc.terminate()
+        for worker_proc in (proc, orchestrator_proc):
+            if worker_proc is None or worker_proc.poll() is not None:
+                continue
+            worker_proc.terminate()
             try:
-                proc.wait(timeout=30)
+                worker_proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=10)
+                worker_proc.kill()
+                worker_proc.wait(timeout=10)
 
 
 app = FastAPI(
@@ -75,6 +99,13 @@ def health() -> Response:
     if proc is None or proc.poll() is not None:
         return Response(
             content='{"status": "error", "worker": "dead", "redis": false}',
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            media_type="application/json",
+        )
+    orchestrator_proc = getattr(app.state, "orchestrator_proc", None)
+    if orchestrator_proc is not None and orchestrator_proc.poll() is not None:
+        return Response(
+            content='{"status": "error", "worker": "orchestrator_dead", "redis": false}',
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             media_type="application/json",
         )

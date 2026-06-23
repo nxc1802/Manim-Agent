@@ -56,7 +56,9 @@ class GeneratedScene(Scene):
     res = validate_manim_code_extended(code)
     # Unicode superscript is a warning, so it should still pass
     assert res.passed is True
-    assert any(i.code == "unicode_superscript" and i.severity == SeverityLevel.WARNING for i in res.issues)
+    assert any(
+        i.code == "unicode_superscript" and i.severity == SeverityLevel.WARNING for i in res.issues
+    )
 
 
 def test_manim_validator_invalid_runtime() -> None:
@@ -68,7 +70,9 @@ class GeneratedScene(Scene):
     res = validate_manim_code_extended(code)
     # Invalid runtime is a warning
     assert res.passed is True
-    assert any(i.code == "invalid_runtime" and i.severity == SeverityLevel.WARNING for i in res.issues)
+    assert any(
+        i.code == "invalid_runtime" and i.severity == SeverityLevel.WARNING for i in res.issues
+    )
 
 
 def test_manim_validator_infinite_loop() -> None:

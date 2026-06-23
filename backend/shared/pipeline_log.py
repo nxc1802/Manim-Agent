@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+import time
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +22,10 @@ pipeline_scene_id_var: ContextVar[str | None] = ContextVar("pipeline_scene_id", 
 # Supabase Realtime broadcasting config
 _SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
 _SUPABASE_KEY: str | None = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+_REDIS_URL: str | None = os.getenv("REDIS_URL")
+_REDIS_CHANNEL = f"{os.getenv('REDIS_PREFIX', 'manim_agent')}:events"
+_redis_client: Any | None = None
+_redis_publish_disabled_until = 0.0
 
 
 def get_pipeline_trace_id() -> str | None:
@@ -44,13 +49,18 @@ def setup_pipeline_logging(
     level: str | int | None = None,
     supabase_url: str | None = None,
     supabase_key: str | None = None,
+    redis_url: str | None = None,
+    redis_prefix: str = "manim_agent",
 ) -> None:
     """Attach a single stdout handler so each event is one JSON line (idempotent)."""
-    global _SUPABASE_URL, _SUPABASE_KEY
+    global _REDIS_CHANNEL, _REDIS_URL, _SUPABASE_KEY, _SUPABASE_URL
     if supabase_url:
         _SUPABASE_URL = supabase_url
     if supabase_key:
         _SUPABASE_KEY = supabase_key
+    if redis_url:
+        _REDIS_URL = redis_url
+    _REDIS_CHANNEL = f"{redis_prefix}:events"
 
     if LOG.handlers:
         return
@@ -192,6 +202,7 @@ def pipeline_event(
     LOG.info(json.dumps(payload, default=str, ensure_ascii=False))
 
     _push_to_supabase(component, phase, message, details, payload, fields)
+    _publish_to_redis(payload)
 
     # Even in INFO mode, if it's an important event, show a summary
     if LOG.isEnabledFor(logging.DEBUG):
@@ -243,6 +254,7 @@ def pipeline_error(
     LOG.error(json.dumps(payload, default=str, ensure_ascii=False))
 
     _push_to_supabase(component, phase, message, details, payload, fields)
+    _publish_to_redis(payload)
 
     # Always show human readable block for errors in console if it's not totally suppressed
     if LOG.level <= logging.ERROR:
@@ -270,6 +282,7 @@ def pipeline_warn(
     LOG.warning(json.dumps(payload, default=str, ensure_ascii=False))
 
     _push_to_supabase(component, phase, message, details, payload, fields)
+    _publish_to_redis(payload)
 
     if LOG.level <= logging.WARNING:
         _emit_human_readable(component, phase, message, details)
@@ -281,6 +294,27 @@ _supabase_push_failures: int = 0
 def get_supabase_push_failures() -> int:
     """Get count of failed Supabase event pushes."""
     return _supabase_push_failures
+
+
+def _publish_to_redis(payload: dict[str, Any]) -> None:
+    """Publish live events without making Redis availability a pipeline dependency."""
+    global _redis_client, _redis_publish_disabled_until
+    if not _REDIS_URL or time.monotonic() < _redis_publish_disabled_until:
+        return
+    try:
+        if _redis_client is None:
+            from redis import Redis
+
+            _redis_client = Redis.from_url(
+                _REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=0.1,
+                socket_timeout=0.1,
+            )
+        _redis_client.publish(_REDIS_CHANNEL, json.dumps(payload, default=str))
+    except Exception:
+        _redis_client = None
+        _redis_publish_disabled_until = time.monotonic() + 30.0
 
 
 def _push_to_supabase(
@@ -326,4 +360,8 @@ def _push_to_supabase(
             client.post(url, headers=headers, json=row)
     except Exception as e:
         _supabase_push_failures += 1
-        sys.stderr.write(f"WARNING: Failed to push event to Supabase: {str(e)} (Total failures: {_supabase_push_failures})\n")
+        message_text = (
+            f"WARNING: Failed to push event to Supabase: {e} "
+            f"(Total failures: {_supabase_push_failures})\n"
+        )
+        sys.stderr.write(message_text)

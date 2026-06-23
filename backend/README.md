@@ -47,7 +47,8 @@ manim -ql examples/demo_primitives_scene.py DemoPrimitivesScene
 - **API**:
   - `POST /v1/projects/{project_id}/render` → `202` + `{ "job_id": "...", "status": "queued" }`
   - `GET /v1/jobs/{job_id}` → job snapshot from Redis
-- **Worker**: `make worker` (or Docker Compose `worker` service) runs `celery -A worker.celery_app:celery_app worker -Q render`
+- **Workers**: run `make worker` for Manim renders and `make worker-orchestrator`
+  for builder/project workflows. The Docker worker starts both consumers automatically.
 - **Render**: worker runs `manim render ...` as a subprocess (never inside the API process).
 
 ### Local compose
@@ -69,7 +70,7 @@ Set Space **secrets** on Hugging Face (e.g. `REDIS_URL`, Celery URLs, Supabase k
 Use **three** Spaces (API, Manim render worker, TTS worker) so they scale/sleep independently. All must reach the **same** Redis (e.g. Upstash) so the API can enqueue Celery tasks and both workers can consume them.
 
 1. **API** — env: `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `PORT` (defaults `7860`).
-2. **Render / TTS workers** — same Redis URLs; optional Supabase for uploads. Worker images run **[`worker/worker_health.py`](worker/worker_health.py)**: **FastAPI** on `PORT` (health JSON) and **Celery** as a subprocess in the app lifespan (`WORKER_HEALTH_MODE=render` or `tts`, `--concurrency=1`) so platforms like **Hugging Face Spaces** see an HTTP listener while tasks run.
+2. **Render / TTS workers** — same Redis URLs; optional Supabase for uploads. Worker images run **[`worker/worker_health.py`](worker/worker_health.py)**: **FastAPI** on `PORT` (health JSON) and Celery child processes in the app lifespan. Render mode starts isolated `render` and `orchestrator` consumers; TTS mode starts the `tts` consumer.
 
 ### Local image builds
 

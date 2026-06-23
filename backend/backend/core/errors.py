@@ -15,6 +15,7 @@ from backend.core.correlation import get_request_id
 
 logger = logging.getLogger(__name__)
 
+
 class AppException(Exception):
     def __init__(
         self,
@@ -29,6 +30,7 @@ class AppException(Exception):
         self.status_code = status_code
         self.details = details
         super().__init__(message)
+
 
 class ResourceNotFound(AppException):
     def __init__(self, resource: str, identifier: Any):

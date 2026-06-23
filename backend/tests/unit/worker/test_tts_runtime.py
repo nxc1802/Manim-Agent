@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 import pytest
@@ -71,6 +72,9 @@ def test_execute_voice_job_piper_updates_scene_and_job(
     assert job is not None
     assert job.status == "completed"
     assert job.asset_url
+    persisted_path = Path(unquote(urlparse(job.asset_url).path))
+    assert persisted_path.is_file()
+    persisted_path.unlink()
     assert job.metadata.get("granularity") == "segment"
     scene = store.get_scene(scene_id)
     assert scene is not None

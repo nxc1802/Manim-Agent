@@ -40,7 +40,7 @@ class SubSceneState(TypedDict):
 async def sub_director_node(state: SubSceneState, config: RunnableConfig) -> dict[str, Any]:
     """Director Node for a single scene."""
     if state.get("error"):
-        return {}
+        return {"error": state["error"]}
     configurable = config.get("configurable", {})
     store = configurable["store"]
     llm = configurable["llm"]
@@ -54,7 +54,7 @@ async def sub_director_node(state: SubSceneState, config: RunnableConfig) -> dic
     try:
         scene = store.get_scene(scene_id)
         if not scene:
-            return {}
+            return {"error": f"Scene not found: {scene_id}"}
         if scene.storyboard_status in ("approved", "pending_review") and scene.storyboard_text:
             return {"storyboard_text": scene.storyboard_text}
 
@@ -70,7 +70,7 @@ async def sub_director_node(state: SubSceneState, config: RunnableConfig) -> dic
 async def sub_planner_node(state: SubSceneState, config: RunnableConfig) -> dict[str, Any]:
     """Planner Node for a single scene."""
     if state.get("error"):
-        return {}
+        return {"error": state["error"]}
     configurable = config.get("configurable", {})
     store = configurable["store"]
     llm = configurable["llm"]
@@ -84,7 +84,7 @@ async def sub_planner_node(state: SubSceneState, config: RunnableConfig) -> dict
     try:
         scene = store.get_scene(scene_id)
         if not scene:
-            return {}
+            return {"error": f"Scene not found: {scene_id}"}
         if scene.planner_output:
             if scene.plan_status != "approved":
                 store.update_scene(scene_id, plan_status="approved")
@@ -105,7 +105,7 @@ async def sub_planner_node(state: SubSceneState, config: RunnableConfig) -> dict
 async def sub_voice_node(state: SubSceneState, config: RunnableConfig) -> dict[str, Any]:
     """Voice Node for a single scene."""
     if state.get("error"):
-        return {}
+        return {"error": state["error"]}
     configurable = config.get("configurable", {})
     store = configurable["store"]
     vstore = configurable["vstore"]
@@ -119,11 +119,11 @@ async def sub_voice_node(state: SubSceneState, config: RunnableConfig) -> dict[s
     try:
         scene = store.get_scene(scene_id)
         if not scene:
-            return {}
+            return {"error": f"Scene not found: {scene_id}"}
         if scene.timestamps:
             if scene.voice_script_status != "approved":
                 store.update_scene(scene_id, voice_script_status="approved")
-            return {}
+            return {"voice_job_id": state.get("voice_job_id") or "existing"}
 
         if scene.voice_script_status != "approved":
             store.update_scene(scene_id, voice_script_status="approved")
@@ -150,7 +150,7 @@ async def sub_voice_node(state: SubSceneState, config: RunnableConfig) -> dict[s
 async def sub_sync_node(state: SubSceneState, config: RunnableConfig) -> dict[str, Any]:
     """Sync Node for a single scene."""
     if state.get("error"):
-        return {}
+        return {"error": state["error"]}
     configurable = config.get("configurable", {})
     store = configurable["store"]
     user_id = state["user_id"]
@@ -163,7 +163,7 @@ async def sub_sync_node(state: SubSceneState, config: RunnableConfig) -> dict[st
     try:
         scene = store.get_scene(scene_id)
         if not scene:
-            return {}
+            return {"error": f"Scene not found: {scene_id}"}
         if scene.sync_segments:
             return {"sync_status": "synced"}
 
@@ -180,7 +180,7 @@ async def sub_sync_node(state: SubSceneState, config: RunnableConfig) -> dict[st
 async def sub_builder_loop_node(state: SubSceneState, config: RunnableConfig) -> dict[str, Any]:
     """Builder Loop Node for a single scene."""
     if state.get("error"):
-        return {}
+        return {"error": state["error"]}
     configurable = config.get("configurable", {})
     store = configurable["store"]
     job_store = configurable["job_store"]
@@ -196,7 +196,7 @@ async def sub_builder_loop_node(state: SubSceneState, config: RunnableConfig) ->
     try:
         scene = store.get_scene(scene_id)
         if not scene:
-            return {}
+            return {"error": f"Scene not found: {scene_id}"}
         if scene.review_loop_status == "completed" and scene.manim_code:
             return {"builder_loop_status": "completed"}
 
@@ -346,4 +346,3 @@ async def run_project_workflow(
 
     final_state = await app.ainvoke(initial_state, config=config)
     return cast(dict[str, Any], final_state)
-

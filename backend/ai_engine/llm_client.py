@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -149,16 +149,20 @@ class LLMClientMixin:
         max_tokens: int,
         agent_name: str | None = None,
     ) -> str:
-        return cast(SyncLLMClient, self).complete_ex(
-            model=model,
-            system=system,
-            user=user,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-            agent_name=agent_name,
-        ).text
+        return (
+            cast(SyncLLMClient, self)
+            .complete_ex(
+                model=model,
+                system=system,
+                user=user,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                request_timeout_seconds=None,
+                agent_name=agent_name,
+            )
+            .text
+        )
 
     def complete_chat(
         self,
@@ -170,15 +174,19 @@ class LLMClientMixin:
         max_tokens: int,
         agent_name: str | None = None,
     ) -> str:
-        return cast(SyncLLMClient, self).complete_chat_ex(
-            model=model,
-            messages=messages,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-            agent_name=agent_name,
-        ).text
+        return (
+            cast(SyncLLMClient, self)
+            .complete_chat_ex(
+                model=model,
+                messages=messages,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                request_timeout_seconds=None,
+                agent_name=agent_name,
+            )
+            .text
+        )
 
     def complete_with_images(
         self,
@@ -192,17 +200,21 @@ class LLMClientMixin:
         max_tokens: int,
         agent_name: str | None = None,
     ) -> str:
-        return cast(SyncLLMClient, self).complete_with_images_ex(
-            model=model,
-            system=system,
-            user=user,
-            image_jpeg=image_jpeg,
-            json_mode=json_mode,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout_seconds=None,
-            agent_name=agent_name,
-        ).text
+        return (
+            cast(SyncLLMClient, self)
+            .complete_with_images_ex(
+                model=model,
+                system=system,
+                user=user,
+                image_jpeg=image_jpeg,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                request_timeout_seconds=None,
+                agent_name=agent_name,
+            )
+            .text
+        )
 
     async def acomplete(
         self,
@@ -272,7 +284,6 @@ class LLMClientMixin:
             agent_name=agent_name,
         )
         return res.text
-
 
 
 _DEFAULT_BUILDER_CODE = """from __future__ import annotations
@@ -384,7 +395,16 @@ class FakeLLMClient(LLMClientMixin):
         request_timeout_seconds: int | None,
         agent_name: str | None = None,
     ) -> LLMCompletion:
-        _ = (model, system, user, image_jpeg, temperature, max_tokens, request_timeout_seconds, agent_name)
+        _ = (
+            model,
+            system,
+            user,
+            image_jpeg,
+            temperature,
+            max_tokens,
+            request_timeout_seconds,
+            agent_name,
+        )
         return LLMCompletion(
             text=self._visual_review_json,
             usage=LLMUsage(prompt_tokens=0, completion_tokens=0, duration_ms=1),
@@ -420,8 +440,12 @@ class LiteLLMClient(LLMClientMixin):
         from backend.core.config import settings
 
         from ai_engine.config import default_agent_models_path, load_agent_models_yaml
-        
-        cfg_path = Path(settings.agent_models_yaml).expanduser() if settings.agent_models_yaml else default_agent_models_path()
+
+        cfg_path = (
+            Path(settings.agent_models_yaml).expanduser()
+            if settings.agent_models_yaml
+            else default_agent_models_path()
+        )
         try:
             self._config_data = load_agent_models_yaml(cfg_path)
         except Exception as e:
@@ -438,7 +462,10 @@ class LiteLLMClient(LLMClientMixin):
 
                 if provider_name == "google_ai_studio":
                     env_keys = []
-                    if "GOOGLE_API_KEY" in os.environ:
+                    configured_key = self._provider_keys.get("google_ai_studio")
+                    if configured_key:
+                        env_keys = [k.strip() for k in configured_key.split(",") if k.strip()]
+                    elif "GOOGLE_API_KEY" in os.environ:
                         val = os.environ["GOOGLE_API_KEY"]
                         env_keys = [k.strip() for k in val.split(",") if k.strip()]
                     else:
@@ -491,6 +518,10 @@ class LiteLLMClient(LLMClientMixin):
             prov_cfg = providers_cfg.get(provider_name) or {}
             if isinstance(prov_cfg, dict):
                 api_base = prov_cfg.get("base_url")
+            if provider_name == "google_ai_studio" and "/" not in model:
+                model = f"openai/{model}"
+
+        kwargs["model"] = model
 
         # Fallback to defaults
         if not api_key:
@@ -498,7 +529,9 @@ class LiteLLMClient(LLMClientMixin):
             if "dashscope/" in lowered_model or "qwen" in lowered_model:
                 api_key = self._provider_keys.get("dashscope")
                 api_base = self._provider_bases.get("dashscope") or self._api_base
-                if not api_base and ("openai/" in lowered_model or "dashscope-intl" not in lowered_model):
+                if not api_base and (
+                    "openai/" in lowered_model or "dashscope-intl" not in lowered_model
+                ):
                     api_base = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
             else:
                 api_key = self._api_key

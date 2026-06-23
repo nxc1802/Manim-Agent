@@ -80,6 +80,18 @@ def test_get_scene_versions(test_client: TestClient, mock_store: MagicMock) -> N
     assert data[0]["entity_type"] == "dsl"
 
 
+def test_get_scene_versions_rejects_unknown_entity_type(
+    test_client: TestClient,
+    mock_store: MagicMock,
+) -> None:
+    scene_id = uuid4()
+
+    response = test_client.get(f"/v1/scenes/{scene_id}/versions?entity_type=bogus")
+
+    assert response.status_code == 422
+    mock_store.get_scene.assert_not_called()
+
+
 def test_rollback_scene_artifact(test_client: TestClient, mock_store: MagicMock) -> None:
     scene_id = uuid4()
     project_id = uuid4()
@@ -158,7 +170,9 @@ def test_edit_scene_dsl_directly(
     mock_store.list_artifact_versions.return_value = []
 
     dsl_code = """
-from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
+from shared.schemas.scene_dsl import (
+    AnimationStep, Position, SceneDSLBeat, ThemeConfig, VisualElement
+)
 
 class GeneratedSceneDSL:
     title = "Direct DSL Edit Title"

@@ -18,5 +18,12 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // API error payloads and generated contracts are intentionally dynamic.
+      '@typescript-eslint/no-explicit-any': 'off',
+      // Async data-loading effects are the established pattern in this client.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/purity': 'off',
+    },
   },
 ])

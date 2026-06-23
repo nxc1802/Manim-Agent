@@ -70,8 +70,9 @@ async def test_run_project_workflow_success() -> None:
     mock_rt.preview_poll_timeout_seconds = 10.0
 
     # Run workflow
-    with patch("backend.services.scene_service.synthesize_voice"), patch(
-        "backend.services.scene_service.insert_voice_job_row"
+    with (
+        patch("backend.services.scene_service.synthesize_voice"),
+        patch("backend.services.scene_service.insert_voice_job_row"),
     ):
         state = await run_project_workflow(
             project_id=project_id,

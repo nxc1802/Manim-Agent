@@ -3,7 +3,47 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-FORBIDDEN_CALL_NAMES = frozenset({"exec", "eval", "__import__", "compile"})
+FORBIDDEN_NAMES = frozenset(
+    {
+        "__builtins__",
+        "__import__",
+        "breakpoint",
+        "compile",
+        "eval",
+        "exec",
+        "getattr",
+        "globals",
+        "help",
+        "input",
+        "locals",
+        "memoryview",
+        "open",
+        "setattr",
+        "vars",
+    }
+)
+FORBIDDEN_ATTRIBUTE_NAMES = frozenset(
+    {
+        "connect",
+        "ctypeslib",
+        "fork",
+        "fromfile",
+        "load",
+        "load_library",
+        "memmap",
+        "open",
+        "popen",
+        "remove",
+        "request",
+        "rmdir",
+        "save",
+        "spawn",
+        "system",
+        "tofile",
+        "unlink",
+        "urlopen",
+    }
+)
 
 ALLOWED_IMPORT_ROOTS = frozenset(
     {
@@ -51,9 +91,17 @@ def _validate_imports(tree: ast.Module) -> None:
                 raise SandboxValidationError(msg)
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Name) and func.id in FORBIDDEN_CALL_NAMES:
+            if isinstance(func, ast.Name) and func.id in FORBIDDEN_NAMES:
                 msg = f"Disallowed call: {func.id}()"
                 raise SandboxValidationError(msg)
+            if isinstance(func, ast.Attribute) and func.attr in FORBIDDEN_ATTRIBUTE_NAMES:
+                raise SandboxValidationError(f"Disallowed attribute call: {func.attr}()")
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            raise SandboxValidationError(f"Disallowed name: {node.id}")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise SandboxValidationError(f"Disallowed private attribute: {node.attr}")
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            raise SandboxValidationError("Global and nonlocal declarations are not allowed")
 
 
 def _validate_generated_scene_class(tree: ast.Module) -> None:
@@ -84,6 +132,7 @@ def validate_manim_code(source: str, *, limits: SandboxLimits) -> None:
     from shared.constants import SeverityLevel
 
     from backend.services.manim_validator import validate_manim_code_extended
+
     res = validate_manim_code_extended(source)
     if not res.passed:
         errors = [
@@ -98,7 +147,8 @@ def validate_manim_code(source: str, *, limits: SandboxLimits) -> None:
 def static_check_split(source: str, *, limits: SandboxLimits) -> tuple[bool, bool, str | None]:
     """Return (syntax_ok, policy_ok, error_code).
 
-    ``syntax_ok`` means Python parses. ``policy_ok`` adds import rules + GeneratedScene class + extended validations.
+    ``syntax_ok`` means Python parses. ``policy_ok`` also applies imports, class, and
+    extended validation rules.
     """
     data = source.encode("utf-8")
     if len(data) > limits.max_bytes:
@@ -113,6 +163,7 @@ def static_check_split(source: str, *, limits: SandboxLimits) -> tuple[bool, boo
         _validate_imports(tree)
         _validate_generated_scene_class(tree)
         from backend.services.manim_validator import validate_manim_code_extended
+
         res = validate_manim_code_extended(source)
         if not res.passed:
             raise SandboxValidationError("Extended validation failed")

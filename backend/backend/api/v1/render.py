@@ -36,6 +36,32 @@ def enqueue_render(
 ) -> JSONResponse:
     """Create a render job in Redis and enqueue Celery (Manim runs in worker only)."""
     project_readable_by_user(content, project_id, user_id)
+    if body.scene_id is not None:
+        scene = content.get_scene(body.scene_id)
+        if scene is None or scene.project_id != project_id:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": {"code": "scene_not_found", "message": "Scene not found"}},
+            )
+
+        from backend.services.code_sandbox import (
+            SandboxLimits,
+            SandboxValidationError,
+            validate_manim_code,
+        )
+
+        try:
+            validate_manim_code(
+                (scene.manim_code or "").strip(),
+                limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
+            )
+        except SandboxValidationError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "error": {"code": "invalid_manim_code", "message": str(exc)},
+                },
+            )
 
     # 1. Idempotency Check
     if x_idempotency_key:

@@ -28,7 +28,7 @@ class ConnectionManager:
         self.active_connections[scene_id].append(websocket)
 
         # Start pubsub listener if not already running
-        if not self._pubsub_task:
+        if not self._pubsub_task or self._pubsub_task.done():
             self._pubsub_task = asyncio.create_task(self._listen_to_redis())
 
     def disconnect(self, websocket: WebSocket, scene_id: str) -> None:
@@ -43,7 +43,8 @@ class ConnectionManager:
         logger.info("Starting Redis Pub/Sub listener for WebSockets")
         r = redis.from_url(self._redis_url, decode_responses=True)  # type: ignore
         pubsub = r.pubsub()
-        await pubsub.subscribe("manim_agent:events")
+        channel = f"{settings.redis_prefix}:events"
+        await pubsub.subscribe(channel)
 
         try:
             async for message in pubsub.listen():
@@ -66,7 +67,7 @@ class ConnectionManager:
                     except Exception:
                         logger.exception("Failed to broadcast WebSocket message")
         finally:
-            await pubsub.unsubscribe("manim_agent:events")
+            await pubsub.unsubscribe(channel)
             await r.close()
 
     async def broadcast_to_scene(self, scene_id: str, message: Any) -> None:

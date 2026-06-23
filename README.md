@@ -5,7 +5,7 @@ Welcome to the Manim Agent project. This repository contains both the Backend AI
 ## Project Structure
 
 - `backend/`: Python FastAPI service, AI Orchestrator, and Celery Workers.
-- `frontend/`: React + Vite + Tailwind dashboard for managing projects and scenes.
+- `frontend/`: React + TypeScript + Vite dashboard for managing projects and scenes.
 
 ## Quick Start
 

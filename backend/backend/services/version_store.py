@@ -6,7 +6,11 @@ import logging
 from typing import Any
 from uuid import UUID, uuid4
 
-from shared.schemas.artifact_version import ArtifactVersion
+from shared.schemas.artifact_version import (
+    ArtifactEntityType,
+    ArtifactVersion,
+    RollbackEntityType,
+)
 
 from backend.db.base import ContentStore
 
@@ -23,17 +27,21 @@ class VersionStore:
     def __init__(self, store: ContentStore):
         self.store = store
 
-    def list_versions(self, entity_type: str, entity_id: UUID) -> list[ArtifactVersion]:
+    def list_versions(
+        self, entity_type: ArtifactEntityType, entity_id: UUID
+    ) -> list[ArtifactVersion]:
         """List version history of an entity sorted by version number descending."""
         return self.store.list_artifact_versions(entity_type, entity_id)
 
-    def get_version(self, entity_type: str, entity_id: UUID, version: int) -> ArtifactVersion | None:
+    def get_version(
+        self, entity_type: ArtifactEntityType, entity_id: UUID, version: int
+    ) -> ArtifactVersion | None:
         """Retrieve a specific version of an entity."""
         return self.store.get_artifact_version(entity_type, entity_id, version)
 
     def save_version(
         self,
-        entity_type: str,
+        entity_type: ArtifactEntityType,
         entity_id: UUID,
         content: Any,
         created_by: str,
@@ -71,14 +79,12 @@ class VersionStore:
         )
 
         self.store.save_artifact_version(version_record)
-        logger.info(
-            "Saved new version %d for %s:%s", next_version, entity_type, entity_id
-        )
+        logger.info("Saved new version %d for %s:%s", next_version, entity_type, entity_id)
         return version_record
 
     def rollback(
         self,
-        entity_type: str,
+        entity_type: RollbackEntityType,
         entity_id: UUID,
         target_version: int,
         created_by: str,

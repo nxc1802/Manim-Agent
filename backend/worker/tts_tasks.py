@@ -39,7 +39,7 @@ def synthesize_voice(self: Task, voice_job_id: str) -> str:
             voice_job_id=str(jid),
             trace_id=tid,
         )
-        execute_voice_job(jid)
+        execute_voice_job(jid, raise_on_failure=True)
         pipeline_event(
             "worker.tts",
             "task_done",

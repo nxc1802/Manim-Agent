@@ -102,7 +102,7 @@ async def run_review_round_endpoint(
         "hoặc dừng sớm nếu đạt yêu cầu chất lượng."
     ),
 )
-@limiter.limit("2/minute")  
+@limiter.limit("2/minute")
 def builder_review_loop_endpoint(
     request: Request,
     scene_id: UUID,

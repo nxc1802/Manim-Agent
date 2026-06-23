@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from backend.core.config import settings
 from backend.db.content_store import RedisContentStore, get_content_store
+from backend.services.redis_client import get_redis
+from shared.schemas.artifact_version import ArtifactVersion
 
 
 def test_get_content_store(monkeypatch: Any) -> None:
@@ -56,3 +58,23 @@ def test_resolve_asset_local_path() -> None:
     with tempfile.NamedTemporaryFile() as tf:
         resolved = store.resolve_asset_local_path(f"file://{tf.name}")
         assert resolved == Path(tf.name)
+
+
+def test_redis_content_store_artifact_versions() -> None:
+    store = RedisContentStore(get_redis())
+    entity_id = uuid4()
+    first = ArtifactVersion(
+        entity_type="dsl",
+        entity_id=entity_id,
+        version=1,
+        content_hash="hash-1",
+        content={"title": "one"},
+        created_by="test",
+    )
+    second = first.model_copy(update={"id": uuid4(), "version": 2, "content_hash": "hash-2"})
+
+    store.save_artifact_version(first)
+    store.save_artifact_version(second)
+
+    assert store.get_artifact_version("dsl", entity_id, 1) == first
+    assert [item.version for item in store.list_artifact_versions("dsl", entity_id)] == [2, 1]

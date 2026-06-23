@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -23,7 +24,7 @@ from worker.supabase_storage import upload_render_artifact_if_configured
 logger = logging.getLogger(__name__)
 
 
-def execute_render_job(job_id: UUID) -> None:
+def execute_render_job(job_id: UUID, *, raise_on_failure: bool = False) -> None:
     tid = get_pipeline_trace_id()
     logger.info("Worker: execute_render_job started job_id=%s trace_id=%s", job_id, tid)
     pipeline_event(
@@ -96,6 +97,15 @@ def execute_render_job(job_id: UUID) -> None:
         video_path = result.video_path
         job_dir = result.job_dir
 
+        scene_dir = (
+            Path(settings.output_dir).resolve()
+            / str(job.project_id)
+            / (str(job.scene_id) if job.scene_id else "misc")
+        )
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        persistent_video_path = scene_dir / "final_combined.mp4"
+        shutil.copy2(video_path, persistent_video_path)
+
         pipeline_event(
             "worker.render",
             "manim_done",
@@ -109,7 +119,7 @@ def execute_render_job(job_id: UUID) -> None:
             project_id=job.project_id,
             job_id=job_id,
         )
-        asset_url = remote_url if remote_url else f"file://{video_path}"
+        asset_url = remote_url if remote_url else persistent_video_path.as_uri()
         pipeline_event(
             "worker.render",
             "artifact_ready",
@@ -208,10 +218,10 @@ def execute_render_job(job_id: UUID) -> None:
                 asset_url=None,
                 error=str(exc),
             )
+        if raise_on_failure:
+            raise
     finally:
         if job_dir and job_dir.exists():
-            import shutil
-
             try:
                 # New Structured Storage: storage/outputs/<project_id>/<scene_id>/
                 project_dir = Path(settings.output_dir) / str(job.project_id)

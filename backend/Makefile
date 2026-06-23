@@ -1,4 +1,4 @@
-.PHONY: dev install lint typecheck test test-cov test-e2e smoke-hf worker worker-tts docker-build-api docker-build-worker docker-build-tts-worker
+.PHONY: dev install lint typecheck test test-cov test-e2e smoke-hf worker worker-orchestrator worker-tts docker-build-api docker-build-worker docker-build-tts-worker
 
 PYTHON ?= python3
 
@@ -16,6 +16,10 @@ worker:
 	mkdir -p storage/logs
 	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q render 2>&1 | tee storage/logs/celery_render.log
 
+worker-orchestrator:
+	mkdir -p storage/logs
+	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q orchestrator -n orchestrator@%h 2>&1 | tee storage/logs/celery_orchestrator.log
+
 worker-tts:
 	mkdir -p storage/logs
 	celery -A worker.celery_app:celery_app worker --loglevel=INFO -Q tts -n tts@%h 2>&1 | tee storage/logs/celery_tts.log
@@ -30,7 +34,7 @@ docker-build-tts-worker:
 	docker build -f docker/tts-worker/Dockerfile -t manim-agent-tts-worker:dev .
 
 typecheck:
-	mypy backend primitives shared worker
+	mypy backend primitives shared worker ai_engine
 
 test:
 	pytest tests/unit -q

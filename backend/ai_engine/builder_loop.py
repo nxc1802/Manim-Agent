@@ -27,6 +27,7 @@ from shared.schemas.review_pipeline import AgentLog, ReviewRoundResponse
 from shared.schemas.scene import Scene, SceneCodeHistory
 from worker.tasks import render_manim_scene
 
+from ai_engine.agent_runner import _run_agent_with_self_correction
 from ai_engine.agents.builder import run_builder
 from ai_engine.agents.code_reviewer import run_code_reviewer
 from ai_engine.agents.scene_designer import run_scene_designer
@@ -123,9 +124,6 @@ def truncate_error_logs(logs: str, max_chars: int = 2000) -> str:
         return logs[-max_chars:]  # Fallback
 
     return f"{logs[:limit]}{msg}{logs[-limit:]}"
-
-
-from ai_engine.agent_runner import _run_agent_with_self_correction
 
 
 async def run_single_review_round_ex(
@@ -421,7 +419,9 @@ async def run_builder_loop_phase(
                         planner=plan,
                         sync_segments=scene.sync_segments,
                         storyboard_excerpt=excerpt,
-                        request_timeout_seconds=runtime_limits.llm_timeout_seconds("scene_designer"),
+                        request_timeout_seconds=runtime_limits.llm_timeout_seconds(
+                            "scene_designer"
+                        ),
                     )
 
                     dsl_stripped = extract_python_code(dsl_raw_output).strip()
@@ -554,7 +554,10 @@ async def run_builder_loop_phase(
                     pipeline_event(
                         "builder.review_loop",
                         "repair_start",
-                        f"Validation failed. Attempting repair {repair_count}/{review_cfg.repair_max_attempts}",
+                        (
+                            "Validation failed. Attempting repair "
+                            f"{repair_count}/{review_cfg.repair_max_attempts}"
+                        ),
                         scene_id=str(scene_id),
                         details={"errors": [i.model_dump() for i in val_res.issues]},
                     )
@@ -572,7 +575,9 @@ async def run_builder_loop_phase(
 
                     stripped = repaired_code
                     next_ver = scene.manim_code_version + 1
-                    scene = store.update_scene(scene_id, manim_code=stripped, manim_code_version=next_ver)
+                    scene = store.update_scene(
+                        scene_id, manim_code=stripped, manim_code_version=next_ver
+                    )
                     assert scene is not None
 
                     # Save repair log

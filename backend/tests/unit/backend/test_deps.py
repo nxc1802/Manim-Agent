@@ -23,11 +23,18 @@ def test_get_stores() -> None:
 def test_get_llm_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openrouter_api_key", "")
     monkeypatch.setattr(settings, "dashscope_api_key", "")
+    monkeypatch.setattr(settings, "google_api_key", "")
+    for index in range(1, 100):
+        monkeypatch.delenv(f"GOOGLE_API_KEY_{index}", raising=False)
     from ai_engine.llm_client import FakeLLMClient, LiteLLMClient
 
     assert isinstance(get_llm_client(), FakeLLMClient)
 
     monkeypatch.setattr(settings, "openrouter_api_key", "sk-123")
+    assert isinstance(get_llm_client(), LiteLLMClient)
+
+    monkeypatch.setattr(settings, "openrouter_api_key", "")
+    monkeypatch.setattr(settings, "google_api_key", "google-key")
     assert isinstance(get_llm_client(), LiteLLMClient)
 
 

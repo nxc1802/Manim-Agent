@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { jobService } from '../services/api';
 import type { Job } from '../types/api';
 
 interface JobState {

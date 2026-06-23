@@ -6,13 +6,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from worker.worker_health import _celery_argv, app
+from worker.worker_health import _celery_argv, _orchestrator_argv, app
 
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
-    with TestClient(app) as c:
-        yield c
+    with patch("worker.worker_health.subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+        with TestClient(app) as c:
+            yield c
 
 
 def test_celery_argv_default() -> None:
@@ -26,6 +30,10 @@ def test_celery_argv_tts() -> None:
     with patch.dict(os.environ, {"WORKER_HEALTH_MODE": "tts"}):
         argv = _celery_argv()
         assert "tts" in argv
+
+
+def test_orchestrator_argv() -> None:
+    assert "orchestrator" in _orchestrator_argv()
 
 
 def test_root_endpoint(client: TestClient) -> None:

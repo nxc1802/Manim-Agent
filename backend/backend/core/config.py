@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         validation_alias="DEV_DEFAULT_USER_ID",
     )
     openrouter_api_key: str | None = Field(default=None, validation_alias="OPENROUTER_API_KEY")
+    google_api_key: str | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
     llm_api_base: str = Field(
         default="https://openrouter.ai/api/v1",
         validation_alias="LLM_API_BASE",

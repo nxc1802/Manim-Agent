@@ -39,7 +39,7 @@ def render_manim_scene(self: Task, job_id: str) -> str:
             job_id=str(jid),
             trace_id=tid,
         )
-        execute_render_job(jid)
+        execute_render_job(jid, raise_on_failure=True)
         pipeline_event(
             "worker.render",
             "task_done",

@@ -278,7 +278,7 @@ class SupabaseContentStore(ContentStore):
             return DashboardStats(
                 total_projects=0, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0
             )
-        
+
         # Try RPC first
         url = f"{self._base_url}/rest/v1/rpc/get_dashboard_stats"
         try:
@@ -346,9 +346,7 @@ class SupabaseContentStore(ContentStore):
                 return ArtifactVersion.model_validate(r.json()[0])
         return None
 
-    def list_artifact_versions(
-        self, entity_type: str, entity_id: UUID
-    ) -> list[ArtifactVersion]:
+    def list_artifact_versions(self, entity_type: str, entity_id: UUID) -> list[ArtifactVersion]:
         if not self._headers:
             return []
         url = (

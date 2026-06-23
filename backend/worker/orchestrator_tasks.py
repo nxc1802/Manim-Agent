@@ -99,3 +99,65 @@ def run_orchestrator_loop_task(
     finally:
         if token is not None:
             pipeline_trace_id_var.reset(token)
+
+
+@celery_app.task(
+    name="manim_agent.run_project_workflow",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 1},
+    retry_backoff=True,
+)
+def run_project_workflow_task(
+    self: Task,
+    project_id: str,
+    user_id: str,
+    scene_ids: list[str],
+    mode: ReviewLoopMode = ReviewLoopMode.HITL,
+    extra_rounds: int | None = None,
+) -> dict[str, Any]:
+    """Run independent scene pipelines concurrently from the orchestrator queue."""
+    from pathlib import Path
+
+    from ai_engine.config import default_agent_models_path, load_agent_models_yaml
+    from ai_engine.workflow import run_project_workflow
+    from backend.api.deps import get_llm_client, get_runtime_limits
+    from backend.core.config import settings
+    from backend.db.content_store import get_content_store
+    from backend.services.job_store import RedisRenderJobStore
+    from backend.services.redis_client import get_redis
+    from backend.services.voice_job_store import RedisVoiceJobStore
+
+    pid = UUID(project_id)
+    uid = UUID(user_id)
+    sids = [UUID(scene_id) for scene_id in scene_ids]
+    tid = trace_id_from_celery_request(self.request)
+    token = pipeline_trace_id_var.set(tid) if tid else None
+    try:
+        redis = get_redis()
+        yaml_path = (
+            Path(settings.agent_models_yaml).expanduser()
+            if settings.agent_models_yaml
+            else default_agent_models_path()
+        )
+        import asyncio
+
+        result = asyncio.run(
+            run_project_workflow(
+                project_id=pid,
+                user_id=uid,
+                scene_ids=sids,
+                store=get_content_store(),
+                vstore=RedisVoiceJobStore(redis),
+                job_store=RedisRenderJobStore(redis),
+                llm=get_llm_client(),
+                yaml_data=load_agent_models_yaml(yaml_path),
+                runtime_limits=get_runtime_limits(),
+                mode=mode,
+                extra_rounds=extra_rounds,
+            )
+        )
+        return result
+    finally:
+        if token is not None:
+            pipeline_trace_id_var.reset(token)

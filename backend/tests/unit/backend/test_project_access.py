@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -39,3 +40,24 @@ def test_get_project_returns_404_for_non_owner(client: TestClient) -> None:
         assert r1.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_project_workflow_is_dispatched_to_orchestrator_queue(client: TestClient) -> None:
+    project = client.post(
+        "/v1/projects",
+        json={"title": "Workflow", "source_language": "vi"},
+    )
+    project_id = project.json()["id"]
+    scene = client.post(f"/v1/projects/{project_id}/scenes", json={"scene_order": 0})
+    assert scene.status_code == 201
+
+    task = MagicMock(id=str(uuid4()))
+    with patch(
+        "backend.api.v1.projects.run_project_workflow_task.apply_async",
+        return_value=task,
+    ) as apply_async:
+        response = client.post(f"/v1/projects/{project_id}/workflow", json={"mode": "auto"})
+
+    assert response.status_code == 202
+    assert response.json()["scene_count"] == 1
+    assert apply_async.call_args.kwargs["queue"] == "orchestrator"

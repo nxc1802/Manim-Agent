@@ -62,15 +62,17 @@ class SceneService:
             raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
+
         project = project_readable_by_user(self.store, scene.project_id, user_id)
 
         if scene.storyboard_status == "approved":
             raise ValueError("Storyboard already approved")
 
         yaml_data = load_agent_models_yaml(self._agent_models_path())
-        
+
         # Helper to get params (simplified for now, ideally passed in)
         from backend.api.deps import get_agent_llm_params
+
         params = get_agent_llm_params("director")
 
         target_scenes = project.target_scenes
@@ -119,6 +121,7 @@ class SceneService:
             raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
+
         project = project_readable_by_user(self.store, scene.project_id, user_id)
 
         if scene.storyboard_status != "approved":
@@ -127,6 +130,7 @@ class SceneService:
         use_primitives = project.config.get("use_primitives", True)
 
         from backend.api.deps import get_agent_llm_params, get_runtime_limits
+
         params = get_agent_llm_params("planner")
         rt = get_runtime_limits()
 
@@ -174,6 +178,7 @@ class SceneService:
             raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
+
         project_readable_by_user(self.store, scene.project_id, user_id)
 
         if not scene.planner_output:
@@ -205,6 +210,7 @@ class SceneService:
             raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
+
         project = project_readable_by_user(self.store, scene.project_id, user_id)
 
         if scene.storyboard_status != "approved":
@@ -215,6 +221,7 @@ class SceneService:
         excerpt = scene.storyboard_text[:4000] if scene.storyboard_text else None
 
         from backend.api.deps import get_agent_llm_params, get_runtime_limits
+
         params = get_agent_llm_params("builder")
         rt = get_runtime_limits()
 
@@ -268,6 +275,7 @@ class SceneService:
             raise ResourceNotFound("Scene", scene_id)
 
         from backend.api.access import project_readable_by_user
+
         project_readable_by_user(self.store, scene.project_id, user_id)
 
         if scene.storyboard_status != "approved":

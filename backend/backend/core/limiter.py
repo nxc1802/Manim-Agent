@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from slowapi import Limiter
@@ -36,6 +36,7 @@ def increment_user_token_usage(user_id: UUID, tokens: int) -> None:
         pipe.execute()
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("Failed to update user token usage: %s", e)
 
 
@@ -52,8 +53,9 @@ def check_user_token_budget(user_id: UUID, max_tokens_per_day: int = 100_000) ->
         used = redis.get(key)
         if used is None:
             return True
-        return int(used) < max_tokens_per_day
+        return int(cast(Any, used)) < max_tokens_per_day
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("Failed to check user token budget: %s", e)
         return True

@@ -22,57 +22,14 @@ import {
   Code 
 } from 'lucide-react';
 import { sceneService } from '../services/api';
+import type {
+  ArtifactEntityType,
+  ArtifactVersion,
+} from '../types/api';
+import { formatDslToPython } from '../utils/sceneDsl';
 import { useSceneWebSocket } from '../hooks/useSceneWebSocket';
 import { useSceneStore } from '../store/useSceneStore';
 import styles from './SceneEditor.module.css';
-
-const formatDslToPython = (dsl: any): string => {
-  if (!dsl) return '';
-  const title = dsl.title || 'Untitled Scene';
-  const theme = dsl.global_theme ? 
-    `ThemeConfig(primary_color=${JSON.stringify(dsl.global_theme.primary_color || 'BLUE')})` : 
-    `ThemeConfig(primary_color='BLUE')`;
-    
-  const beatsStr = (dsl.beats || []).map((beat: any) => {
-    const visualElementsStr = (beat.visual_elements || []).map((vel: any) => {
-      const positionStr = vel.position ? 
-        `Position(x=${vel.position.x ?? 0.0}, y=${vel.position.y ?? 0.0})` : 'Position(x=0.0, y=0.0)';
-      return `                VisualElement(
-                    id=${JSON.stringify(vel.id)},
-                    type=${JSON.stringify(vel.type)},
-                    params=${JSON.stringify(vel.params || {})},
-                    position=${positionStr}
-                )`;
-    }).join(',\n');
-
-    const animationsStr = (beat.animations || []).map((anim: any) => {
-      return `                AnimationStep(
-                    target_ids=${JSON.stringify(anim.target_ids || [])},
-                    animation_type=${JSON.stringify(anim.animation_type)},
-                    run_time=${anim.run_time ?? 1.0}
-                )`;
-    }).join(',\n');
-
-    return `        SceneDSLBeat(
-            id=${JSON.stringify(beat.id)},
-            label=${JSON.stringify(beat.label)},
-            duration_seconds=${beat.duration_seconds ?? 1.0},
-            narration=${JSON.stringify(beat.narration || '')},
-            visual_elements=[\n${visualElementsStr}\n            ],
-            animations=[\n${animationsStr}\n            ]
-        )`;
-  }).join(',\n');
-
-  return `from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
-
-class GeneratedSceneDSL:
-    title = ${JSON.stringify(title)}
-    global_theme = ${theme}
-    beats = [
-${beatsStr}
-    ]
-`;
-};
 
 const defaultDslTemplate = `from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
 
@@ -113,8 +70,8 @@ const SceneEditor = () => {
 
   // Custom UI State
   const [sidebarTab, setSidebarTab] = useState<'activity' | 'history'>('activity');
-  const [versions, setVersions] = useState<any[]>([]);
-  const [selectedVersion, setSelectedVersion] = useState<any | null>(null);
+  const [versions, setVersions] = useState<ArtifactVersion[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState<ArtifactVersion | null>(null);
   const [activeView, setActiveView] = useState<'code' | 'dsl'>('code');
   const [dslCode, setDslCode] = useState<string>('');
   const [dslError, setDslError] = useState<string | null>(null);
@@ -157,7 +114,7 @@ const SceneEditor = () => {
     }
   }, [lastEvent, sceneId, fetchScene, loadVersions]);
 
-  const handleAction = async (name: string, fn: () => Promise<any>) => {
+  const handleAction = async (name: string, fn: () => Promise<unknown>) => {
     try {
       await fn();
       if (sceneId) {
@@ -169,7 +126,7 @@ const SceneEditor = () => {
     }
   };
 
-  const handleRollback = async (entityType: string, versionNum: number) => {
+  const handleRollback = async (entityType: ArtifactEntityType, versionNum: number) => {
     if (!sceneId) return;
     if (!window.confirm(`Are you sure you want to rollback ${entityType} to version ${versionNum}?`)) {
       return;
@@ -394,7 +351,7 @@ const SceneEditor = () => {
                 )}
                 {scene.sync_segments && (
                   <div style={{ marginTop: '20px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    ✅ Timeline synced with {Object.keys(scene.sync_segments).length} segments.
+                    Timeline synced with {Object.keys(scene.sync_segments as object).length} segments.
                   </div>
                 )}
               </div>
@@ -535,7 +492,7 @@ const SceneEditor = () => {
                     events.map((ev, i) => (
                       <div key={i} className={styles.activityItem}>
                         <span className={styles.activityTime}>
-                          {new Date(ev.ts).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          {new Date(ev.ts || ev.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                         <div>
                           <div className={styles.activityPhase}>{ev.phase}</div>
@@ -640,4 +597,3 @@ const SceneEditor = () => {
 };
 
 export default SceneEditor;
-

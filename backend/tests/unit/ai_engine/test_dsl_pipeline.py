@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -74,7 +75,9 @@ async def test_dsl_pipeline_success(
     llm = MagicMock()
 
     dsl_code = """
-from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
+from shared.schemas.scene_dsl import (
+    AnimationStep, Position, SceneDSLBeat, ThemeConfig, VisualElement
+)
 
 class GeneratedSceneDSL:
     title = "Test DSL Scene"
@@ -147,7 +150,12 @@ class GeneratedSceneDSL:
         scene_dsl={
             "version": "1.0",
             "title": "Test DSL Scene",
-            "global_theme": {"primary_color": "BLUE", "secondary_color": "GREEN", "background_color": "BLACK", "font": None},
+            "global_theme": {
+                "primary_color": "BLUE",
+                "secondary_color": "GREEN",
+                "background_color": "BLACK",
+                "font": None,
+            },
             "beats": [
                 {
                     "id": "beat_1",
@@ -159,7 +167,14 @@ class GeneratedSceneDSL:
                             "id": "title",
                             "type": "get_title_card",
                             "params": {"title": "Test Title"},
-                            "position": {"x": 0.0, "y": 0.0, "z": 0.0, "relative_to": None, "target_id": None, "buff": 0.2}
+                            "position": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "relative_to": None,
+                                "target_id": None,
+                                "buff": 0.2,
+                            },
                         }
                     ],
                     "animations": [
@@ -168,14 +183,14 @@ class GeneratedSceneDSL:
                             "animation_type": "cinematic_fade_in",
                             "params": {},
                             "run_time": 1.0,
-                            "simultaneous": False
+                            "simultaneous": False,
                         }
                     ],
                     "camera": None,
-                    "transition_out": None
+                    "transition_out": None,
                 }
             ],
-            "metadata": {}
+            "metadata": {},
         },
-        scene_dsl_version=1
+        scene_dsl_version=1,
     )

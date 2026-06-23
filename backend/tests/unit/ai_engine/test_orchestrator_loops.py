@@ -4,16 +4,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-
-
-@pytest.fixture()
-def anyio_backend() -> str:
-    return "asyncio"
 from ai_engine.builder_loop import run_builder_loop_phase
 from ai_engine.config import RuntimeLimitsConfig
 from shared.schemas.review import ReviewResult
 from shared.schemas.review_pipeline import ReviewRoundResponse
 from shared.schemas.scene import Scene
+
+
+@pytest.fixture()
+def anyio_backend() -> str:
+    return "asyncio"
 
 
 @pytest.fixture()

@@ -35,9 +35,6 @@ class SceneUpdate(BaseModel):
     plan_status: PlanStatus | None = None
     voice_script_status: VoiceScriptStatus | None = None
     review_loop_status: ReviewLoopStatus | None = None
-    manim_code: str | None = None
-    scene_dsl: dict[str, Any] | list[Any] | None = None
-    scene_dsl_version: int | None = None
 
 
 class Scene(BaseModel):

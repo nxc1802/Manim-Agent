@@ -9,6 +9,7 @@ from uuid import UUID
 from backend.core.config import settings
 from backend.db.base import ContentStore
 from redis import Redis
+from shared.schemas.artifact_version import ArtifactVersion
 from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, SceneCodeHistory, StoryboardStatus
 
@@ -27,6 +28,10 @@ def _user_projects_key(user_id: UUID) -> str:
 
 def _project_scenes_key(project_id: UUID) -> str:
     return f"{settings.redis_prefix}:project_scenes:{project_id}"
+
+
+def _artifact_versions_key(entity_type: str, entity_id: UUID) -> str:
+    return f"{settings.redis_prefix}:artifact_versions:{entity_type}:{entity_id}"
 
 
 class RedisContentStore(ContentStore):
@@ -237,6 +242,27 @@ class RedisContentStore(ContentStore):
             self.save_scene(s)
             self.add_scene_to_project_index(s)
         return scenes
+
+    def save_artifact_version(self, version: ArtifactVersion) -> None:
+        key = _artifact_versions_key(version.entity_type, version.entity_id)
+        payload = json.dumps(version.model_dump(mode="json"))
+        self._r.hset(key, str(version.version), payload)
+
+    def get_artifact_version(
+        self, entity_type: str, entity_id: UUID, version: int
+    ) -> ArtifactVersion | None:
+        raw = self._r.hget(_artifact_versions_key(entity_type, entity_id), str(version))
+        if raw is None:
+            return None
+        return ArtifactVersion.model_validate(json.loads(cast(str, raw)))
+
+    def list_artifact_versions(self, entity_type: str, entity_id: UUID) -> list[ArtifactVersion]:
+        rows = cast(
+            dict[str, str],
+            self._r.hgetall(_artifact_versions_key(entity_type, entity_id)),
+        )
+        versions = [ArtifactVersion.model_validate(json.loads(raw)) for raw in rows.values()]
+        return sorted(versions, key=lambda item: item.version, reverse=True)
 
 
 def get_content_store() -> ContentStore:

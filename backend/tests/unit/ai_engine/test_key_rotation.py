@@ -31,25 +31,19 @@ def test_litellm_client_key_rotation(mock_completion: MagicMock) -> None:
 
     # Initialize client with mock config data override
     client = LiteLLMClient(api_key="sk-default")
-    
+
     # Configure mock agent models data directly to avoid loading real agent_models.yaml
     client._config_data = {
         "providers": {
             "google_ai_studio": {
                 "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-                "keys": ["key-A", "key-B"]
+                "keys": ["key-A", "key-B"],
             }
         },
-        "agents": {
-            "director": {
-                "provider": "google_ai_studio"
-            }
-        }
+        "agents": {"director": {"provider": "google_ai_studio"}},
     }
     # Initialize rotators from mock config data
-    client._rotators = {
-        "google_ai_studio": KeyRotator(["key-A", "key-B"])
-    }
+    client._rotators = {"google_ai_studio": KeyRotator(["key-A", "key-B"])}
 
     # First call for agent 'director'
     client.complete_ex(

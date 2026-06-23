@@ -24,6 +24,8 @@ setup_pipeline_logging(
     level=settings.log_level,
     supabase_url=settings.supabase_url,
     supabase_key=settings.supabase_service_role_key,
+    redis_url=settings.redis_url,
+    redis_prefix=settings.redis_prefix,
 )
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend.main")

@@ -38,7 +38,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - run: ruff check backend primitives shared tests worker ai_engine
-      - run: mypy backend primitives shared worker
+      - run: mypy backend primitives shared worker ai_engine
       - run: pytest tests/unit -q --tb=short
 
   deploy-api:

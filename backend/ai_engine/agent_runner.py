@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
 async def _run_agent_with_self_correction(
     agent_name: str,
     call_fn: Callable[..., Awaitable[tuple[Any, str, dict[str, Any], str, str]]],
     schema: type[T] | None,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> tuple[T | Any, str, dict[str, Any], str, str]:
     """Helper to call agent and validate schema, with structured logging."""
     start_time = time.monotonic()
@@ -26,8 +27,12 @@ async def _run_agent_with_self_correction(
         f"Invoking agent {agent_name}",
         extra={
             "agent_name": agent_name,
-            "inputs": {k: str(v)[:200] for k, v in kwargs.items() if k not in ("llm", "code_llm", "visual_llm")}
-        }
+            "inputs": {
+                k: str(v)[:200]
+                for k, v in kwargs.items()
+                if k not in ("llm", "code_llm", "visual_llm")
+            },
+        },
     )
     try:
         result, version, metrics, system, user = await call_fn(**kwargs)
@@ -40,7 +45,7 @@ async def _run_agent_with_self_correction(
                     "agent_name": agent_name,
                     "duration_seconds": elapsed,
                     "metrics": metrics,
-                }
+                },
             )
             return result, version, metrics, system, user
 
@@ -60,8 +65,8 @@ async def _run_agent_with_self_correction(
                 "agent_name": agent_name,
                 "duration_seconds": elapsed,
                 "metrics": metrics,
-                "schema": schema.__name__
-            }
+                "schema": schema.__name__,
+            },
         )
         return validated, version, metrics, system, user
 
@@ -69,11 +74,7 @@ async def _run_agent_with_self_correction(
         elapsed = time.monotonic() - start_time
         logger.error(
             f"Agent {agent_name} failed: {str(e)}",
-            extra={
-                "agent_name": agent_name,
-                "duration_seconds": elapsed,
-                "error": str(e)
-            }
+            extra={"agent_name": agent_name, "duration_seconds": elapsed, "error": str(e)},
         )
         pipeline_event(
             f"ai_engine.{agent_name}",

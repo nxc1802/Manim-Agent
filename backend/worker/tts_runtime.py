@@ -150,7 +150,7 @@ def _concat_wavs(paths: list[Path], out_wav: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 
 
-def execute_voice_job(job_id: UUID) -> None:
+def execute_voice_job(job_id: UUID, *, raise_on_failure: bool = False) -> None:
     tid = get_pipeline_trace_id()
     vstore = RedisVoiceJobStore(get_redis())
     cstore = get_content_store()
@@ -315,6 +315,7 @@ def execute_voice_job(job_id: UUID) -> None:
             )
 
             # Save a local copy for easier debugging
+            local_audio_dest: Path | None = None
             try:
                 local_audio_dir = Path(settings.output_dir) / "audios"
                 local_audio_dir.mkdir(parents=True, exist_ok=True)
@@ -323,8 +324,14 @@ def execute_voice_job(job_id: UUID) -> None:
                 logger.info("Local audio copy saved: %s", local_audio_dest)
             except Exception as local_err:
                 logger.warning("Failed to save local audio copy: %s", local_err)
+                if not remote_url:
+                    raise RuntimeError("Unable to persist local voice artifact") from local_err
 
-            asset_url = remote_url if remote_url else f"file://{out_wav}"
+            if remote_url:
+                asset_url = remote_url
+            else:
+                assert local_audio_dest is not None
+                asset_url = local_audio_dest.resolve().as_uri()
             pipeline_event(
                 "worker.tts",
                 "artifact_ready",
@@ -346,7 +353,7 @@ def execute_voice_job(job_id: UUID) -> None:
             scene_updates: dict[str, object] = {
                 "audio_url": asset_url,
                 "timestamps": ts_payload,
-                "duration_seconds": float(round(duration_f, 3)),
+                "duration_seconds": Decimal(str(round(duration_f, 3))),
             }
             # Store beat_durations in scene for Manim Worker to consume
             if beat_durations:
@@ -427,6 +434,8 @@ def execute_voice_job(job_id: UUID) -> None:
                 payload={"status": "failed", "error": str(exc)},
             )
             _fail(vstore, job_id, "tts_failed", str(exc))
+            if raise_on_failure:
+                raise
 
 
 def _fail(vstore: RedisVoiceJobStore, job_id: UUID, code: str, message: str) -> None:

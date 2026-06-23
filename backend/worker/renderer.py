@@ -82,6 +82,8 @@ def render_manim_scene_to_disk(
             msg = f"Scene {job.scene_id} not found in content store for job {job_id}"
             logger.error(msg)
             raise RuntimeError(msg)
+        if scene.project_id != job.project_id:
+            raise RuntimeError("Render scene does not belong to the queued project")
 
         mcode = (scene.manim_code or "").strip()
         logger.info(
@@ -95,6 +97,13 @@ def render_manim_scene_to_disk(
             msg = f"Scene {job.scene_id} missing manim_code for render (job_id={job_id})"
             logger.error(msg)
             raise RuntimeError(msg)
+
+        from backend.services.code_sandbox import SandboxLimits, validate_manim_code
+
+        validate_manim_code(
+            mcode,
+            limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
+        )
 
         # Inject metadata: durations for Dynamic Template
         durations_json = json.dumps(scene.sync_segments or {}, ensure_ascii=False)
@@ -158,16 +167,16 @@ def render_manim_scene_to_disk(
         cpu_limit = timeout + 10
 
         def set_limits() -> None:
-            os.setsid()  # type: ignore[attr-defined]
+            os.setsid()
             try:
                 import resource  # type: ignore[import-not-found, unused-ignore]
 
                 # CPU time limit in seconds
-                resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 5))  # type: ignore[attr-defined]
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 5))
                 # Memory (address space/virtual memory size) limit
-                resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))  # type: ignore[attr-defined]
+                resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
                 # Max file size limit
-                resource.setrlimit(resource.RLIMIT_FSIZE, (fsize_limit, fsize_limit))  # type: ignore[attr-defined]
+                resource.setrlimit(resource.RLIMIT_FSIZE, (fsize_limit, fsize_limit))
             except Exception:
                 pass
 
@@ -187,7 +196,7 @@ def render_manim_scene_to_disk(
         except subprocess.TimeoutExpired as exc:
             if is_posix:
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # type: ignore[attr-defined]
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except Exception as e:
                     logger.warning("Failed to kill process group on POSIX: %s", e)
             else:
@@ -272,25 +281,31 @@ def render_manim_scene_to_disk(
             import httpx
 
             full_audio_url = scene.audio_url
-            if not full_audio_url.startswith("http"):
-                base_url = (settings.supabase_url or "").strip()
-                if base_url and not base_url.endswith("/storage/v1"):
-                    base_url = f"{base_url}/storage/v1"
-                full_audio_url = f"{base_url}{scene.audio_url}"
+            if full_audio_url.startswith("file://"):
+                source_audio = Path(full_audio_url.removeprefix("file://"))
+                if not source_audio.is_file():
+                    raise FileNotFoundError(f"Local scene audio not found: {source_audio}")
+                shutil.copy2(source_audio, local_audio)
+            else:
+                if not full_audio_url.startswith("http"):
+                    base_url = (settings.supabase_url or "").strip()
+                    if base_url and not base_url.endswith("/storage/v1"):
+                        base_url = f"{base_url}/storage/v1"
+                    full_audio_url = f"{base_url}{scene.audio_url}"
 
-            logger.info("Downloading audio from: %s", full_audio_url)
-            pipeline_event(
-                "worker.manim",
-                "audio_download_start",
-                "Downloading audio from resolved URL",
-                details={"url": full_audio_url},
-            )
+                logger.info("Downloading audio from: %s", full_audio_url)
+                pipeline_event(
+                    "worker.manim",
+                    "audio_download_start",
+                    "Downloading audio from resolved URL",
+                    details={"url": full_audio_url},
+                )
 
-            with httpx.stream("GET", full_audio_url, follow_redirects=True) as r:
-                r.raise_for_status()
-                with open(local_audio, "wb") as f:
-                    for chunk in r.iter_bytes():
-                        f.write(chunk)
+                with httpx.stream("GET", full_audio_url, follow_redirects=True) as r:
+                    r.raise_for_status()
+                    with open(local_audio, "wb") as f:
+                        for chunk in r.iter_bytes():
+                            f.write(chunk)
 
             local_audio_path = local_audio
             logger.info(

@@ -40,8 +40,9 @@ def test_pipeline_event_with_supabase(mock_httpx: MagicMock) -> None:
     env = {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}
     with patch.dict(os.environ, env):
         from shared.pipeline_log import setup_pipeline_logging
+
         setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
-        
+
         # Force DEBUG level to trigger _emit_human_readable
         with patch.object(LOG, "level", logging.DEBUG):
             pipeline_event("comp", "phase", "msg", project_id="123")
@@ -56,7 +57,8 @@ def test_pipeline_error_with_supabase(mock_httpx: MagicMock) -> None:
     env = {"SUPABASE_URL": "http://mock", "SUPABASE_SERVICE_ROLE_KEY": "key"}
     with patch.dict(os.environ, env):
         from shared.pipeline_log import setup_pipeline_logging
+
         setup_pipeline_logging(supabase_url="http://mock", supabase_key="key")
-        
+
         pipeline_error("comp", "phase", "msg", project_id="123")
         assert mock_client.post.called

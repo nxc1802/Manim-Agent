@@ -72,5 +72,3 @@ async def run_planning_phase(
         use_primitives=use_primitives,
         request_timeout_seconds=request_timeout_seconds,
     )
-
-

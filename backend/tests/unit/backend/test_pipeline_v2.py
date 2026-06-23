@@ -68,6 +68,15 @@ def test_generate_code_persists_manim_code(api_client: TestClient) -> None:
     assert scene["manim_code_version"] == 2
 
 
+def test_generic_scene_patch_rejects_executable_fields(api_client: TestClient) -> None:
+    _project_id, scene_id = _bootstrap_planned_scene(api_client)
+    response = api_client.patch(
+        f"/v1/scenes/{scene_id}",
+        json={"manim_code": "import os"},
+    )
+    assert response.status_code == 422
+
+
 def test_generate_code_enqueue_preview_mocked_render(
     api_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

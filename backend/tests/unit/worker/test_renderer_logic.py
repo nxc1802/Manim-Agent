@@ -13,7 +13,10 @@ from worker.renderer import manim_quality_flags, render_manim_scene_to_disk
 
 @pytest.fixture(autouse=True)
 def mock_disk_space() -> Generator[None, None, None]:
-    with patch("worker.renderer.shutil.disk_usage", return_value=(100 * 1024**3, 10 * 1024**3, 90 * 1024**3)):
+    with patch(
+        "worker.renderer.shutil.disk_usage",
+        return_value=(100 * 1024**3, 10 * 1024**3, 90 * 1024**3),
+    ):
         yield
 
 
@@ -41,7 +44,8 @@ def test_render_manim_scene_to_disk_injects_metadata(
     # Setup job
     job_id = uuid4()
     scene_id = uuid4()
-    mock_job_store.get.return_value = MagicMock(scene_id=scene_id)
+    project_id = uuid4()
+    mock_job_store.get.return_value = MagicMock(scene_id=scene_id, project_id=project_id)
 
     # Setup scene
     mcode = """from manim import *
@@ -51,7 +55,10 @@ class GeneratedScene(Scene):
 """
     sync_segments = {"intro": 1.5, "step1": 2.0}
     mock_content_store.get_scene.return_value = MagicMock(
-        manim_code=mcode, sync_segments=sync_segments, manim_code_version=1
+        project_id=project_id,
+        manim_code=mcode,
+        sync_segments=sync_segments,
+        manim_code_version=1,
     )
 
     # Mock subprocess and rglob
@@ -99,8 +106,18 @@ def test_render_manim_scene_to_disk_handles_failure(
 ) -> None:
 
     job_id = uuid4()
-    mock_job_store.get.return_value = MagicMock(scene_id=uuid4())
-    mock_content_store.get_scene.return_value = MagicMock(manim_code="x=1", sync_segments={})
+    project_id = uuid4()
+    mock_job_store.get.return_value = MagicMock(scene_id=uuid4(), project_id=project_id)
+    mock_content_store.get_scene.return_value = MagicMock(
+        project_id=project_id,
+        manim_code=(
+            "from manim import *\n"
+            "class GeneratedScene(Scene):\n"
+            "    def construct(self):\n"
+            "        pass\n"
+        ),
+        sync_segments={},
+    )
 
     # Mock failure
     mock_proc = MagicMock()
@@ -128,13 +145,21 @@ def test_render_manim_scene_to_disk_errors(mock_job_store: Any, mock_content_sto
         render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
 
     # Scene not found
-    mock_job_store.get.return_value = MagicMock(scene_id=uuid4())
+    project_id = uuid4()
+    mock_job_store.get.return_value = MagicMock(scene_id=uuid4(), project_id=project_id)
     mock_content_store.get_scene.return_value = None
     with pytest.raises(RuntimeError, match="not found in content store"):
         render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
 
+    mock_content_store.get_scene.return_value = MagicMock(
+        project_id=uuid4(),
+        manim_code="",
+    )
+    with pytest.raises(RuntimeError, match="does not belong"):
+        render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
+
     # Missing code
-    mock_content_store.get_scene.return_value = MagicMock(manim_code="")
+    mock_content_store.get_scene.return_value = MagicMock(project_id=project_id, manim_code="")
     with pytest.raises(RuntimeError, match="missing manim_code"):
         render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
 
@@ -151,15 +176,26 @@ def test_render_manim_scene_to_disk_sets_resource_limits_on_posix(
 ) -> None:
     import os
     import sys
-    
+
     # Mock resource module
     mock_resource = MagicMock()
     sys.modules["resource"] = mock_resource
-    
+
     try:
         job_id = uuid4()
-        mock_job_store.get.return_value = MagicMock(scene_id=uuid4())
-        mock_content_store.get_scene.return_value = MagicMock(manim_code="class GeneratedScene: pass", sync_segments={}, audio_url=None)
+        project_id = uuid4()
+        mock_job_store.get.return_value = MagicMock(scene_id=uuid4(), project_id=project_id)
+        mock_content_store.get_scene.return_value = MagicMock(
+            project_id=project_id,
+            manim_code=(
+                "from manim import *\n"
+                "class GeneratedScene(Scene):\n"
+                "    def construct(self):\n"
+                "        pass\n"
+            ),
+            sync_segments={},
+            audio_url=None,
+        )
 
         mock_proc = MagicMock()
         mock_proc.communicate.return_value = ("stdout", "stderr")
@@ -170,7 +206,9 @@ def test_render_manim_scene_to_disk_sets_resource_limits_on_posix(
         mock_rglob.return_value = [video_mock]
 
         with patch("worker.renderer.tempfile.mkdtemp", return_value=str(tmp_path)):
-            with patch.dict(os.environ, {"RENDERER_MAX_VMEM_BYTES": "1000", "RENDERER_MAX_FSIZE_BYTES": "2000"}):
+            with patch.dict(
+                os.environ, {"RENDERER_MAX_VMEM_BYTES": "1000", "RENDERER_MAX_FSIZE_BYTES": "2000"}
+            ):
                 render_manim_scene_to_disk(job_id=job_id, job_type="preview", quality="720p")
 
         # Verify that popen was called with preexec_fn
@@ -182,7 +220,7 @@ def test_render_manim_scene_to_disk_sets_resource_limits_on_posix(
         with patch("worker.renderer.os.setsid", create=True) as mock_setsid:
             preexec_fn()
             mock_setsid.assert_called_once()
-            
+
         mock_resource.setrlimit.assert_any_call(mock_resource.RLIMIT_CPU, (1210, 1215))
         mock_resource.setrlimit.assert_any_call(mock_resource.RLIMIT_AS, (1000, 1000))
         mock_resource.setrlimit.assert_any_call(mock_resource.RLIMIT_FSIZE, (2000, 2000))

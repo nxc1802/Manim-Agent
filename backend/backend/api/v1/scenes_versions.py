@@ -4,8 +4,12 @@ import logging
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from shared.schemas.artifact_version import ArtifactVersion
+from pydantic import BaseModel, Field
+from shared.schemas.artifact_version import (
+    ArtifactEntityType,
+    ArtifactVersion,
+    RollbackEntityType,
+)
 from shared.schemas.scene import Scene
 from worker.tasks import render_manim_scene
 
@@ -24,14 +28,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+SCENE_VERSION_ENTITY_TYPES: tuple[RollbackEntityType, ...] = (
+    "storyboard",
+    "plan",
+    "dsl",
+    "code",
+)
+
 
 class RollbackRequest(BaseModel):
-    entity_type: str  # "storyboard", "plan", "dsl", "code"
-    target_version: int
+    entity_type: RollbackEntityType
+    target_version: int = Field(ge=1)
 
 
 class DirectDslEditRequest(BaseModel):
-    dsl_code: str  # Python class DSL source code
+    dsl_code: str = Field(min_length=1, max_length=200_000)
 
 
 class DirectDslEditResponse(BaseModel):
@@ -42,7 +53,7 @@ class DirectDslEditResponse(BaseModel):
 @router.get("/{scene_id}/versions", response_model=list[ArtifactVersion])
 def get_scene_versions(
     scene_id: UUID,
-    entity_type: str | None = None,
+    entity_type: ArtifactEntityType | None = None,
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> list[ArtifactVersion]:
@@ -55,13 +66,12 @@ def get_scene_versions(
     project_readable_by_user(store, scene.project_id, user_id)
 
     version_store = VersionStore(store)
-    all_versions = version_store.list_versions(entity_type="dsl", entity_id=scene_id)  # default
     if entity_type:
         all_versions = version_store.list_versions(entity_type=entity_type, entity_id=scene_id)
     else:
         # Fetch versions across all types if not specified
         all_versions = []
-        for et in ["storyboard", "plan", "dsl", "code"]:
+        for et in SCENE_VERSION_ENTITY_TYPES:
             all_versions.extend(version_store.list_versions(entity_type=et, entity_id=scene_id))
         all_versions.sort(key=lambda x: x.created_at, reverse=True)
 
@@ -106,7 +116,7 @@ def edit_scene_dsl_directly(
     store: ContentStore = Depends(get_content_store),  # noqa: B008
     job_store: RedisRenderJobStore = Depends(get_job_store),  # noqa: B008
 ) -> DirectDslEditResponse:
-    """Direct human-in-the-loop DSL edits: parses, compiles to Manim, saves versions, triggers preview."""
+    """Parse and compile a direct DSL edit, save versions, and trigger a preview."""
     scene = store.get_scene(scene_id)
     if scene is None:
         raise HTTPException(
@@ -117,6 +127,8 @@ def edit_scene_dsl_directly(
     # 1. Parse Python DSL class
     from ai_engine.dsl_compiler import compile_dsl_to_manim, parse_python_class_dsl
     from shared.code_utils import extract_python_code
+
+    from backend.services.code_sandbox import SandboxLimits, validate_manim_code
 
     dsl_stripped = extract_python_code(body.dsl_code).strip()
     try:
@@ -130,6 +142,10 @@ def edit_scene_dsl_directly(
     # 2. Compile to Manim code
     try:
         compiled_code = compile_dsl_to_manim(dsl_obj)
+        validate_manim_code(
+            compiled_code,
+            limits=SandboxLimits(max_bytes=settings.max_manim_code_bytes),
+        )
     except Exception as compile_err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

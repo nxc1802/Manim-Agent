@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from ai_engine.dsl_compiler import compile_dsl_to_manim, parse_python_class_dsl
 from shared.schemas.scene_dsl import (
     AnimationStep,
@@ -15,7 +18,9 @@ from shared.schemas.scene_dsl import (
 
 def test_parse_python_class_dsl() -> None:
     code = """
-from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
+from shared.schemas.scene_dsl import (
+    AnimationStep, Position, SceneDSLBeat, ThemeConfig, VisualElement
+)
 
 class GeneratedSceneDSL:
     title = "Test DSL Scene"
@@ -54,6 +59,46 @@ class GeneratedSceneDSL:
     assert dsl.beats[0].visual_elements[0].id == "intro_txt"
     assert dsl.beats[0].visual_elements[0].params["text"] == "Hello DSL"
     assert dsl.beats[0].animations[0].animation_type == "cinematic_fade_in"
+
+
+def test_parse_python_class_dsl_never_executes_submitted_code(tmp_path: Path) -> None:
+    marker = tmp_path / "executed"
+    source = f"""
+class GeneratedSceneDSL:
+    title = "Unsafe"
+    beats = []
+    __import__("pathlib").Path({str(marker)!r}).touch()
+"""
+
+    with pytest.raises(ValueError, match="field assignments"):
+        parse_python_class_dsl(source)
+    assert not marker.exists()
+
+
+def test_parse_python_class_dsl_rejects_unknown_constructor() -> None:
+    source = """
+class GeneratedSceneDSL:
+    title = Dangerous(value="x")
+    beats = []
+"""
+    with pytest.raises(ValueError, match="Unsupported Scene DSL constructor"):
+        parse_python_class_dsl(source)
+
+
+def test_compile_dsl_rejects_unknown_primitive() -> None:
+    dsl = SceneDSL(
+        title="Unsafe",
+        beats=[
+            SceneDSLBeat(
+                id="beat",
+                label="Beat",
+                duration_seconds=1,
+                visual_elements=[VisualElement(id="item", type="not_a_primitive")],
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="Unsupported visual primitive"):
+        compile_dsl_to_manim(dsl)
 
 
 def test_compile_dsl_to_manim() -> None:
@@ -103,12 +148,15 @@ def test_compile_dsl_to_manim() -> None:
     # General assertions
     assert "class GeneratedScene(MovingCameraScene):" in code
     assert "self.elements = {}" in code
-    assert "self.elements[\"title\"] = get_title_card(title='Main Title', subtitle='Sub')" in code
-    assert "self.elements[\"body\"] = get_text_panel(text='Body text')" in code
-    assert "self.elements[\"title\"].move_to(np.array([0.0, 2.0, 0.0]))" in code
-    assert "self.elements[\"body\"].next_to(self.elements[\"title\"], DOWN, buff=0.5)" in code
-    assert "cinematic_fade_in(self.elements[\"title\"], duration=0.8)" in code
-    assert "typewriter_text(self, self.elements[\"body\"], run_time=1.2)" in code
+    assert "self.elements['title'] = get_title_card(title='Main Title', subtitle='Sub')" in code
+    assert "self.elements['body'] = get_text_panel(text='Body text')" in code
+    assert "self.elements['title'].move_to(np.array([0.0, 2.0, 0.0]))" in code
+    assert "self.elements['body'].next_to(self.elements['title'], DOWN, buff=0.5)" in code
+    assert "cinematic_fade_in(self.elements['title'], duration=0.8)" in code
+    assert "typewriter_text(self, self.elements['body'], run_time=1.2)" in code
     assert "self.camera.frame.move_to(np.array([0.0, 0.0, 0.0]))" in code
     assert "self.camera.frame.set_width(self.camera.frame.width / 1.5)" in code
-    assert "self.play(FadeOut(self.elements[\"title\"]), FadeOut(self.elements[\"body\"]), run_time=0.5)" in code
+    assert (
+        "self.play(FadeOut(self.elements['title']), FadeOut(self.elements['body']), run_time=0.5)"
+        in code
+    )

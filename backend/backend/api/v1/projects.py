@@ -3,9 +3,12 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
+from shared.constants import ReviewLoopMode
 from shared.schemas.pagination import PaginatedResponse, PaginationParams
 from shared.schemas.project import DashboardStats, Project, ProjectCreate, ProjectUpdate
 from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
+from worker.orchestrator_tasks import run_project_workflow_task
 
 from backend.api.access import project_readable_by_user
 from backend.api.deps import get_content_store, get_request_user_id
@@ -13,6 +16,17 @@ from backend.core.limiter import limiter
 from backend.db.base import ContentStore
 
 router = APIRouter(tags=["projects"])
+
+
+class ProjectWorkflowRequest(BaseModel):
+    mode: ReviewLoopMode = ReviewLoopMode.HITL
+    extra_rounds: int | None = Field(default=None, ge=1, le=10)
+
+
+class ProjectWorkflowResponse(BaseModel):
+    project_id: UUID
+    task_id: UUID
+    scene_count: int
 
 
 @router.post(
@@ -233,3 +247,40 @@ def approve_project_storyboard(
 
     updated, _ = store.list_scenes_for_project(project_id, limit=1000)
     return updated
+
+
+@router.post(
+    "/{project_id}/workflow",
+    response_model=ProjectWorkflowResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run all scene pipelines concurrently",
+)
+def run_project_pipeline(
+    project_id: UUID,
+    body: ProjectWorkflowRequest | None = None,
+    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
+    store: ContentStore = Depends(get_content_store),  # noqa: B008
+) -> ProjectWorkflowResponse:
+    project_readable_by_user(store, project_id, user_id)
+    scenes, _ = store.list_scenes_for_project(project_id, limit=1000)
+    if not scenes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project has no scenes",
+        )
+    options = body or ProjectWorkflowRequest()
+    task = run_project_workflow_task.apply_async(
+        kwargs={
+            "project_id": str(project_id),
+            "user_id": str(user_id),
+            "scene_ids": [str(scene.id) for scene in scenes],
+            "mode": options.mode,
+            "extra_rounds": options.extra_rounds,
+        },
+        queue="orchestrator",
+    )
+    return ProjectWorkflowResponse(
+        project_id=project_id,
+        task_id=UUID(task.id),
+        scene_count=len(scenes),
+    )

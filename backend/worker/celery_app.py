@@ -15,7 +15,11 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
-    task_routes={"manim_agent.synthesize_voice": {"queue": "tts"}},
+    task_routes={
+        "manim_agent.synthesize_voice": {"queue": "tts"},
+        "manim_agent.run_orchestrator_loop": {"queue": "orchestrator"},
+        "manim_agent.run_project_workflow": {"queue": "orchestrator"},
+    },
     # Optimization: Disable Celery result storage to save Redis connections.
     # We manage job status manually in RedisRenderJobStore.
     task_ignore_result=True,
@@ -29,4 +33,6 @@ setup_pipeline_logging(
     level=settings.log_level,
     supabase_url=settings.supabase_url,
     supabase_key=settings.supabase_service_role_key,
+    redis_url=settings.redis_url,
+    redis_prefix=settings.redis_prefix,
 )

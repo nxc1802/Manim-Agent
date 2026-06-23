@@ -54,7 +54,7 @@ class GenerateStoryboardBody(BaseModel):
         409: {"description": "Storyboard already approved"},
     },
 )
-@limiter.limit("5/minute") 
+@limiter.limit("5/minute")
 async def generate_storyboard(
     request: Request,
     scene_id: UUID,
@@ -112,7 +112,7 @@ def approve_storyboard(
         404: {"description": "Scene not found"},
     },
 )
-@limiter.limit("10/minute")  
+@limiter.limit("10/minute")
 async def run_scene_planner(
     request: Request,
     scene_id: UUID,
@@ -181,7 +181,7 @@ def sync_timeline_endpoint(
         "mã nguồn Manim Python hoàn chỉnh."
     ),
 )
-@limiter.limit("5/minute") 
+@limiter.limit("5/minute")
 async def generate_scene_code(
     request: Request,
     scene_id: UUID,

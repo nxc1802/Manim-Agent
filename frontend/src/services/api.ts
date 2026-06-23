@@ -7,6 +7,8 @@ import type {
   VoiceJob, 
   PaginatedResponse,
   DashboardStats,
+  ArtifactEntityType,
+  ArtifactVersion,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/v1';
@@ -67,6 +69,12 @@ export const projectService = {
     
   getPipelineRuns: (projectId: string) => 
     api.get(`/projects/${projectId}/pipeline-runs`),
+
+  runWorkflow: (projectId: string, data?: { mode?: 'auto' | 'hitl', extra_rounds?: number }) =>
+    api.post<{ project_id: string, task_id: string, scene_count: number }>(
+      `/projects/${projectId}/workflow`,
+      data,
+    ),
     
   render: (projectId: string, data: { render_type: string, quality: string, scene_id?: string }) => 
     api.post<{ job_id: string, status: string }>(`/projects/${projectId}/render`, data),
@@ -115,11 +123,11 @@ export const sceneService = {
   hitlAck: (id: string, data: { action: 'continue' | 'revert' | 'stop', extra_rounds?: number }) => 
     api.post<{ scene: Scene, message: string }>(`/scenes/${id}/hitl-ack-builder-review`, data),
 
-  getVersions: (id: string, entityType?: string) =>
-    api.get<any[]>(`/scenes/${id}/versions`, { params: { entity_type: entityType } }),
+  getVersions: (id: string, entityType?: ArtifactEntityType) =>
+    api.get<ArtifactVersion[]>(`/scenes/${id}/versions`, { params: { entity_type: entityType } }),
 
-  rollback: (id: string, data: { entity_type: string, target_version: number }) =>
-    api.post<any>(`/scenes/${id}/rollback`, data),
+  rollback: (id: string, data: { entity_type: ArtifactEntityType, target_version: number }) =>
+    api.post<ArtifactVersion>(`/scenes/${id}/rollback`, data),
 
   patchDsl: (id: string, data: { dsl_code: string }) =>
     api.patch<{ scene: Scene, preview_job_id: string }>(`/scenes/${id}/dsl`, data),

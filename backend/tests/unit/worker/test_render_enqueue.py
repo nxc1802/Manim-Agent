@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 from uuid import UUID, uuid4
 
 import fakeredis
@@ -67,4 +68,7 @@ def test_enqueue_then_execute_mocked_render(
     body = detail.json()
     assert body["status"] == "completed"
     assert body["asset_url"].startswith("file://")
+    persisted_path = Path(unquote(urlparse(body["asset_url"]).path))
+    assert persisted_path.is_file()
+    persisted_path.unlink()
     assert body["render_quality"] == "720p"

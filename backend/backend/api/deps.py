@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -36,9 +37,6 @@ def get_voice_job_store() -> RedisVoiceJobStore:
     return RedisVoiceJobStore(get_redis())
 
 
-
-
-
 def _resolved_agent_models_path() -> Path:
     if settings.agent_models_yaml:
         return Path(settings.agent_models_yaml).expanduser()
@@ -56,20 +54,29 @@ def get_runtime_limits() -> RuntimeLimitsConfig:
 
 
 def get_llm_client() -> LLMClient:
-    """Use LiteLLM when ``OPENROUTER_API_KEY`` is set; otherwise ``FakeLLMClient`` (offline)."""
+    """Use LiteLLM when any configured provider has credentials."""
     key = (settings.openrouter_api_key or "").strip() or None
     ds_key = (settings.dashscope_api_key or "").strip() or None
-    if key or ds_key:
+    google_key = (settings.google_api_key or "").strip() or None
+    has_google_suffix_key = any(
+        bool(os.environ.get(f"GOOGLE_API_KEY_{index}")) for index in range(1, 100)
+    )
+    if key or ds_key or google_key or has_google_suffix_key:
         provider_bases = {}
         if settings.openrouter_api_base:
             provider_bases["openrouter"] = settings.openrouter_api_base
         if settings.dashscope_api_base:
             provider_bases["dashscope"] = settings.dashscope_api_base
-            
+
+        provider_keys = {}
+        if ds_key:
+            provider_keys["dashscope"] = ds_key
+        if google_key:
+            provider_keys["google_ai_studio"] = google_key
         return LiteLLMClient(
             key,
             api_base=settings.llm_api_base,
-            provider_keys={"dashscope": ds_key} if ds_key else None,
+            provider_keys=provider_keys or None,
             provider_bases=provider_bases if provider_bases else None,
         )
     return FakeLLMClient()

@@ -24,7 +24,17 @@ def test_enqueue_render_redis_error(client: TestClient) -> None:
     mock_store.create_queued_job.side_effect = RedisError("redis down")
 
     app.dependency_overrides[get_request_user_id] = lambda: uid
-    app.dependency_overrides[get_content_store] = lambda: MagicMock()
+    content_store = MagicMock()
+    content_store.get_scene.return_value = MagicMock(
+        project_id=pid,
+        manim_code=(
+            "from manim import *\n"
+            "class GeneratedScene(Scene):\n"
+            "    def construct(self):\n"
+            "        pass\n"
+        ),
+    )
+    app.dependency_overrides[get_content_store] = lambda: content_store
     app.dependency_overrides[get_job_store] = lambda: mock_store
 
     with patch("backend.api.v1.render.project_readable_by_user"):
@@ -44,7 +54,17 @@ def test_enqueue_render_celery_error(client: TestClient) -> None:
     uid = uuid4()
 
     app.dependency_overrides[get_request_user_id] = lambda: uid
-    app.dependency_overrides[get_content_store] = lambda: MagicMock()
+    content_store = MagicMock()
+    content_store.get_scene.return_value = MagicMock(
+        project_id=pid,
+        manim_code=(
+            "from manim import *\n"
+            "class GeneratedScene(Scene):\n"
+            "    def construct(self):\n"
+            "        pass\n"
+        ),
+    )
+    app.dependency_overrides[get_content_store] = lambda: content_store
     app.dependency_overrides[get_job_store] = lambda: MagicMock()
 
     with (
@@ -60,4 +80,25 @@ def test_enqueue_render_celery_error(client: TestClient) -> None:
         assert res.status_code == 503
         assert res.json()["error"]["code"] == "broker_unavailable"
 
+    app.dependency_overrides = {}
+
+
+def test_enqueue_render_rejects_scene_from_another_project(client: TestClient) -> None:
+    project_id = uuid4()
+    content_store = MagicMock()
+    content_store.get_scene.return_value = MagicMock(project_id=uuid4())
+    job_store = MagicMock()
+
+    app.dependency_overrides[get_request_user_id] = lambda: uuid4()
+    app.dependency_overrides[get_content_store] = lambda: content_store
+    app.dependency_overrides[get_job_store] = lambda: job_store
+
+    with patch("backend.api.v1.render.project_readable_by_user"):
+        response = client.post(
+            f"/v1/projects/{project_id}/render",
+            json={"scene_id": str(uuid4()), "render_type": "preview", "quality": "720p"},
+        )
+
+    assert response.status_code == 404
+    job_store.create_queued_job.assert_not_called()
     app.dependency_overrides = {}

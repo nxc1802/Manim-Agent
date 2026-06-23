@@ -29,7 +29,10 @@ class ManimASTVisitor(ast.NodeVisitor):
                 ValidationIssue(
                     code="tex_usage",
                     severity=SeverityLevel.ERROR,
-                    message=f"Use of {node.id} is forbidden. Use Text, Paragraph, or MarkupText instead.",
+                    message=(
+                        f"Use of {node.id} is forbidden. "
+                        "Use Text, Paragraph, or MarkupText instead."
+                    ),
                     line=getattr(node, "lineno", None),
                     suggestion=f"Replace {node.id} with Text or MarkupText",
                 )
@@ -60,7 +63,9 @@ class ManimASTVisitor(ast.NodeVisitor):
                             ValidationIssue(
                                 code="invalid_runtime",
                                 severity=SeverityLevel.WARNING,
-                                message=f"run_time ({val}) is outside reasonable limits (0.01 - 300s).",
+                                message=(
+                                    f"run_time ({val}) is outside reasonable limits (0.01 - 300s)."
+                                ),
                                 line=getattr(node, "lineno", None),
                                 suggestion="Set run_time between 0.01 and 300 seconds.",
                             )
