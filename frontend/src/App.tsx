@@ -1,52 +1,34 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense } from 'react';
-import { useAuth } from './hooks/useAuth';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AppLayout } from './components/layout/AppLayout';
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+import { SceneEditor } from './pages/SceneEditor';
+import { Settings } from './pages/Settings';
+import { api, applyTheme } from './lib/api';
 
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const SceneEditor = lazy(() => import('./pages/SceneEditor'));
-const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
-const JobsPage = lazy(() => import('./pages/JobsPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-
-const PageFallback = () => (
-  <div style={{ display: 'grid', minHeight: '100vh', placeItems: 'center', color: 'white' }}>
-    Loading page...
-  </div>
-);
-
-function App() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'white' }}>
-        <div className="animated-bg" />
-        <p>Loading session...</p>
-      </div>
-    );
-  }
+export const App: React.FC = () => {
+  useEffect(() => {
+    api.getSettings()
+      .then(settings => applyTheme(settings.theme))
+      .catch(console.error);
+  }, []);
 
   return (
-    <Router>
-      <div className="app-container">
-        <div className="animated-bg" />
-        <Suspense fallback={<PageFallback />}>
-          <Routes>
-            <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
-
-            <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-            <Route path="/projects" element={user ? <ProjectsPage /> : <Navigate to="/login" />} />
-            <Route path="/jobs" element={user ? <JobsPage /> : <Navigate to="/login" />} />
-            <Route path="/settings" element={user ? <SettingsPage /> : <Navigate to="/login" />} />
-            <Route path="/editor/:sceneId" element={user ? <SceneEditor /> : <Navigate to="/login" />} />
-
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </Suspense>
-      </div>
-    </Router>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/projects/:projectId" element={<SceneEditor />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
+        
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
-}
+};
 
 export default App;

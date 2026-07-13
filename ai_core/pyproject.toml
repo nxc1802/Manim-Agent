@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manim-ai-core"
+version = "1.0.0"
+description = "Independent generation and rendering service for Manim Agent"
+requires-python = ">=3.11"
+dependencies = [
+  "celery[redis]>=5.4.0,<6.0.0",
+  "fastapi>=0.115.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "litellm>=1.55.0,<2.0.0",
+  "manim>=0.18.1,<0.20.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "pydantic-settings>=2.6.0,<3.0.0",
+  "pyyaml>=6.0.0,<7.0.0",
+  "uvicorn[standard]>=0.32.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0,<9.0.0", "ruff>=0.8.0,<1.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", ".."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

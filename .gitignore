@@ -1,4 +1,6 @@
 .env
+.backend.env
+.ai_core.env
 tests/.env.test
 ai_engine/config/piper.local.yaml
 .venv/

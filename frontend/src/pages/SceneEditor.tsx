@@ -1,599 +1,505 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
-import PipelineVisualizer from '../components/PipelineVisualizer';
-import type { Stage } from '../components/PipelineVisualizer';
-import CodePreview from '../components/CodePreview';
-import { 
-  ArrowLeft, 
-  Check, 
-  AlertTriangle, 
-  Activity, 
-  Loader2, 
-  Play, 
-  Music, 
-  Layout, 
-  Wand2, 
-  History, 
-  Save, 
-  Edit2, 
-  RotateCcw, 
-  FileText, 
-  Code 
-} from 'lucide-react';
-import { sceneService } from '../services/api';
-import type {
-  ArtifactEntityType,
-  ArtifactVersion,
-} from '../types/api';
-import { formatDslToPython } from '../utils/sceneDsl';
-import { useSceneWebSocket } from '../hooks/useSceneWebSocket';
-import { useSceneStore } from '../store/useSceneStore';
-import styles from './SceneEditor.module.css';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Play, Check, X, ArrowUUpLeft, CodeBlock } from '@phosphor-icons/react';
+import { Dialog } from '../components/ui/Dialog';
+import type { DialogProps } from '../components/ui/Dialog';
+import { api } from '../lib/api';
+import type { Project } from '../lib/api';
+import './SceneEditor.css';
 
-const defaultDslTemplate = `from shared.schemas.scene_dsl import SceneDSLBeat, VisualElement, AnimationStep, Position, ThemeConfig
+const steps = [
+  { name: 'Director', label: 'Brief Outline' },
+  { name: 'Planner', label: 'Scene Outline' },
+  { name: 'Scene Designer', label: 'Visual Design' },
+  { name: 'Manim Builder', label: 'Python Code' },
+  { name: 'Code Reviewer', label: 'Self-Correction' },
+  { name: 'Visual Reviewer', label: 'Visual Review' }
+];
 
-class GeneratedSceneDSL:
-    title = "My Scene DSL"
-    global_theme = ThemeConfig(primary_color="BLUE")
-    beats = [
-        SceneDSLBeat(
-            id="beat_1",
-            label="Intro Beat",
-            duration_seconds=2.0,
-            narration="Welcome to this video scene.",
-            visual_elements=[
-                VisualElement(
-                    id="title_text",
-                    type="get_text_panel",
-                    params={"text": "Introduction", "color": "BLUE"},
-                    position=Position(x=0.0, y=0.0)
-                )
-            ],
-            animations=[
-                AnimationStep(
-                    target_ids=["title_text"],
-                    animation_type="cinematic_fade_in",
-                    run_time=1.0
-                )
-            ]
-        )
-    ]
-`;
+const kindToIndex: Record<string, number> = {
+  director: 0,
+  planner: 1,
+  scene_designer: 2,
+  builder: 3,
+  code_reviewer: 4,
+  visual_reviewer: 5
+};
 
-const SceneEditor = () => {
-  const { sceneId } = useParams<{ sceneId: string }>();
-  const navigate = useNavigate();
-  const { currentScene: scene, loading, fetchScene, updateSceneState, generateStoryboard, approveStoryboard, planBeats, approvePlan } = useSceneStore();
-
-  const { events, isConnected, lastEvent } = useSceneWebSocket(sceneId);
-
-  // Custom UI State
-  const [sidebarTab, setSidebarTab] = useState<'activity' | 'history'>('activity');
-  const [versions, setVersions] = useState<ArtifactVersion[]>([]);
-  const [selectedVersion, setSelectedVersion] = useState<ArtifactVersion | null>(null);
-  const [activeView, setActiveView] = useState<'code' | 'dsl'>('code');
-  const [dslCode, setDslCode] = useState<string>('');
-  const [dslError, setDslError] = useState<string | null>(null);
-  const [isDslSaving, setIsDslSaving] = useState<boolean>(false);
-
-  const loadVersions = useCallback(async () => {
-    if (!sceneId) return;
-    try {
-      const res = await sceneService.getVersions(sceneId);
-      setVersions(res.data);
-    } catch (err) {
-      console.error('Failed to load versions', err);
-    }
-  }, [sceneId]);
-
-  useEffect(() => {
-    if (sceneId) {
-      fetchScene(sceneId);
-      loadVersions();
-    }
-  }, [sceneId, fetchScene, loadVersions]);
-
-  useEffect(() => {
-    if (scene) {
-      if (scene.scene_dsl) {
-        setDslCode(formatDslToPython(scene.scene_dsl));
-      } else {
-        setDslCode(defaultDslTemplate);
-      }
-    }
-  }, [scene]);
-
-  // Sync scene state and versions if WS event indicates completion
-  useEffect(() => {
-    if (lastEvent?.phase?.endsWith('_ok') || lastEvent?.phase === 'completed' || lastEvent?.phase === 'job_completed') {
-      if (sceneId) {
-        fetchScene(sceneId);
-        loadVersions();
-      }
-    }
-  }, [lastEvent, sceneId, fetchScene, loadVersions]);
-
-  const handleAction = async (name: string, fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      if (sceneId) {
-        fetchScene(sceneId);
-        loadVersions();
-      }
-    } catch (err) {
-      console.error(`Action ${name} failed`, err);
-    }
-  };
-
-  const handleRollback = async (entityType: ArtifactEntityType, versionNum: number) => {
-    if (!sceneId) return;
-    if (!window.confirm(`Are you sure you want to rollback ${entityType} to version ${versionNum}?`)) {
-      return;
-    }
-    try {
-      await sceneService.rollback(sceneId, {
-        entity_type: entityType,
-        target_version: versionNum,
-      });
-      setSelectedVersion(null);
-      fetchScene(sceneId);
-      loadVersions();
-    } catch (err: any) {
-      alert(`Rollback failed: ${err.response?.data?.detail || err.message || err}`);
-    }
-  };
-
-  const handleSaveDsl = async () => {
-    if (!sceneId) return;
-    setIsDslSaving(true);
-    setDslError(null);
-    try {
-      const res = await sceneService.patchDsl(sceneId, { dsl_code: dslCode });
-      updateSceneState(res.data.scene);
-      loadVersions();
-      setActiveView('code');
-    } catch (err: any) {
-      const errMsg = err.response?.data?.detail || err.message || err;
-      setDslError(errMsg);
-    } finally {
-      setIsDslSaving(false);
-    }
-  };
-
-  if (loading || !scene) {
-    return (
-      <div className={styles.loaderContainer} style={{ minHeight: '100vh', color: 'white' }}>
-        <Loader2 className="spin" />
-      </div>
-    );
+const getStepText = (step: any): string => {
+  if (!step) return '';
+  const output = step.draft_output || step.final_output;
+  if (!output) return '';
+  if (typeof output === 'string') return output;
+  if (output.storyboard) return output.storyboard;
+  if (output.manim_code) return output.manim_code;
+  if (output.text) return output.text;
+  if (output.passed !== undefined) {
+    return `Passed: ${output.passed}\n\nCode:\n${output.manim_code || ''}\n\nAttempts: ${output.total_attempts}\n${output.final_error ? `Error: ${output.final_error}` : ''}`;
   }
+  return JSON.stringify(output, null, 2);
+};
 
-  const stages: Stage[] = [
-    { 
-      id: 'director', 
-      label: 'Director', 
-      status: scene.storyboard_status === 'approved' ? 'completed' : 
-              scene.storyboard_status === 'pending_review' ? 'running' : 'pending' 
-    },
-    { 
-      id: 'planner', 
-      label: 'Planner', 
-      status: scene.plan_status === 'approved' ? 'completed' : 
-              scene.plan_status === 'pending_review' ? 'running' : 'pending' 
-    },
-    { 
-      id: 'audio', 
-      label: 'Audio & Sync', 
-      status: (scene.voice_script_status === 'approved' && scene.sync_segments) ? 'completed' : 
-              (scene.voice_script_status === 'pending_review' || scene.audio_url) ? 'running' : 'pending' 
-    },
-    { 
-      id: 'builder', 
-      label: 'Builder', 
-      status: scene.review_loop_status === 'completed' ? 'completed' : 
-              scene.review_loop_status === 'running' ? 'running' : 'pending' 
-    },
-  ];
+export const SceneEditor: React.FC = () => {
+  const { projectId } = useParams<{ projectId: string }>();
+  const [project, setProject] = useState<Project | null>(null);
+  
+  // Pipeline State
+  const [activeRun, setActiveRun] = useState<any>(null);
+  const [currentStep, setCurrentStep] = useState(0); // 0-5
+  const [selectedStepView, setSelectedStepView] = useState(0); // 0-5
+  const [draftContent, setDraftContent] = useState<string[]>(Array(6).fill(''));
+  const [revisions, setRevisions] = useState<number[]>(Array(6).fill(1));
+  const [stepIds, setStepIds] = useState<string[]>(Array(6).fill(''));
+
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRendering, setIsRendering] = useState(false);
+  const [videoRendered, setVideoRendered] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Dialog State
+  const [dialog, setDialog] = useState<Omit<DialogProps, 'onConfirm' | 'onCancel'> & {
+    isOpen: boolean;
+    onConfirm?: (val?: string) => void;
+  }>({ isOpen: false, title: '', message: '' });
+
+  const loadPipeline = async (pId: string) => {
+    try {
+      const proj = await api.getProject(pId);
+      setProject(proj);
+
+      // 1. Fetch scenes
+      let scenes = await api.getScenes(pId);
+      if (scenes.length === 0) {
+        // Create default scene
+        const newScene = await api.createScene(pId, 0);
+        scenes = [newScene];
+      }
+
+      const activeScene = scenes[0];
+
+      // 2. Fetch AI Runs
+      let runs = await api.getAiRuns(pId);
+      let run: any = null;
+      
+      if (runs.length === 0) {
+        // Start first AI Run
+        const startRes = await api.startAiRun(pId, activeScene.id, proj.description);
+        run = startRes.run;
+      } else {
+        run = runs[runs.length - 1]; // Get latest run
+      }
+
+      setActiveRun(run);
+
+      // 3. Fetch steps
+      const stepsList = await api.getAiRunSteps(pId, run.id);
+      
+      const newDrafts = Array(6).fill('');
+      const newRevs = Array(6).fill(1);
+      const newIds = Array(6).fill('');
+      let maxActiveIdx = 0;
+
+      stepsList.forEach((s: any) => {
+        const idx = kindToIndex[s.kind];
+        if (idx !== undefined) {
+          newDrafts[idx] = getStepText(s);
+          newRevs[idx] = s.revision;
+          newIds[idx] = s.id;
+          
+          if (s.status === 'generating') {
+            setIsGenerating(true);
+            maxActiveIdx = Math.max(maxActiveIdx, idx);
+          } else if (s.status === 'pending_review') {
+            maxActiveIdx = Math.max(maxActiveIdx, idx);
+          } else if (s.status === 'approved') {
+            maxActiveIdx = Math.max(maxActiveIdx, idx + 1);
+          }
+        }
+      });
+
+      // Clamp maxActiveIdx to 0-5
+      const activeIdx = Math.min(Math.max(maxActiveIdx, 0), 5);
+      
+      setDraftContent(newDrafts);
+      setRevisions(newRevs);
+      setStepIds(newIds);
+      setCurrentStep(activeIdx);
+      setSelectedStepView(activeIdx);
+
+    } catch (e) {
+      console.error('Failed to load pipeline:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    loadPipeline(projectId);
+
+    // Setup WebSocket
+    const wsUrl = (import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/v1').replace('http', 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/projects/${projectId}`);
+    
+    ws.onopen = () => console.log('WS Connected');
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        handleWsEvent(payload);
+      } catch (e) {
+        console.error('WS Parse Error:', e);
+      }
+    };
+    ws.onclose = () => console.log('WS Disconnected');
+    wsRef.current = ws;
+
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [projectId]);
+
+  const handleWsEvent = (payload: any) => {
+    const { type, data } = payload;
+    if (!data || !data.step) return;
+
+    const step = data.step;
+    const stepIdx = kindToIndex[step.kind];
+    if (stepIdx === undefined) return;
+
+    // Update step ID and revision locally
+    setStepIds(prev => {
+      const copy = [...prev];
+      copy[stepIdx] = step.id;
+      return copy;
+    });
+    setRevisions(prev => {
+      const copy = [...prev];
+      copy[stepIdx] = step.revision;
+      return copy;
+    });
+
+    switch (type) {
+      case 'hitl.step.started':
+        setCurrentStep(stepIdx);
+        setSelectedStepView(stepIdx);
+        setIsGenerating(true);
+        setDraftContent(prev => {
+          const copy = [...prev];
+          copy[stepIdx] = '';
+          return copy;
+        });
+        break;
+
+      case 'hitl.step.generating':
+        setIsGenerating(true);
+        // Only append delta if available
+        if (payload.content_delta) {
+          setDraftContent(prev => {
+            const copy = [...prev];
+            copy[stepIdx] = (copy[stepIdx] || '') + payload.content_delta;
+            return copy;
+          });
+        }
+        break;
+
+      case 'hitl.step.pending_review':
+        setIsGenerating(false);
+        setCurrentStep(stepIdx);
+        setSelectedStepView(stepIdx);
+        if (step.draft_output) {
+          setDraftContent(prev => {
+            const copy = [...prev];
+            copy[stepIdx] = getStepText(step);
+            return copy;
+          });
+        }
+        break;
+
+      case 'hitl.step.completed':
+      case 'hitl.step.approved':
+        setIsGenerating(false);
+        if (step.final_output) {
+          setDraftContent(prev => {
+            const copy = [...prev];
+            copy[stepIdx] = getStepText(step);
+            return copy;
+          });
+        }
+        // Advance currentStep
+        if (stepIdx < 5) {
+          setCurrentStep(stepIdx + 1);
+          setSelectedStepView(stepIdx + 1);
+        }
+        break;
+
+      case 'hitl.step.rejected':
+        setIsGenerating(false);
+        // Step went back to previous or queued
+        break;
+
+      case 'hitl.run.rolled_back':
+        setIsGenerating(false);
+        // Reload whole pipeline on rollback to get accurate state
+        if (projectId) {
+          loadPipeline(projectId);
+        }
+        break;
+    }
+  };
+
+  const closeDialog = () => setDialog(prev => ({ ...prev, isOpen: false }));
+
+  const handleApprove = async () => {
+    if (!projectId || !activeRun) return;
+    const stepId = stepIds[currentStep];
+    const revision = revisions[currentStep];
+
+    if (!stepId) return;
+
+    try {
+      // If user modified raw text, call editStep first
+      if (showRaw) {
+        let editPayload: any = {};
+        if (currentStep === 0) editPayload = { storyboard: draftContent[currentStep] };
+        else if (currentStep === 3) editPayload = { manim_code: draftContent[currentStep] };
+        else editPayload = { text: draftContent[currentStep] };
+
+        await api.editStep(projectId, activeRun.id, stepId, revision, editPayload);
+      }
+
+      await api.approveStep(projectId, activeRun.id, stepId, revision);
+      
+      // Dialog for end of pipeline
+      if (currentStep === steps.length - 1) {
+        setDialog({
+          isOpen: true,
+          title: 'Success',
+          message: 'Pipeline completed successfully!',
+          onConfirm: closeDialog
+        });
+      }
+    } catch (e: any) {
+      console.error(e);
+      setDialog({
+        isOpen: true,
+        title: 'Error',
+        message: e.message || 'Failed to approve step.',
+        onConfirm: closeDialog
+      });
+    }
+  };
+
+  const handleReject = () => {
+    if (!projectId || !activeRun) return;
+    const stepId = stepIds[currentStep];
+    const revision = revisions[currentStep];
+
+    if (!stepId) return;
+
+    setDialog({
+      isOpen: true,
+      title: 'Reject Draft',
+      message: 'Provide feedback for the AI Agent to regenerate this stage.',
+      inputPlaceholder: 'Feedback...',
+      onConfirm: async (feedback) => {
+        if (!feedback) return;
+        try {
+          await api.rejectStep(projectId, activeRun.id, stepId, revision, feedback);
+          closeDialog();
+        } catch (e: any) {
+          console.error(e);
+          setDialog({
+            isOpen: true,
+            title: 'Error',
+            message: e.message || 'Failed to reject step.',
+            onConfirm: closeDialog
+          });
+        }
+      }
+    });
+  };
+
+  const handleRollbackClick = () => {
+    if (!projectId || !activeRun) return;
+    const targetStepId = stepIds[selectedStepView];
+
+    if (!targetStepId) return;
+
+    setDialog({
+      isOpen: true,
+      title: 'Confirm Rollback',
+      message: `Are you sure you want to rollback to the ${steps[selectedStepView].name} stage? This will reset all steps after it.`,
+      onConfirm: async () => {
+        try {
+          await api.rollbackRun(projectId, activeRun.id, targetStepId);
+          closeDialog();
+        } catch (e: any) {
+          console.error(e);
+          setDialog({
+            isOpen: true,
+            title: 'Error',
+            message: e.message || 'Failed to rollback.',
+            onConfirm: closeDialog
+          });
+        }
+      }
+    });
+  };
+
+  const handleRender = () => {
+    setIsRendering(true);
+    setTimeout(() => {
+      setIsRendering(false);
+      setVideoRendered(true);
+    }, 3000); // Simulate rendering
+  };
+
+  const activeDraftText = draftContent[selectedStepView] || '';
+  const isAutoStep = selectedStepView >= 3;
+  const isViewingCurrentStep = selectedStepView === currentStep;
 
   return (
-    <div className={styles.container}>
-      <Sidebar />
+    <div className="editor-page animate-fade-in">
       
-      <main className={styles.main}>
-        <header className={styles.header}>
-          <div className={`glass ${styles.backButton}`} onClick={() => navigate(-1)}>
-            <ArrowLeft size={20} />
-          </div>
-          <div>
-            <h1 className={styles.title}>Scene Editor</h1>
-            <p className={styles.subtitle}>Scene #{scene.scene_order + 1} • {scene.id.split('-')[0]}</p>
-          </div>
-          <div className={styles.statusIndicator}>
-            <div className={`${styles.statusDot} ${isConnected ? styles.dotConnected : styles.dotDisconnected}`} />
-            <span className={styles.statusText}>
-              {isConnected ? 'Live Connected' : 'Disconnected'}
-            </span>
-          </div>
-        </header>
-
-        <section className={styles.visualizerSection}>
-          <PipelineVisualizer stages={stages} />
-        </section>
-
-        <div className={styles.editorGrid}>
-          {/* Main Content Area */}
-          <div className={styles.contentColumn}>
-            
-            {/* 1. Storyboard Section */}
-            <div className="glass-card" style={{ padding: '32px' }}>
-              <div className={styles.cardHeader}>
-                <div className={styles.cardTitleWrapper}>
-                  <Layout size={20} color="var(--accent-primary)" />
-                  <h3 className={styles.cardTitle}>Storyboard & Script</h3>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  {scene.storyboard_status === 'missing' && (
-                    <button 
-                      onClick={() => handleAction('storyboard', () => generateStoryboard(scene.id))}
-                      className="btn-primary"
-                    >
-                      <Wand2 size={18} />
-                      Generate Storyboard
-                    </button>
-                  )}
-                  {scene.storyboard_status === 'pending_review' && (
-                    <button 
-                      onClick={() => handleAction('approve-storyboard', () => approveStoryboard(scene.id))}
-                      className="btn-primary"
-                      style={{ background: 'var(--accent-success)' }}
-                    >
-                      <Check size={18} />
-                      Approve Storyboard
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className={styles.contentBox}>
-                {scene.storyboard_text ? (
-                  <p style={{ color: '#cbd5e1', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{scene.storyboard_text}</p>
-                ) : (
-                  <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No storyboard content generated yet.</p>
-                )}
-              </div>
-            </div>
-
-            {/* 2. Planner Section (Visible if storyboard approved) */}
-            {scene.storyboard_status === 'approved' && (
-              <div className="glass-card" style={{ padding: '32px' }}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.cardTitleWrapper}>
-                    <Play size={20} color="var(--accent-primary)" />
-                    <h3 className={styles.cardTitle}>Execution Plan</h3>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    {scene.plan_status === 'missing' && (
-                      <button 
-                        onClick={() => handleAction('plan', () => planBeats(scene.id))}
-                        className="btn-primary"
-                      >
-                        <Wand2 size={18} />
-                        Design Beats
-                      </button>
-                    )}
-                    {scene.plan_status === 'pending_review' && (
-                      <button 
-                        onClick={() => handleAction('approve-plan', () => approvePlan(scene.id))}
-                        className="btn-primary"
-                        style={{ background: 'var(--accent-success)' }}
-                      >
-                        <Check size={18} />
-                        Approve Plan
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {scene.planner_output ? (
-                  <pre className={styles.pre}>
-                    {JSON.stringify(scene.planner_output, null, 2)}
-                  </pre>
-                ) : (
-                  <p style={{ color: 'var(--text-secondary)' }}>Waiting for Director approval...</p>
-                )}
-              </div>
-            )}
-
-            {/* 3. Audio Section (Visible if plan approved) */}
-            {scene.plan_status === 'approved' && (
-              <div className="glass-card" style={{ padding: '32px' }}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.cardTitleWrapper}>
-                    <Music size={20} color="var(--accent-primary)" />
-                    <h3 className={styles.cardTitle}>Voice & Audio</h3>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    {!scene.audio_url && (
-                      <button 
-                        onClick={() => handleAction('voice', async () => {
-                          const res = await sceneService.generateVoice(scene.id);
-                          return res;
-                        })}
-                        className="btn-primary"
-                      >
-                        <Music size={18} />
-                        Synthesize Voice
-                      </button>
-                    )}
-                    {scene.audio_url && scene.voice_script_status === 'pending_review' && (
-                      <button 
-                        onClick={() => handleAction('approve-voice', () => sceneService.approveVoiceScript(scene.id))}
-                        className="btn-primary"
-                        style={{ background: 'var(--accent-success)' }}
-                      >
-                        <Check size={18} />
-                        Approve Voice
-                      </button>
-                    )}
-                    {scene.voice_script_status === 'approved' && !scene.sync_segments && (
-                      <button 
-                        onClick={() => handleAction('sync', () => sceneService.syncTimeline(scene.id))}
-                        className="btn-primary"
-                      >
-                        <Activity size={18} />
-                        Sync Timeline
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {scene.audio_url && (
-                  <audio controls src={scene.audio_url} style={{ width: '100%', marginTop: '12px' }} />
-                )}
-                {scene.sync_segments && (
-                  <div style={{ marginTop: '20px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Timeline synced with {Object.keys(scene.sync_segments as object).length} segments.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 4. Builder Section (Visible if sync ok) */}
-            {scene.sync_segments && (
-              <div className={styles.contentColumn}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => { setActiveView('code'); setSelectedVersion(null); }}
-                      className={`${styles.tabButton} ${activeView === 'code' ? styles.tabButtonActive : ''}`}
-                      style={{ background: activeView === 'code' ? 'rgba(255,255,255,0.1)' : 'transparent', border: '1px solid var(--surface-border)' }}
-                    >
-                      <Code size={14} style={{ marginRight: '6px', display: 'inline' }} />
-                      Compiled Code
-                    </button>
-                    <button
-                      onClick={() => { setActiveView('dsl'); setSelectedVersion(null); }}
-                      className={`${styles.tabButton} ${activeView === 'dsl' ? styles.tabButtonActive : ''}`}
-                      style={{ background: activeView === 'dsl' ? 'rgba(255,255,255,0.1)' : 'transparent', border: '1px solid var(--surface-border)' }}
-                    >
-                      <Edit2 size={14} style={{ marginRight: '6px', display: 'inline' }} />
-                      Scene DSL (Editable)
-                    </button>
-                  </div>
-                  <div>
-                    {scene.review_loop_status === 'idle' && activeView === 'code' && (
-                      <button 
-                        onClick={() => handleAction('builder', () => sceneService.runReviewLoop(scene.id, { mode: 'hitl' }))}
-                        className="btn-primary"
-                        style={{ padding: '10px 24px' }}
-                      >
-                        Start Builder Agent
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {activeView === 'code' && (
-                  <>
-                    {selectedVersion && (
-                      <div className="glass-card" style={{ padding: '16px', background: 'rgba(59,130,246,0.1)', border: '1px solid #3b82f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div>
-                          <span style={{ fontWeight: 'bold', color: '#60a5fa' }}>Historical Preview: </span>
-                          <span>v{selectedVersion.version} ({selectedVersion.entity_type})</span>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: '12px' }}>Created by {selectedVersion.created_by}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            onClick={() => handleRollback(selectedVersion.entity_type, selectedVersion.version)}
-                            className="btn-primary"
-                            style={{ background: 'var(--accent-success)', padding: '6px 12px', fontSize: '0.85rem' }}
-                          >
-                            <RotateCcw size={14} style={{ marginRight: '4px' }} />
-                            Restore This Version
-                          </button>
-                          <button
-                            onClick={() => setSelectedVersion(null)}
-                            className="btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {selectedVersion ? (
-                      <CodePreview code={typeof selectedVersion.content === 'string' ? selectedVersion.content : JSON.stringify(selectedVersion.content, null, 2)} />
-                    ) : (
-                      scene.manim_code && <CodePreview code={scene.manim_code} />
-                    )}
-                  </>
-                )}
-
-                {activeView === 'dsl' && (
-                  <div className="glass-card" style={{ padding: '32px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                      <h4 style={{ margin: 0 }}>Edit Python Class DSL</h4>
-                      <button
-                        onClick={handleSaveDsl}
-                        disabled={isDslSaving}
-                        className="btn-primary"
-                        style={{ background: 'var(--accent-success)' }}
-                      >
-                        {isDslSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} style={{ marginRight: '8px' }} />}
-                        Save & Recompile
-                      </button>
-                    </div>
-                    <textarea
-                      value={dslCode}
-                      onChange={(e) => setDslCode(e.target.value)}
-                      className={styles.dslTextarea}
-                      placeholder="Write your Python DSL Class here..."
-                    />
-                    {dslError && (
-                      <div className={styles.errorMessage}>
-                        <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-                        <div>
-                          <strong>Compilation Error:</strong>
-                          <pre style={{ whiteSpace: 'pre-wrap', marginTop: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }}>{dslError}</pre>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Sidebar Area (Events & Logs + Versions) */}
-          <div className={styles.sidebarColumn}>
-            <div className={`glass ${styles.activityFeed}`} style={{ height: '600px' }}>
-              <div className={styles.tabsContainer}>
-                <button
-                  onClick={() => setSidebarTab('activity')}
-                  className={`${styles.tabButton} ${sidebarTab === 'activity' ? styles.tabButtonActive : ''}`}
-                >
-                  <Activity size={14} style={{ marginRight: '6px', display: 'inline' }} />
-                  Activity Logs
-                </button>
-                <button
-                  onClick={() => setSidebarTab('history')}
-                  className={`${styles.tabButton} ${sidebarTab === 'history' ? styles.tabButtonActive : ''}`}
-                >
-                  <History size={14} style={{ marginRight: '6px', display: 'inline' }} />
-                  Version History
-                </button>
-              </div>
-
-              {sidebarTab === 'activity' && (
-                <div className={styles.activityList}>
-                  {events.length === 0 ? (
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Waiting for agent events...</p>
-                  ) : (
-                    events.map((ev, i) => (
-                      <div key={i} className={styles.activityItem}>
-                        <span className={styles.activityTime}>
-                          {new Date(ev.ts || ev.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </span>
-                        <div>
-                          <div className={styles.activityPhase}>{ev.phase}</div>
-                          <div className={styles.activityMessage}>{ev.message}</div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {sidebarTab === 'history' && (
-                <div className={styles.activityList}>
-                  {versions.length === 0 ? (
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No version history recorded yet.</p>
-                  ) : (
-                    versions.map((ver, i) => (
-                      <div key={i} className={styles.versionItem}>
-                        <div className={styles.versionDetails}>
-                          <div className={styles.versionHeader}>
-                            <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>v{ver.version}</span>
-                            <span className={`${styles.versionBadge} ${styles['badge_' + ver.entity_type]}`}>
-                              {ver.entity_type}
-                            </span>
-                          </div>
-                          <div className={styles.versionMeta}>
-                            by {ver.created_by}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                            {new Date(ver.created_at).toLocaleString()}
-                          </div>
-                        </div>
-                        <div className={styles.versionActions}>
-                          <button
-                            title="Preview Version"
-                            onClick={() => {
-                              setSelectedVersion(ver);
-                              setActiveView('code');
-                            }}
-                            className={styles.actionButton}
-                          >
-                            <FileText size={16} />
-                          </button>
-                          <button
-                            title="Rollback to this version"
-                            onClick={() => handleRollback(ver.entity_type, ver.version)}
-                            className={styles.actionButton}
-                            style={{ color: 'var(--accent-primary)' }}
-                          >
-                            <RotateCcw size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* HITL Control Panel */}
-            {scene.review_loop_status === 'hitl_pending' && (
-              <div className={`glass ${styles.hitlPanel}`}>
-                <div className={styles.hitlHeader}>
-                  <AlertTriangle size={20} />
-                  <span>Human-In-The-Loop</span>
-                </div>
-                <p style={{ fontSize: '0.9rem', marginBottom: '16px', color: 'var(--text-secondary)' }}>
-                  AI is struggling to pass visual review. It needs your guidance or more rounds.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <button 
-                    onClick={() => handleAction('hitl-continue', () => sceneService.hitlAck(scene.id, { action: 'continue', extra_rounds: 3 }))}
-                    className="btn-primary" 
-                    style={{ background: 'var(--accent-primary)', width: '100%' }}
-                  >
-                    Give 3 more rounds
-                  </button>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                      onClick={() => handleAction('hitl-revert', () => sceneService.hitlAck(scene.id, { action: 'revert' }))}
-                      className="btn-primary" 
-                      style={{ background: 'transparent', border: '1px solid var(--surface-border)', flex: 1 }}
-                    >
-                      Revert
-                    </button>
-                    <button 
-                      onClick={() => handleAction('hitl-stop', () => sceneService.hitlAck(scene.id, { action: 'stop' }))}
-                      className="btn-primary" 
-                      style={{ background: '#ef4444', flex: 1 }}
-                    >
-                      Stop
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Header */}
+      <header className="editor-header">
+        <div>
+          <h1 className="editorial-heading editor-title">{project?.title || 'Loading...'}</h1>
+          <p className="editor-subtitle">{project?.description || 'Visualizing...'}</p>
         </div>
-      </main>
+        <div className="editor-actions">
+          <Button variant="secondary" onClick={() => setShowRaw(!showRaw)}>
+            <CodeBlock size={18} />
+            <span style={{ marginLeft: 8 }}>{showRaw ? 'Hide Raw' : 'Edit Raw'}</span>
+          </Button>
+          <Button variant="primary" onClick={handleRender} disabled={isRendering}>
+            <Play size={18} weight="fill" />
+            <span style={{ marginLeft: 8 }}>{isRendering ? 'Rendering...' : 'Render Full Video'}</span>
+          </Button>
+        </div>
+      </header>
+
+      {/* Stepper UI */}
+      <div className="stepper">
+        {steps.map((step, idx) => {
+          let statusClass = 'step-pending';
+          if (idx < currentStep) statusClass = 'step-completed';
+          else if (idx === currentStep) statusClass = 'step-active';
+
+          const isViewed = idx === selectedStepView;
+
+          return (
+            <div 
+              key={step.name} 
+              className={`step-item ${statusClass} ${isViewed ? 'step-viewed' : ''}`}
+              onClick={() => setSelectedStepView(idx)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="step-circle">
+                {idx < currentStep ? <Check size={12} weight="bold" /> : idx + 1}
+              </div>
+              <span className="step-label">{step.name}</span>
+              {idx < steps.length - 1 && <div className="step-line" />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Main Content Area */}
+      <div className="editor-content">
+        
+        {/* Left Col: Output & Interaction */}
+        <div className="editor-main-col stagger-1 animate-fade-in">
+          <Card padding="lg" className="output-card">
+            <div className="output-header">
+              <Badge color={isViewingCurrentStep && isGenerating ? 'blue' : (selectedStepView < currentStep ? 'green' : 'gray')}>
+                {isViewingCurrentStep && isGenerating 
+                  ? 'Generating...' 
+                  : (selectedStepView < currentStep ? 'Approved' : 'Pending Review')}
+              </Badge>
+              {!isViewingCurrentStep && (
+                <Button variant="ghost" size="sm" onClick={handleRollbackClick}>
+                  <ArrowUUpLeft size={16} /> Rollback to this stage
+                </Button>
+              )}
+            </div>
+            
+            {showRaw && isViewingCurrentStep ? (
+              <textarea 
+                className="raw-editor" 
+                value={activeDraftText} 
+                onChange={(e) => {
+                  setDraftContent(prev => {
+                    const copy = [...prev];
+                    copy[selectedStepView] = e.target.value;
+                    return copy;
+                  });
+                }}
+              />
+            ) : (
+              <div className="elegant-renderer">
+                <div style={{ whiteSpace: 'pre-wrap', fontFamily: selectedStepView === 3 ? 'var(--font-mono)' : 'inherit' }}>
+                  {activeDraftText || (isViewingCurrentStep && isGenerating ? '' : 'Waiting for AI...')}
+                  {isViewingCurrentStep && isGenerating && <span className="blinking-cursor">█</span>}
+                </div>
+              </div>
+            )}
+
+            {isViewingCurrentStep && !isAutoStep && (
+              <div className="action-bar">
+                <Button 
+                  variant="ghost" 
+                  className="reject-btn" 
+                  onClick={handleReject} 
+                  disabled={currentStep === 0 || isGenerating || !activeDraftText}
+                >
+                  <X size={18} weight="bold" /> Reject
+                </Button>
+                <Button 
+                  variant="primary" 
+                  className="approve-btn" 
+                  onClick={handleApprove} 
+                  disabled={isGenerating || !activeDraftText}
+                >
+                  <Check size={18} weight="bold" /> Approve
+                </Button>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Right Col: Video Preview */}
+        <div className="editor-side-col stagger-2 animate-fade-in">
+          <Card padding="none" className="preview-card">
+            {isRendering ? (
+              <div className="preview-placeholder">
+                <div className="spinner" />
+                <span>Generating Manim Animation...</span>
+              </div>
+            ) : videoRendered ? (
+              <video 
+                src="https://media.w3.org/2010/05/sintel/trailer_hd.mp4" 
+                controls 
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <div className="preview-placeholder" onClick={handleRender}>
+                <Play size={48} weight="thin" style={{ cursor: 'pointer' }} />
+                <span>Click "Render Full Video" to preview</span>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      <Dialog 
+        {...dialog} 
+        onConfirm={dialog.onConfirm || closeDialog} 
+        onCancel={closeDialog} 
+      />
     </div>
   );
 };
-
-export default SceneEditor;

@@ -1,37 +1,31 @@
-# Manim Agent Monorepo
+# Manim Agent
 
-Welcome to the Manim Agent project. This repository contains both the Backend AI Agent and the Frontend Dashboard.
+Manim Agent is now split into two independent services:
 
-## Project Structure
+- `backend/` — FastAPI, authentication, Supabase/Postgres persistence, durable HITL approvals, WebSocket gateway and Redis task dispatch.
+- `ai_core/` — Google LLM runtime, token streaming, safe Manim validation and rendering workers.
+- `shared/` — small Pydantic contracts only; it has no service or database logic.
 
-- `backend/`: Python FastAPI service, AI Orchestrator, and Celery Workers.
-- `frontend/`: React + TypeScript + Vite dashboard for managing projects and scenes.
+The Backend never imports LLM, Manim or worker code. AI Core never imports Backend code or has database credentials. They communicate with authenticated internal HTTP and Redis/Celery queues.
 
-## Quick Start
+## Start locally
 
-### 1. Backend (AI Agent)
-The backend manages the video production pipeline, from planning to rendering.
 ```bash
-cd backend
-make dev
+cp backend/.env.example backend/.backend.env
+cp ai_core/.env.example ai_core/.ai_core.env
+# fill Supabase values in backend/.backend.env and Google API keys in ai_core/.ai_core.env
+docker compose up --build
 ```
-See [backend/README.md](backend/README.md) for detailed setup.
 
-### 2. Frontend (Dashboard)
-The frontend provides a rich UI to control the Agent and visualize the rendering process.
+Backend is available at `http://localhost:8000/docs`; AI Core is private to Compose. Apply `backend/supabase/migrations/20260712000000_hitl_steps.sql` after the existing Supabase migrations.
+
+## Development
+
 ```bash
-cd frontend
-npm install
-npm run dev
+make install-be install-ai
+make dev-be       # terminal 1
+make dev-ai       # terminal 2
+make worker-ai    # terminal 3
 ```
-See [frontend/README.md](frontend/README.md) for detailed setup.
 
-## Development Workflow
-
-1. Start the backend API and workers.
-2. Start the frontend development server.
-3. Use the **Guest Login** button on the login page for quick local testing.
-4. Monitor Agent activity in real-time via the Scene Editor.
-
-## License
-MIT
+Read [architecture](docs/ARCHITECTURE.md) before changing boundaries, and use the [Frontend API reference](docs/FRONTEND_API.md) as the public API contract.

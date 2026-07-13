@@ -1,0 +1,38 @@
+/* Badge Styles */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px; /* Pill shape is allowed only for tags & status badges */
+  padding: 2px 8px;
+  font-size: 0.75rem; /* text-xs */
+  text-transform: uppercase;
+  letter-spacing: 0.05em; /* wide tracking */
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Pastels */
+.badge-red {
+  background-color: var(--color-pastel-red-bg);
+  color: var(--color-pastel-red-text);
+}
+
+.badge-blue {
+  background-color: var(--color-pastel-blue-bg);
+  color: var(--color-pastel-blue-text);
+}
+
+.badge-green {
+  background-color: var(--color-pastel-green-bg);
+  color: var(--color-pastel-green-text);
+}
+
+.badge-yellow {
+  background-color: var(--color-pastel-yellow-bg);
+  color: var(--color-pastel-yellow-text);
+}
+
+.badge-gray {
+  background-color: var(--color-border);
+  color: var(--color-text-secondary);
+}

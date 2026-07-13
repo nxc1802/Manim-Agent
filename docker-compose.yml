@@ -1,0 +1,73 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: backend/.env
+        required: true
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AI_CORE_URL: http://ai-core:8001
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - render_artifacts:/artifacts:ro
+
+  ai-core:
+    image: manim-ai-core
+    build:
+      context: .
+      dockerfile: ai_core/Dockerfile
+    expose:
+      - "8001"
+    env_file:
+      - path: ai_core/.env
+        required: true
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_INTERNAL_URL: http://backend:8000/internal
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  ai-worker:
+    image: manim-ai-core
+    build:
+      context: .
+      dockerfile: ai_core/Dockerfile
+    command: celery -A app.worker:celery_app worker --loglevel=INFO -Q ai,render
+    env_file:
+      - path: ai_core/.env
+        required: true
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_INTERNAL_URL: http://backend:8000/internal
+      ARTIFACTS_DIR: /artifacts
+    volumes:
+      - render_artifacts:/artifacts
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+volumes:
+  redis_data:
+  render_artifacts:

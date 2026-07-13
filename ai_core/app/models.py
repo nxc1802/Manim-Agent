@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import yaml
+
+from app.config import settings
+
+
+@dataclass(frozen=True)
+class AgentModel:
+    model: str
+    temperature: float
+    max_tokens: int
+
+
+@dataclass(frozen=True)
+class ModelTier:
+    """One model tier in the review-loop escalation chain."""
+    model: str
+    max_attempts: int
+
+
+def _load_yaml() -> dict[str, Any]:
+    return yaml.safe_load(settings.agent_models_path.read_text(encoding="utf-8")) or {}
+
+
+def load_agent_model(kind: str) -> AgentModel:
+    data = _load_yaml()
+    defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+    agents = data.get("agents") if isinstance(data.get("agents"), dict) else {}
+    config = agents.get(kind) if isinstance(agents.get(kind), dict) else {}
+    return AgentModel(
+        model=str(config.get("model") or settings.default_chat_model),
+        temperature=float(config.get("temperature", defaults.get("temperature", 0.3))),
+        max_tokens=int(config.get("max_tokens", defaults.get("max_tokens", 4096))),
+    )
+
+
+def load_review_loop_tiers() -> list[ModelTier]:
+    """Load model escalation tiers from ``agent_models.yaml``.
+
+    Falls back to hardcoded defaults if the YAML section is absent.
+    """
+    data = _load_yaml()
+    review_loop = data.get("review_loop")
+    if not isinstance(review_loop, dict):
+        return _default_tiers()
+    raw_tiers = review_loop.get("tiers")
+    if not isinstance(raw_tiers, list) or not raw_tiers:
+        return _default_tiers()
+    tiers: list[ModelTier] = []
+    for idx, item in enumerate(raw_tiers):
+        if not isinstance(item, dict):
+            continue
+        model = str(item.get("model") or settings.default_chat_model)
+        is_last = idx == len(raw_tiers) - 1
+        default_max = settings.review_loop_final_tier_max_attempts if is_last else 1
+        max_attempts = int(item.get("max_attempts", default_max))
+        tiers.append(ModelTier(model=model, max_attempts=max_attempts))
+    return tiers or _default_tiers()
+
+
+def _default_tiers() -> list[ModelTier]:
+    return [
+        ModelTier(model="gemma-4-31b-it", max_attempts=1),
+        ModelTier(model="gemini-3-flash-preview", max_attempts=1),
+        ModelTier(model="gemini-3.5-flash", max_attempts=settings.review_loop_final_tier_max_attempts),
+    ]

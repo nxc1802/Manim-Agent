@@ -1,151 +1,182 @@
-import { useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
-import ProjectCard from '../components/ProjectCard';
-import { Plus, Zap, Video, Clock, Activity, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { useProjectStore } from '../store/useProjectStore';
-import styles from './Dashboard.module.css';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Plus, Video, Code, Lightning, X } from '@phosphor-icons/react';
+import { Dialog } from '../components/ui/Dialog';
+import { api } from '../lib/api';
+import type { Project } from '../lib/api';
+import './Dashboard.css';
 
-const Dashboard = () => {
-  const { projects, stats, loading, fetchProjects, fetchStats } = useProjectStore();
+export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  
-  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectBrief, setNewProjectBrief] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [errorDialog, setErrorDialog] = useState<{ isOpen: boolean; message: string }>({ isOpen: false, message: '' });
 
   useEffect(() => {
-    fetchProjects(1, 6);
-    fetchStats();
-  }, [fetchProjects, fetchStats]);
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    try {
+      const data = await api.getProjects();
+      setProjects(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) return;
+
+    try {
+      const created = await api.createProject(newProjectName, newProjectBrief);
+      setProjects([created, ...projects]);
+      setIsModalOpen(false);
+      setNewProjectName('');
+      setNewProjectBrief('');
+      // Navigate to the newly created project Scene Editor
+      navigate(`/projects/${created.id}`);
+    } catch (e: any) {
+      console.error(e);
+      setErrorDialog({
+        isOpen: true,
+        message: e.message || 'Failed to create project. Please verify backend is running.'
+      });
+    }
+  };
 
   return (
-    <div className={styles.container}>
-      <Sidebar />
-      
-      <main className={styles.main}>
-        <header className={styles.header}>
-          <div>
-            <h1 className={styles.welcomeTitle}>Welcome back, <span className="glow-text">{userName}</span></h1>
-            <p className={styles.subtitle}>
-              You have <span className={styles.projectCount}>{projects.length} projects</span> in your workspace.
-            </p>
-          </div>
-          <button 
-            onClick={() => navigate('/projects')}
-            className="btn-primary" 
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 24px' }}
-          >
-            <Plus size={20} />
-            New Project
-          </button>
-        </header>
-
-        {/* Quick Stats */}
-        <section className={styles.statsGrid}>
-          <StatCard 
-            icon={<Video size={20} color="#0ea5e9" />} 
-            label="Total Projects" 
-            value={stats?.total_projects.toString() || '0'} 
-          />
-          <StatCard 
-            icon={<Zap size={20} color="#a855f7" />} 
-            label="AI Tokens Used" 
-            value={stats ? `${(stats.total_tokens_used / 1000).toFixed(1)}k` : '0'} 
-          />
-          <StatCard 
-            icon={<Clock size={20} color="#eab308" />} 
-            label="Render Time" 
-            value={stats ? `${stats.total_render_time_hours}h` : '0h'} 
-          />
-          <StatCard 
-            icon={<Activity size={20} color="#22c55e" />} 
-            label="Active Jobs" 
-            value={stats?.active_jobs.toString() || '0'} 
-          />
-        </section>
-
-        <div className={styles.contentGrid}>
-          {/* Recent Projects */}
-          <section>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Recent Projects</h2>
-              <span 
-                onClick={() => navigate('/projects')}
-                className={styles.viewAll}
-              >
-                View All
-              </span>
-            </div>
-            {loading ? (
-              <div className={styles.loaderContainer}>
-                <Loader2 className="spin" />
-              </div>
-            ) : (
-              <div className={styles.projectsGrid}>
-                {projects?.map(p => (
-                  <div key={p.id} onClick={() => navigate(`/projects`)} style={{ cursor: 'pointer' }}>
-                    <ProjectCard 
-                      title={p.title || 'Untitled Project'} 
-                      status={p.status ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : 'Unknown'} 
-                      date={p.created_at ? new Date(p.created_at).toLocaleDateString() : 'Unknown'} 
-                    />
-                  </div>
-                ))}
-                {(!projects || projects.length === 0) && (
-                  <p className={styles.emptyState}>No projects found. Create your first one!</p>
-                )}
-              </div>
-            )}
-          </section>
-
-          {/* Activity Feed */}
-          <section>
-            <h2 className={styles.sectionTitle} style={{ marginBottom: '24px' }}>Activity Feed</h2>
-            <div className={`glass ${styles.activityFeed}`} style={{ padding: '24px', borderRadius: '20px' }}>
-              <ActivityItem 
-                time="Just now" 
-                title="System Ready" 
-                desc="Connected via Supabase Realtime." 
-                type="success"
-              />
-              <ActivityItem 
-                time="Recent" 
-                title="Workspace Synced" 
-                desc="Fetched latest project statistics." 
-                type="info"
-              />
-            </div>
-          </section>
+    <div className="dashboard-page animate-fade-in">
+      <header className="dashboard-header">
+        <div>
+          <h1 className="editorial-heading dashboard-title">Projects</h1>
+          <p className="dashboard-subtitle">Manage your animation sequences</p>
         </div>
-      </main>
+        <Button onClick={() => setIsModalOpen(true)}>
+          <Plus size={16} weight="bold" />
+          <span style={{ marginLeft: 8 }}>New Project</span>
+        </Button>
+      </header>
+
+      <section className="stats-grid">
+        <Card className="stat-card stagger-1 animate-fade-in">
+          <div className="stat-icon"><Video size={24} weight="light" /></div>
+          <div className="stat-value">{projects.length}</div>
+          <div className="stat-label">Total Projects</div>
+        </Card>
+        <Card className="stat-card stagger-2 animate-fade-in">
+          <div className="stat-icon"><Lightning size={24} weight="light" /></div>
+          <div className="stat-value">84k</div>
+          <div className="stat-label">Tokens Used</div>
+        </Card>
+        <Card className="stat-card stagger-3 animate-fade-in">
+          <div className="stat-icon"><Code size={24} weight="light" /></div>
+          <div className="stat-value">4</div>
+          <div className="stat-label">Active Jobs</div>
+        </Card>
+      </section>
+
+      <section className="projects-section">
+        <h2 className="section-title">Recent Work</h2>
+        {loading ? (
+          <p>Loading projects...</p>
+        ) : (
+          <div className="bento-grid">
+            {projects.map((project, idx) => (
+              <Card 
+                key={project.id} 
+                interactive 
+                padding="lg" 
+                className={`project-card stagger-${(idx % 4) + 1} animate-fade-in`}
+                onClick={() => navigate(`/projects/${project.id}`)}
+              >
+                <div className="project-card-header">
+                  <h3>{project.title}</h3>
+                  <Badge color={project.status === 'generating' ? 'blue' : (project.status === 'completed' ? 'green' : 'gray')}>
+                    {project.status || 'Draft'}
+                  </Badge>
+                </div>
+                <p className="project-card-desc">
+                  {project.description || 'No storyboard brief provided yet.'}
+                </p>
+                <div className="project-card-meta">
+                  <span className="meta-text">{project.created_at || 'Recently updated'}</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* New Project Modal */}
+      {isModalOpen && ReactDOM.createPortal(
+        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-container animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Create New Project</h2>
+              <button className="modal-close-btn" onClick={() => setIsModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateProject}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label>Project Name</label>
+                  <input 
+                    type="text" 
+                    className="input-field" 
+                    placeholder="e.g. Calculus Intro Part 1" 
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Storyboard Text / Brief</label>
+                  <textarea 
+                    className="input-field" 
+                    rows={4}
+                    placeholder="Explain the concepts, shapes, or transitions you want the AI to generate..." 
+                    value={newProjectBrief}
+                    onChange={(e) => setNewProjectBrief(e.target.value)}
+                    style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary">
+                  Create Project
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      <Dialog
+        isOpen={errorDialog.isOpen}
+        title="Creation Error"
+        message={errorDialog.message}
+        onConfirm={() => setErrorDialog({ isOpen: false, message: '' })}
+        onCancel={() => setErrorDialog({ isOpen: false, message: '' })}
+        confirmText="OK"
+      />
     </div>
   );
 };
 
-const StatCard = ({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) => (
-  <div className={`glass-card ${styles.statCard}`}>
-    <div className={styles.statIconWrapper}>
-      {icon}
-    </div>
-    <div>
-      <div className={styles.statLabel}>{label}</div>
-      <div className={styles.statValue}>{value}</div>
-    </div>
-  </div>
-);
-
-const ActivityItem = ({ time, title, desc, type }: { time: string, title: string, desc: string, type: 'success' | 'info' | 'neutral' }) => (
-  <div className={styles.activityItem}>
-    <div className={`${styles.activityDot} ${type === 'success' ? styles.dotSuccess : type === 'info' ? styles.dotInfo : styles.dotNeutral}`} />
-    <div className={styles.activityContent}>
-      <div className={styles.activityHeader}>
-        <span className={styles.activityTitle}>{title}</span>
-        <span className={styles.activityTime}>{time}</span>
-      </div>
-      <p className={styles.activityDesc}>{desc}</p>
-    </div>
-  </div>
-);
-
-export default Dashboard;

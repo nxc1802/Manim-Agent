@@ -1,0 +1,43 @@
+defaults:
+  model: gemma-4-31b-it
+  temperature: 0.3
+  max_tokens: 4096
+
+agents:
+  director:
+    model: gemma-4-31b-it
+    temperature: 0.5
+    max_tokens: 2048
+  planner:
+    model: gemma-4-31b-it
+    temperature: 0.3
+    max_tokens: 6144
+  scene_designer:
+    model: gemma-4-31b-it
+    temperature: 0.2
+    max_tokens: 4096
+  builder:
+    model: gemini-3.5-flash
+    temperature: 0.1
+    max_tokens: 8192
+  # code_reviewer and visual_reviewer use the review_loop tiers below
+  # for model escalation.  These entries are only used if the step
+  # executor ever needs a "single-shot" model for the initial analysis.
+  code_reviewer:
+    model: gemma-4-31b-it
+    temperature: 0.1
+    max_tokens: 4096
+  visual_reviewer:
+    model: gemma-4-31b-it
+    temperature: 0.1
+    max_tokens: 4096
+
+# Model escalation tiers for review loops (code_reviewer & visual_reviewer)
+review_loop:
+  tiers:
+    - model: gemma-4-31b-it
+      max_attempts: 1
+    - model: gemini-3-flash-preview
+      max_attempts: 1
+    - model: gemini-3.5-flash
+      max_attempts: 3   # configurable N

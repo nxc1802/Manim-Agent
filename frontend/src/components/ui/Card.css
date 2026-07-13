@@ -1,0 +1,35 @@
+/* Card Styles */
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px; /* 8px or 12px max */
+  overflow: hidden;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* Interactive Card (Hover Lift) */
+.card-interactive {
+  cursor: pointer;
+}
+
+.card-interactive:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  /* Very subtle lift */
+}
+
+/* Paddings */
+.card-padding-none {
+  padding: 0;
+}
+
+.card-padding-sm {
+  padding: 16px;
+}
+
+.card-padding-md {
+  padding: 24px;
+}
+
+.card-padding-lg {
+  padding: 32px;
+}
