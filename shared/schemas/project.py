@@ -68,6 +68,7 @@ class Project(BaseModel):
     target_scenes: int | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     status: ProjectStatus = "draft"
+    video_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -75,5 +76,4 @@ class Project(BaseModel):
 class DashboardStats(BaseModel):
     total_projects: int
     active_jobs: int
-    total_tokens_used: int
     total_render_time_hours: float

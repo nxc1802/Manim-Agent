@@ -1,47 +1,52 @@
-# Tài liệu Chức năng Frontend (Manim Agent Studio)
+# Chức năng Frontend hiện tại
 
-Tài liệu này cung cấp cái nhìn tổng quan về các chức năng hiện có trên giao diện người dùng (Frontend) của ứng dụng Manim Agent. Thay vì đi sâu vào cấu trúc mã nguồn, tài liệu này tập trung vào trải nghiệm và các luồng thao tác của người dùng.
+Frontend là một React/Vite client mỏng. Mọi dữ liệu dự án, HITL, render job và URL video riêng tư đều đi qua Backend; trình duyệt chỉ dùng Supabase cho phiên đăng nhập khi chạy `VITE_AUTH_MODE=jwt`.
 
-## 1. Xác thực người dùng (Authentication)
-- **Đăng nhập / Đăng ký**: Giao diện kết nối trực tiếp với Supabase Auth. Người dùng bắt buộc phải đăng nhập để có thể truy cập vào không gian làm việc (Studio).
-- **Quản lý phiên (Session)**: Tự động lưu trữ và phục hồi phiên đăng nhập. Nút đăng xuất (Logout) được đặt trên thanh điều hướng (Top Nav).
+## Xác thực và chế độ phát triển
 
-## 2. Thanh điều hướng toàn cục (Top Navigation)
-- Thay thế hoàn toàn thanh trượt bên (Sidebar) cũ bằng một thanh điều hướng trên cùng (TopNav) mang phong cách Glassmorphism chuyên nghiệp, tối đa hóa không gian màn hình.
-- Chứa Logo dự án, liên kết truy cập nhanh về trang chủ Studio, nút Cài đặt (Settings), và thông tin/nút Đăng xuất.
+- JWT mode phục hồi Supabase session, gắn Bearer token cho REST và WebSocket, và tự chuyển về Login khi hết phiên.
+- `VITE_AUTH_MODE=off` cho phép chạy FE độc lập với Backend development `AUTH_MODE=off`; cấu hình Supabase giả không làm ứng dụng crash.
+- Route Dashboard, Scene Editor và Settings được lazy-load để giữ bundle khởi động nhỏ.
 
-## 3. Không gian làm việc chính (Studio Page)
-Trang tổng hợp toàn bộ các thông tin quan trọng nhất của người dùng, bao gồm:
-- **Bảng tóm tắt (Quick Stats)**: Hiển thị nhanh số lượng dự án, tổng số token AI đã tiêu thụ, tổng thời gian render video và số lượng công việc (Jobs) đang chạy.
-- **Quản lý dự án (Project Browser)**:
-  - Danh sách các dự án hiển thị dưới dạng thẻ (Cards).
-  - Thanh tìm kiếm thông minh giúp lọc dự án nhanh chóng.
-  - Chức năng **Tạo Dự Án Mới (New Project)** thông qua một Popup Modal, yêu cầu người dùng cung cấp Tên dự án và Kịch bản ban đầu (Storyboard).
-  - Click vào một dự án bất kỳ sẽ chuyển trực tiếp tới Scene Editor của dự án đó.
-- **Hàng đợi công việc (Active Jobs)**: Hiển thị trạng thái của các tiến trình chạy ngầm như Render Video hoặc Tạo Voice.
+## Dashboard
 
-## 4. Trình chỉnh sửa Kịch bản & Video (Scene Editor)
-Đây là trung tâm tương tác giữa người dùng và trí tuệ nhân tạo (AI) thông qua cơ chế **Human-in-the-Loop (HITL)**. Các chức năng cốt lõi:
+- Liệt kê, tạo và xóa các project thuộc user hiện tại.
+- Hiển thị tổng project, số render job đang chạy và tổng thời gian render do Backend tổng hợp.
+- Mọi lỗi hiển thị message cùng request ID do Backend trả về để tra log.
 
-- **Thanh Tiến độ (Stepper UI)**: 
-  - Mô tả trực quan 6 giai đoạn tạo video của AI: `Director` -> `Planner` -> `Scene Designer` -> `Manim Builder` -> `Code Reviewer` -> `Visual Reviewer`.
-  - Giúp người dùng biết chính xác AI đang ở bước nào (Đang xử lý, Chờ duyệt, hoặc Đã hoàn thành).
-- **Chế độ xem mượt mà & Đẹp mắt (Elegant Renderer)**:
-  - Các kết quả trả về của AI ở giai đoạn lên ý tưởng (như Kịch bản, Kế hoạch, Thiết kế bối cảnh) sẽ được hệ thống phân tích và hiển thị thành các đoạn văn, danh sách có cấu trúc đẹp mắt thay vì hiển thị dữ liệu JSON khô khan.
-- **Biên tập mã nguồn (Raw Data Editor)**: 
-  - Tích hợp trình soạn thảo chuyên nghiệp (Monaco Editor).
-  - Người dùng có thể nhấn nút Toggle ("Edit Raw JSON") để tự tay chỉnh sửa sâu vào các dữ liệu JSON hoặc can thiệp trực tiếp vào mã code Python (`manim_code`) sinh ra bởi AI.
-- **Tương tác Real-time (Streaming)**: Khi AI đang suy nghĩ và sinh kết quả (Generating), văn bản sẽ được "gõ" trực tiếp lên màn hình theo thời gian thực (typewriter effect) mang lại cảm giác phản hồi tức thì.
-- **Duyệt & Phản hồi (Approve / Reject)**: 
-  - Tại mỗi bước, người dùng có quyền **Lưu chỉnh sửa (Save)**, **Chấp thuận (Approve)** để AI đi tiếp, hoặc **Từ chối (Reject)** kèm theo lý do/phản hồi để AI làm lại bước đó.
-- **Khôi phục trạng thái (Rollback)**: 
-  - Bằng cách click vào một giai đoạn đã hoàn thành trên thanh Stepper, người dùng có thể xem lại nội dung cũ và nhấn nút **"Revert to this Stage"** để quay ngược thời gian, bắt AI làm lại từ giai đoạn đó (hủy bỏ toàn bộ các bước sau nó).
-- **Video Preview**: Một khu vực dành riêng để xem trước đoạn video sau khi đã render thành công dựa trên code Manim.
+## Scene Editor
 
-## 5. Trang Cài đặt (Settings Page)
-Nơi tinh chỉnh các cấu hình cá nhân và studio:
-- **Cấu hình Studio (Studio Defaults)**:
-  - Bật/Tắt tính năng Human-in-the-Loop (HITL). Nếu tắt, AI sẽ tự động chạy một mạch từ kịch bản ra video cuối cùng.
-  - Lựa chọn "Nhân vật AI" (AI Agent Persona) như: Giáo viên chuyên nghiệp, Người kể chuyện sáng tạo,... để điều chỉnh tông giọng sinh nội dung.
-  - Chọn giao diện Template cho video (ví dụ: Cinematic, Educational).
-- **Cấu hình chung (General)**: Quản lý giao diện Sáng/Tối và Ngôn ngữ hiển thị.
+Pipeline người dùng nhìn thấy có ba bước:
+
+1. **Idea Sketch** tạo bản phác thảo ý tưởng ngắn, được lưu thành step riêng và tự chuyển tiếp.
+2. **Storyboarder** dùng bản phác thảo để tạo danh sách scene ở cấp project.
+3. **Builder** tạo Manim code cho từng scene và chạy Code/Visual auto-review nội bộ.
+
+Sau khi Storyboard được duyệt, Backend tạo scene và dispatch các Builder song song. Mỗi tab scene giữ workspace riêng gồm run/step/revision, draft chưa lưu, reviewer history, generation status, render job/progress và video preview. Chuyển tab không dùng chung một ô state nên không mất draft và không hiển thị code/video của scene khác.
+
+Draft chưa lưu luôn gắn với đúng `run_id`/`step_id`. Nếu một Builder mới thay thế owner trong lúc người dùng đang sửa, FE giữ nguyên nội dung cũ trong vùng conflict có thể sao chép thay vì đưa nhầm nó vào step mới.
+
+Người dùng có thể:
+
+- xem output đã trình bày hoặc mở raw editor;
+- chỉnh draft đang `pending_review`, sau đó Approve (tự lưu đúng revision) hoặc Reject kèm feedback;
+- rollback một step đã duyệt về review; Master rollback hủy child run/scene phát sinh, Builder rollback xóa code/video đã duyệt trước khi mở lại draft;
+- retry/regenerate riêng một Builder;
+- render scene đã có code được duyệt;
+- ghép full project khi mọi scene đã có video;
+- chuyển preview giữa scene video và full-project video.
+
+Các patch của reviewer được hiển thị dưới dạng before/after. Runtime API context, repair-memory reset và Strategy Guard xuất hiện trong luồng review event/audit thay vì trở thành button hay endpoint công khai mới.
+
+## Real-time và phục hồi
+
+- Project WebSocket có heartbeat, bounded exponential reconnect và REST reconciliation sau mỗi lần mở lại.
+- Event được route bằng `scene_id`; render event không bị bỏ chỉ vì không chứa `step`.
+- Streaming delta được gom theo animation frame và tách theo project/scene.
+- Video local được tải qua authenticated API thành Blob URL; private Supabase object được Backend ký.
+- REST vẫn là source of truth nếu Pub/Sub/WebSocket bỏ lỡ event; khi reload/reconnect FE lấy cả active render jobs để nối lại polling.
+- Snapshot REST chậm được merge theo event version của từng scene/project, không được ghi đè state WebSocket mới hơn. Poll render tiếp tục với bounded backoff khi socket mất lâu dài và chỉ terminal event của job đang active mới được nhận.
+
+## Settings
+
+Settings lưu theme, language, HITL mode, agent persona và template. Language được gửi thành `source_language` khi tạo project; HITL/persona/template được đọc trước khi bắt đầu run mới; theme được áp dụng ngay khi app khởi động.

@@ -31,10 +31,10 @@ def update_settings(
     current = store.get_user_settings(user_id)
     if not current:
         current = UserSettings(user_id=user_id)
-    
+
     updated_data = current.model_dump()
     update_data = body.model_dump(exclude_unset=True)
     updated_data.update(update_data)
-    
+
     new_settings = UserSettings.model_validate(updated_data)
     return store.upsert_user_settings(new_settings)

@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.correlation import get_request_id
+from app.core.correlation import get_request_id_from_request
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def _error_payload(
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
-        rid = get_request_id()
+        rid = get_request_id_from_request(request)
         return JSONResponse(
             status_code=exc.status_code,
             content=_error_payload(
@@ -76,6 +76,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request_id=rid,
                 details=exc.details,
             ),
+            headers={"X-Request-ID": rid} if rid else None,
         )
 
     @app.exception_handler(StarletteHTTPException)
@@ -83,7 +84,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request,
         exc: StarletteHTTPException,
     ) -> JSONResponse:
-        rid = get_request_id()
+        rid = get_request_id_from_request(request)
         detail = exc.detail
         if isinstance(detail, str):
             message = detail
@@ -98,6 +99,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 message=message,
                 request_id=rid,
             ),
+            headers={"X-Request-ID": rid} if rid else None,
         )
 
     @app.exception_handler(RequestValidationError)
@@ -105,7 +107,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
-        rid = get_request_id()
+        rid = get_request_id_from_request(request)
         return JSONResponse(
             status_code=_VALIDATION_STATUS,
             content=_error_payload(
@@ -114,11 +116,12 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request_id=rid,
                 details=exc.errors(),
             ),
+            headers={"X-Request-ID": rid} if rid else None,
         )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        rid = get_request_id()
+        rid = get_request_id_from_request(request)
         logger.exception("Unhandled error (request_id=%s)", rid)
         if settings.app_env == "production":
             message = "Internal server error"
@@ -131,4 +134,5 @@ def register_exception_handlers(app: FastAPI) -> None:
                 message=message,
                 request_id=rid,
             ),
+            headers={"X-Request-ID": rid} if rid else None,
         )

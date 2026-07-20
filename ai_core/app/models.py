@@ -13,13 +13,16 @@ class AgentModel:
     model: str
     temperature: float
     max_tokens: int
+    reasoning_effort: str
 
 
 @dataclass(frozen=True)
 class ModelTier:
     """One model tier in the review-loop escalation chain."""
+
     model: str
     max_attempts: int
+    reasoning_effort: str = "none"
 
 
 def _load_yaml() -> dict[str, Any]:
@@ -35,6 +38,9 @@ def load_agent_model(kind: str) -> AgentModel:
         model=str(config.get("model") or settings.default_chat_model),
         temperature=float(config.get("temperature", defaults.get("temperature", 0.3))),
         max_tokens=int(config.get("max_tokens", defaults.get("max_tokens", 4096))),
+        reasoning_effort=str(
+            config.get("reasoning_effort", defaults.get("reasoning_effort", "none"))
+        ),
     )
 
 
@@ -58,13 +64,23 @@ def load_review_loop_tiers() -> list[ModelTier]:
         is_last = idx == len(raw_tiers) - 1
         default_max = settings.review_loop_final_tier_max_attempts if is_last else 1
         max_attempts = int(item.get("max_attempts", default_max))
-        tiers.append(ModelTier(model=model, max_attempts=max_attempts))
+        tiers.append(
+            ModelTier(
+                model=model,
+                max_attempts=max_attempts,
+                reasoning_effort=str(item.get("reasoning_effort", "none")),
+            )
+        )
     return tiers or _default_tiers()
 
 
 def _default_tiers() -> list[ModelTier]:
     return [
-        ModelTier(model="gemma-4-31b-it", max_attempts=1),
-        ModelTier(model="gemini-3-flash-preview", max_attempts=1),
-        ModelTier(model="gemini-3.5-flash", max_attempts=settings.review_loop_final_tier_max_attempts),
+        ModelTier(model="gemma-4-31b-it", max_attempts=1, reasoning_effort="none"),
+        ModelTier(model="gemini-3-flash-preview", max_attempts=1, reasoning_effort="low"),
+        ModelTier(
+            model="gemini-3.5-flash",
+            max_attempts=settings.review_loop_final_tier_max_attempts,
+            reasoning_effort="medium",
+        ),
     ]

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from shared.schemas.pagination import PaginatedResponse, PaginationParams
-from shared.schemas.project import DashboardStats, Project, ProjectCreate, ProjectUpdate
-from shared.schemas.scene import Scene, SceneCreate, StoryboardStatus
+from shared.schemas.project import DashboardStats, Project, ProjectCreate
+from shared.schemas.scene import Scene
 
 from app.api.access import project_readable_by_user
 from app.api.deps import ContentStore, get_content_store, get_request_user_id
@@ -14,7 +14,9 @@ from app.core.limiter import limiter
 router = APIRouter(tags=["projects"])
 
 
-@router.post("", response_model=Project, status_code=status.HTTP_201_CREATED, summary="Create project")
+@router.post(
+    "", response_model=Project, status_code=status.HTTP_201_CREATED, summary="Create project"
+)
 @limiter.limit("2/minute")
 def create_project(
     request: Request,
@@ -41,8 +43,13 @@ def list_projects(
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> PaginatedResponse[Project]:
     items, total = store.list_projects_for_user(user_id, limit=params.limit, offset=params.offset)
-    return PaginatedResponse(items=items, total=total, page=params.page, limit=params.limit, pages=(total + params.limit - 1) // params.limit)
-
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=params.page,
+        limit=params.limit,
+        pages=(total + params.limit - 1) // params.limit,
+    )
 
 @router.get("/stats", response_model=DashboardStats, summary="Get dashboard stats")
 def get_dashboard_stats(
@@ -59,20 +66,6 @@ def get_project(
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> Project:
     return project_readable_by_user(store, project_id, user_id)
-
-
-@router.patch("/{project_id}", response_model=Project, summary="Update project")
-def update_project(
-    project_id: UUID,
-    body: ProjectUpdate,
-    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-) -> Project:
-    project_readable_by_user(store, project_id, user_id)
-    updated = store.update_project(project_id, **body.model_dump(exclude_unset=True))
-    if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return updated
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete project")
@@ -93,23 +86,13 @@ def list_project_scenes(
     store: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> PaginatedResponse[Scene]:
     project_readable_by_user(store, project_id, user_id)
-    items, total = store.list_scenes_for_project(project_id, limit=params.limit, offset=params.offset)
-    return PaginatedResponse(items=items, total=total, page=params.page, limit=params.limit, pages=(total + params.limit - 1) // params.limit)
-
-
-@router.post("/{project_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED, summary="Create scene")
-@limiter.limit("10/minute")
-def create_scene(
-    project_id: UUID,
-    body: SceneCreate,
-    request: Request,
-    user_id: UUID = Depends(get_request_user_id),  # noqa: B008
-    store: ContentStore = Depends(get_content_store),  # noqa: B008
-) -> Scene:
-    project_readable_by_user(store, project_id, user_id)
-    storyboard_status: StoryboardStatus = "pending_review" if body.storyboard_text else "missing"
-    return store.create_scene(
-        scene_id=uuid4(), project_id=project_id, scene_order=body.scene_order,
-        storyboard_text=body.storyboard_text, voice_script=body.voice_script,
-        storyboard_status=storyboard_status,
+    items, total = store.list_scenes_for_project(
+        project_id, limit=params.limit, offset=params.offset
+    )
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=params.page,
+        limit=params.limit,
+        pages=(total + params.limit - 1) // params.limit,
     )

@@ -34,7 +34,9 @@ def get_request_user_id(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     secret = (settings.supabase_jwt_secret or "").strip()
     if not secret:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="JWT is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="JWT is not configured"
+        )
     try:
         return user_id_from_supabase_jwt(
             auth.credentials.strip(),
@@ -45,4 +47,10 @@ def get_request_user_id(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
-__all__ = ["ContentStore", "get_content_store", "get_hitl_store", "get_job_store", "get_request_user_id"]
+__all__ = [
+    "ContentStore",
+    "get_content_store",
+    "get_hitl_store",
+    "get_job_store",
+    "get_request_user_id",
+]

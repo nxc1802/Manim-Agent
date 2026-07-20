@@ -1,0 +1,39 @@
+# Curated from API mismatch failures observed in generated Manim scenes.
+# A replacement is surfaced only when its range matches the running Manim
+# version and runtime introspection confirms that the replacement exists.
+symbols:
+  ShowCreation:
+    alternatives:
+      - symbol: Create
+        min_version: "0.18.0"
+        max_version_exclusive: "0.20.0"
+        reason: "Manim Community renamed the legacy ShowCreation animation to Create."
+        example: "self.play(Create(mobject))"
+  Axes.get_graph:
+    alternatives:
+      - symbol: Axes.plot
+        min_version: "0.18.0"
+        max_version_exclusive: "0.20.0"
+        reason: "Axes.plot is the runtime-supported graph construction method."
+        example: "graph = axes.plot(lambda x: x**2, x_range=[-3, 3])"
+  NumberPlane.get_graph:
+    alternatives:
+      - symbol: NumberPlane.plot
+        min_version: "0.18.0"
+        max_version_exclusive: "0.20.0"
+        reason: "NumberPlane inherits the runtime-supported plot method."
+        example: "graph = plane.plot(lambda x: x**2, x_range=[-3, 3])"
+  TexMobject:
+    alternatives:
+      - symbol: MathTex
+        min_version: "0.18.0"
+        max_version_exclusive: "0.20.0"
+        reason: "MathTex is the Manim Community class for mathematical TeX."
+        example: "formula = MathTex(r\"x^2 + y^2 = 1\")"
+  TextMobject:
+    alternatives:
+      - symbol: Tex
+        min_version: "0.18.0"
+        max_version_exclusive: "0.20.0"
+        reason: "Tex is the Manim Community class for TeX-rendered text."
+        example: "label = Tex(r\"A label\")"

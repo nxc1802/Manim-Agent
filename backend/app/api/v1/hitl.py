@@ -10,8 +10,8 @@ from shared.schemas.hitl import (
     EditStepRequest,
     RejectStepRequest,
     StartAiRunRequest,
-    StartProjectRunRequest,
     StartAiRunResponse,
+    StartProjectRunRequest,
     StepTransitionResponse,
 )
 
@@ -20,6 +20,7 @@ from app.api.deps import ContentStore, get_content_store, get_hitl_store, get_re
 from app.services.ai_queue import AiQueue
 from app.services.hitl_service import HitlPipelineService
 from app.services.hitl_store import SupabaseHitlStore
+from app.services.pipeline_lock import pipeline_target_lock
 
 router = APIRouter(tags=["human-in-the-loop"])
 
@@ -28,7 +29,12 @@ def get_pipeline_service(
     hitl_store: SupabaseHitlStore = Depends(get_hitl_store),  # noqa: B008
     content: ContentStore = Depends(get_content_store),  # noqa: B008
 ) -> HitlPipelineService:
-    return HitlPipelineService(store=hitl_store, content=content, queue=AiQueue())
+    return HitlPipelineService(
+        store=hitl_store,
+        content=content,
+        queue=AiQueue(),
+        lock_factory=pipeline_target_lock,
+    )
 
 
 def _owned_run(store: SupabaseHitlStore, run_id: UUID, project_id: UUID, user_id: UUID) -> AiRun:
@@ -45,7 +51,11 @@ def _run_step(store: SupabaseHitlStore, run: AiRun, step_id: UUID) -> AgentStep:
     return step
 
 
-@router.post("/{project_id}/generate-scenes", response_model=StartAiRunResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{project_id}/generate-scenes",
+    response_model=StartAiRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def generate_scenes(
     project_id: UUID,
     body: StartProjectRunRequest,
@@ -63,7 +73,9 @@ def generate_scenes(
     return StartAiRunResponse(run=run, first_step=first_step)
 
 
-@router.post("/{project_id}/ai-runs", response_model=StartAiRunResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{project_id}/ai-runs", response_model=StartAiRunResponse, status_code=status.HTTP_202_ACCEPTED
+)
 def start_ai_run(
     project_id: UUID,
     body: StartAiRunRequest,
@@ -100,10 +112,11 @@ def list_ai_steps(
     user_id: UUID = Depends(get_request_user_id),  # noqa: B008
     content: ContentStore = Depends(get_content_store),  # noqa: B008
     store: SupabaseHitlStore = Depends(get_hitl_store),  # noqa: B008
+    service: HitlPipelineService = Depends(get_pipeline_service),  # noqa: B008
 ) -> list[AgentStep]:
     project_readable_by_user(content, project_id, user_id)
     run = _owned_run(store, run_id, project_id, user_id)
-    return store.list_steps(run.id)
+    return [service.expire_stale_generation(run=run, step=step) for step in store.list_steps(run.id)]
 
 
 @router.patch("/{project_id}/ai-runs/{run_id}/steps/{step_id}", response_model=AgentStep)
@@ -120,10 +133,14 @@ def edit_ai_step(
     project_readable_by_user(content, project_id, user_id)
     run = _owned_run(store, run_id, project_id, user_id)
     step = _run_step(store, run, step_id)
-    return service.edit(run=run, step=step, expected_revision=body.expected_revision, draft_output=body.draft_output)
+    return service.edit(
+        run=run, step=step, expected_revision=body.expected_revision, draft_output=body.draft_output
+    )
 
 
-@router.post("/{project_id}/ai-runs/{run_id}/steps/{step_id}/approve", response_model=StepTransitionResponse)
+@router.post(
+    "/{project_id}/ai-runs/{run_id}/steps/{step_id}/approve", response_model=StepTransitionResponse
+)
 def approve_ai_step(
     project_id: UUID,
     run_id: UUID,
@@ -143,7 +160,9 @@ def approve_ai_step(
     return StepTransitionResponse(step=approved, next_step=next_step)
 
 
-@router.post("/{project_id}/ai-runs/{run_id}/steps/{step_id}/reject", response_model=StepTransitionResponse)
+@router.post(
+    "/{project_id}/ai-runs/{run_id}/steps/{step_id}/reject", response_model=StepTransitionResponse
+)
 def reject_ai_step(
     project_id: UUID,
     run_id: UUID,
@@ -157,7 +176,9 @@ def reject_ai_step(
     project_readable_by_user(content, project_id, user_id)
     run = _owned_run(store, run_id, project_id, user_id)
     step = _run_step(store, run, step_id)
-    rejected, retry = service.reject(run=run, step=step, expected_revision=body.expected_revision, feedback=body.feedback)
+    rejected, retry = service.reject(
+        run=run, step=step, expected_revision=body.expected_revision, feedback=body.feedback
+    )
     return StepTransitionResponse(step=rejected, next_step=retry)
 
 
@@ -172,13 +193,17 @@ def rollback_ai_run(
     service: HitlPipelineService = Depends(get_pipeline_service),  # noqa: B008
 ) -> dict:
     from shared.schemas.hitl import RollbackRequest
+
     try:
         req = RollbackRequest.model_validate(body)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
     project_readable_by_user(content, project_id, user_id)
     run = _owned_run(store, run_id, project_id, user_id)
-    
+
     updated_run, target_step = service.rollback(run=run, target_step_id=req.target_step_id)
-    return {"run": updated_run.model_dump(mode="json"), "target_step": target_step.model_dump(mode="json")}
+    return {
+        "run": updated_run.model_dump(mode="json"),
+        "target_step": target_step.model_dump(mode="json"),
+    }

@@ -1,215 +1,135 @@
 #!/usr/bin/env python3
-"""Integration test: end-to-end AI pipeline with hitl_enabled=False (auto-pass all).
+"""Manual no-HITL smoke for the current Master -> Builder pipeline.
+
+This script intentionally is not collected by pytest because it spends real
+provider quota. It requires Backend, Redis, AI worker and Supabase to be ready.
 
 Usage:
-    PYTHONPATH=.:.. python tests/test_integration_e2e.py
-
-Requires: Backend running at localhost:8000, AI Core + Worker running.
+    BACKEND_URL=http://localhost:8000 backend/.venv/bin/python \
+      backend/tests/test_integration_e2e.py
 """
+
 from __future__ import annotations
 
-import json
 import os
-import sys
 import time
-from uuid import UUID
+from typing import Any
 
 import httpx
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-TIMEOUT = 600  # 10 minutes max for full pipeline
-POLL_INTERVAL = 5  # seconds between polls
+TIMEOUT_SECONDS = int(os.getenv("E2E_TIMEOUT_SECONDS", "900"))
+POLL_INTERVAL_SECONDS = float(os.getenv("E2E_POLL_INTERVAL_SECONDS", "3"))
 
-client = httpx.Client(base_url=BACKEND_URL, timeout=60.0)
-
-
-def log(msg: str) -> None:
-    ts = time.strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+headers: dict[str, str] = {}
+if token := os.getenv("BACKEND_TOKEN"):
+    headers["Authorization"] = f"Bearer {token}"
+client = httpx.Client(base_url=BACKEND_URL, headers=headers, timeout=60.0)
 
 
-def create_project(title: str, description: str) -> dict:
-    r = client.post("/v1/projects", json={"title": title, "description": description})
-    r.raise_for_status()
-    project = r.json()
-    log(f"✅ Project created: {project['id']}")
-    return project
+def log(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
-def create_scene(project_id: str) -> dict:
-    r = client.post(f"/v1/projects/{project_id}/scenes", json={"scene_order": 0})
-    r.raise_for_status()
-    scene = r.json()
-    log(f"✅ Scene created: {scene['id']}")
-    return scene
+def get_runs(project_id: str) -> list[dict[str, Any]]:
+    response = client.get(f"/v1/projects/{project_id}/ai-runs")
+    response.raise_for_status()
+    return list(response.json())
 
 
-def start_ai_run(project_id: str, scene_id: str, hitl_enabled: bool = False) -> dict:
-    r = client.post(
-        f"/v1/projects/{project_id}/ai-runs",
-        json={"scene_id": scene_id, "hitl_enabled": hitl_enabled},
-    )
-    r.raise_for_status()
-    data = r.json()
-    log(f"✅ AI Run started: {data['run']['id']} (hitl_enabled={hitl_enabled})")
-    log(f"   First step: {data['first_step']['kind']} ({data['first_step']['id']})")
-    return data
+def get_steps(project_id: str, run_id: str) -> list[dict[str, Any]]:
+    response = client.get(f"/v1/projects/{project_id}/ai-runs/{run_id}/steps")
+    response.raise_for_status()
+    return list(response.json())
 
 
-def poll_run_completion(project_id: str, run_id: str) -> list[dict]:
-    """Poll until run is completed or failed."""
-    start_time = time.time()
-    last_status = ""
-    last_step_count = 0
+def get_scenes(project_id: str) -> list[dict[str, Any]]:
+    response = client.get(f"/v1/projects/{project_id}/scenes?page=1&limit=100")
+    response.raise_for_status()
+    payload = response.json()
+    return list(payload.get("items", payload))
 
-    while time.time() - start_time < TIMEOUT:
-        # Get run status
-        r = client.get(f"/v1/projects/{project_id}/ai-runs")
-        r.raise_for_status()
-        runs = r.json()
-        run = next((run for run in runs if run["id"] == run_id), None)
+
+def wait_for_run(project_id: str, run_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    last_status: str | None = None
+    while time.monotonic() < deadline:
+        run = next((item for item in get_runs(project_id) if item["id"] == run_id), None)
         if run is None:
-            log("❌ Run not found!")
-            sys.exit(1)
-
-        # Get steps
-        r2 = client.get(f"/v1/projects/{project_id}/ai-runs/{run_id}/steps")
-        r2.raise_for_status()
-        steps = r2.json()
-
-        current_status = run["status"]
-        if current_status != last_status or len(steps) != last_step_count:
-            last_status = current_status
-            last_step_count = len(steps)
-            log(f"📊 Run status: {current_status} | Steps: {len(steps)}")
-            for step in steps:
-                status_icon = {
-                    "queued": "⏳", "generating": "🔄", "pending_review": "👀",
-                    "approved": "✅", "rejected": "❌", "failed": "💥",
-                }.get(step["status"], "❓")
-                extra = ""
-                if step.get("draft_output"):
-                    output = step["draft_output"]
-                    if "manim_code" in output:
-                        extra = f" (code: {len(output['manim_code'])} chars)"
-                    elif "passed" in output:
-                        extra = f" (passed={output['passed']}, attempts={output.get('total_attempts', '?')})"
-                    elif "storyboard" in output:
-                        extra = f" (storyboard: {len(output['storyboard'])} chars)"
-                    elif "text" in output:
-                        extra = f" (text: {len(output['text'])} chars)"
-                log(f"   {status_icon} [{step['sequence']}] {step['kind']}: {step['status']}{extra}")
-
-        if current_status == "completed":
-            log("🎉 Pipeline completed successfully!")
-            return steps
-        if current_status == "failed":
-            log("💥 Pipeline FAILED!")
-            # Print error details
-            for step in steps:
-                if step.get("error"):
-                    log(f"   Error in {step['kind']}: {step['error'][:500]}")
-            return steps
-
-        time.sleep(POLL_INTERVAL)
-
-    log(f"⏰ Timeout after {TIMEOUT}s!")
-    return []
+            raise RuntimeError(f"Run {run_id} disappeared")
+        if run["status"] != last_status:
+            last_status = str(run["status"])
+            log(f"Run {run_id}: {last_status}")
+        if run["status"] == "completed":
+            return run
+        if run["status"] in {"failed", "cancelled"}:
+            errors = [step.get("error") for step in get_steps(project_id, run_id) if step.get("error")]
+            raise RuntimeError(f"Run {run_id} ended as {run['status']}: {errors}")
+        time.sleep(POLL_INTERVAL_SECONDS)
+    raise TimeoutError(f"Timed out waiting for run {run_id}")
 
 
-def print_results(project: dict, scene_id: str, steps: list[dict]) -> None:
-    log("\n" + "=" * 70)
-    log("PIPELINE RESULTS")
-    log("=" * 70)
-
-    # Get scene to see final manim_code
-    r = client.get(f"/v1/scenes/{scene_id}")
-    scene = r.json() if r.status_code == 200 else {}
-
-    log(f"\n📋 Project: {project['title']}")
-    log(f"   Description: {project.get('description', 'N/A')}")
-    log(f"   Total steps: {len(steps)}")
-    log(f"   Step kinds: {[s['kind'] for s in steps]}")
-
-    for step in steps:
-        log(f"\n--- Step [{step['sequence']}] {step['kind']} ({step['status']}) ---")
-        output = step.get("final_output") or step.get("draft_output") or {}
-
-        if step["kind"] == "director":
-            storyboard = output.get("storyboard", output.get("text", "N/A"))
-            log(f"   Storyboard ({len(storyboard)} chars):")
-            for line in storyboard[:500].splitlines()[:10]:
-                log(f"   | {line}")
-            if len(storyboard) > 500:
-                log(f"   | ... ({len(storyboard) - 500} more chars)")
-
-        elif step["kind"] in ("planner", "scene_designer"):
-            text = output.get("text", str(output)[:500])
-            log(f"   Plan/Design ({len(text)} chars):")
-            for line in text[:400].splitlines()[:8]:
-                log(f"   | {line}")
-
-        elif step["kind"] == "builder":
-            code = output.get("manim_code", "N/A")
-            log(f"   Manim code ({len(code)} chars):")
-            for line in code[:600].splitlines()[:15]:
-                log(f"   | {line}")
-
-        elif step["kind"] in ("code_reviewer", "visual_reviewer"):
-            passed = output.get("passed", "N/A")
-            attempts = output.get("total_attempts", "N/A")
-            iterations = output.get("iterations", [])
-            final_err = output.get("final_error")
-            log(f"   Passed: {passed}")
-            log(f"   Total attempts: {attempts}")
-            log(f"   Iterations: {len(iterations)}")
-            for it in iterations:
-                log(f"     [{it.get('iteration')}] model={it.get('model')} escalated={it.get('escalated')} same_error={it.get('same_error')}")
-                if it.get("error_summary"):
-                    log(f"         error: {it['error_summary'][:200]}")
-                if it.get("fix_applied"):
-                    log(f"         fix: {it['fix_applied'][:200]}")
-            if final_err:
-                log(f"   Final error: {final_err[:300]}")
-
-    log(f"\n📝 Final scene manim_code ({len(scene.get('manim_code', '') or '')} chars)")
-    if scene.get("manim_code"):
-        log("   --- Code ---")
-        for line in scene["manim_code"].splitlines():
-            log(f"   | {line}")
-        log("   --- End ---")
-
-    log("\n" + "=" * 70)
+def wait_for_scene_runs(project_id: str, scene_ids: set[str]) -> list[dict[str, Any]]:
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        runs = get_runs(project_id)
+        latest_by_scene: dict[str, dict[str, Any]] = {}
+        for run in reversed(runs):
+            scene_id = run.get("scene_id")
+            if scene_id in scene_ids:
+                latest_by_scene[scene_id] = run
+        if scene_ids.issubset(latest_by_scene):
+            return [wait_for_run(project_id, latest_by_scene[scene_id]["id"]) for scene_id in scene_ids]
+        time.sleep(POLL_INTERVAL_SECONDS)
+    raise TimeoutError("Timed out waiting for auto-dispatched Builder runs")
 
 
 def main() -> None:
-    prompt = "Detailed explanation of derivatives, antiderivatives, integrals."
-    log(f"🚀 Starting integration test with prompt: '{prompt}'")
-    log(f"   Backend: {BACKEND_URL}")
-
-    # 1. Create project
-    project = create_project(
-        title="Calculus Fundamentals",
-        description=prompt,
+    prompt = "Explain the derivative as slope with two short visual scenes."
+    response = client.post(
+        "/v1/projects",
+        json={"title": "No-HITL Runtime Smoke", "description": prompt, "source_language": "en"},
     )
+    response.raise_for_status()
+    project = response.json()
+    project_id = project["id"]
+    log(f"Created project {project_id}")
 
-    # 2. Create scene
-    scene = create_scene(project["id"])
+    response = client.post(
+        f"/v1/projects/{project_id}/generate-scenes",
+        json={"prompt": prompt, "hitl_enabled": False},
+    )
+    response.raise_for_status()
+    master = response.json()["run"]
+    wait_for_run(project_id, master["id"])
 
-    # 3. Start AI run with hitl_enabled=False (auto-pass everything)
-    run_data = start_ai_run(project["id"], scene["id"], hitl_enabled=False)
-    run_id = run_data["run"]["id"]
+    scenes = get_scenes(project_id)
+    if not scenes or any(int(scene["scene_order"]) < 1 for scene in scenes):
+        raise AssertionError("Master did not persist a non-empty 1-based storyboard")
+    child_runs = wait_for_scene_runs(project_id, {scene["id"] for scene in scenes})
 
-    # 4. Poll until completion
-    log("\n⏳ Waiting for pipeline to complete...")
-    steps = poll_run_completion(project["id"], run_id)
+    refreshed_scenes = get_scenes(project_id)
+    if any(
+        scene.get("generation_status") != "completed" or not scene.get("manim_code")
+        for scene in refreshed_scenes
+    ):
+        raise AssertionError("At least one Builder did not persist approved Manim code")
 
-    # 5. Print results
-    if steps:
-        print_results(project, scene["id"], steps)
-    else:
-        log("❌ No steps returned!")
-        sys.exit(1)
+    for run in child_runs:
+        builder = next(step for step in get_steps(project_id, run["id"]) if step["kind"] == "builder")
+        output = builder.get("final_output") or builder.get("draft_output") or {}
+        review = output.get("auto_review") or {}
+        if not (
+            review.get("passed") is True
+            and (review.get("code") or {}).get("passed") is True
+            and (review.get("visual") or {}).get("passed") is True
+        ):
+            raise AssertionError(f"Builder {builder['id']} lacks a fully passing auto-review")
+
+    log(
+        f"PASS: Master + {len(child_runs)} auto-dispatched Builder run(s); "
+        "code and visual review both passed"
+    )
 
 
 if __name__ == "__main__":

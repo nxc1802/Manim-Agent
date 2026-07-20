@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 AgentStepKind = Literal[
+    "idea_sketcher",
     "storyboarder",
     "builder",
     "code_reviewer",
@@ -65,7 +66,7 @@ class StartAiRunRequest(BaseModel):
     hitl_enabled: bool = Field(
         default=True,
         description="When False, all steps auto-approve (testing mode). "
-                    "When True, storyboarder requires human review.",
+                    "When True, storyboarder requires human review; idea sketching auto-advances.",
     )
 
 
@@ -125,25 +126,6 @@ class InternalStepFailRequest(BaseModel):
     error: str = Field(min_length=1, max_length=4_000)
 
 
-class ChatMessage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    role: Literal["system", "user", "assistant"]
-    content: str = Field(min_length=1, max_length=40_000)
-
-
-class ChatRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    messages: list[ChatMessage] = Field(min_length=1, max_length=50)
-    model: str | None = Field(default=None, max_length=200)
-
-
-class ChatResponse(BaseModel):
-    text: str
-    model: str
-
-
 # ---------------------------------------------------------------------------
 # Review-loop result models (used by code_reviewer & visual_reviewer)
 # ---------------------------------------------------------------------------
@@ -155,8 +137,17 @@ class ReviewIterationRecord(BaseModel):
     model: str
     error_summary: str | None = None
     fix_applied: str | None = None
+    original_code: str | None = None
+    replacement_code: str | None = None
     same_error: bool = False
     escalated: bool = False
+    error_fingerprint: str | None = None
+    strategy_fingerprint: str | None = None
+    strategy_guard_triggered: bool = False
+    strategy_guard_reason: str | None = None
+    repair_history_count: int = 0
+    runtime_api_context: dict[str, Any] | None = None
+    outcome: str | None = None
 
 
 class ReviewLoopResult(BaseModel):

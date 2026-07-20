@@ -28,3 +28,12 @@ def configure_redis(client: Redis | None) -> None:
     """Test hook: set a custom client (e.g. `fakeredis`) or reset to lazy default."""
     global _client
     _client = client
+
+
+def close_redis() -> None:
+    """Close and reset the process-wide sync Redis pool during app shutdown."""
+    global _client
+    client = _client
+    _client = None
+    if client is not None:
+        client.close()

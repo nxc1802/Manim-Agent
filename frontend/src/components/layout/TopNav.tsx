@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SignOut, Gear, Aperture } from '@phosphor-icons/react';
 import { Button } from '../ui/Button';
+import { isAuthDisabled, supabase } from '../../lib/supabase';
 import './TopNav.css';
 
 export const TopNav: React.FC = () => {
@@ -20,10 +21,12 @@ export const TopNav: React.FC = () => {
             <Gear size={20} weight="fill" />
             <span style={{ marginLeft: 8 }}>Settings</span>
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => console.log('Logout')}>
-            <SignOut size={20} weight="fill" />
-            <span style={{ marginLeft: 8 }}>Logout</span>
-          </Button>
+          {!isAuthDisabled && (
+            <Button variant="ghost" size="sm" onClick={() => void supabase.auth.signOut()}>
+              <SignOut size={20} weight="fill" />
+              <span style={{ marginLeft: 8 }}>Logout</span>
+            </Button>
+          )}
         </div>
       </div>
     </nav>

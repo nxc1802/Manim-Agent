@@ -7,9 +7,10 @@ from uuid import UUID
 
 from app.core.config import settings
 from app.db.base import ContentStore
-from redis import Redis
+from redis import Redis, WatchError
 from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, StoryboardStatus
+from shared.schemas.user import UserSettings
 
 
 def _project_key(project_id: UUID) -> str:
@@ -18,6 +19,10 @@ def _project_key(project_id: UUID) -> str:
 
 def _scene_key(scene_id: UUID) -> str:
     return f"{settings.redis_prefix}:scene:{scene_id}"
+
+
+def _user_settings_key(user_id: UUID) -> str:
+    return f"{settings.redis_prefix}:user_settings:{user_id}"
 
 
 class RedisContentStore(ContentStore):
@@ -43,11 +48,13 @@ class RedisContentStore(ContentStore):
         raw = self._redis.get(_project_key(project_id))
         return Project.model_validate(json.loads(cast(str, raw))) if raw else None
 
-    def list_projects_for_user(self, user_id: UUID, *, limit: int, offset: int) -> tuple[list[Project], int]:
+    def list_projects_for_user(
+        self, user_id: UUID, *, limit: int, offset: int
+    ) -> tuple[list[Project], int]:
         ids = sorted(cast(set[str], self._redis.smembers(self._user_projects_key(user_id))))
-        items = [self.get_project(UUID(value)) for value in ids[offset : offset + limit]]
+        items = [self.get_project(UUID(value)) for value in ids]
         projects = sorted((item for item in items if item), key=lambda item: item.created_at, reverse=True)
-        return projects, len(ids)
+        return projects[offset : offset + limit], len(projects)
 
     def create_project(
         self,
@@ -63,9 +70,16 @@ class RedisContentStore(ContentStore):
     ) -> Project:
         now = datetime.now(tz=UTC)
         project = Project(
-            id=project_id, user_id=user_id, title=title, description=description,
-            source_language=source_language, target_scenes=target_scenes, status=status,
-            config=config or {}, created_at=now, updated_at=now,
+            id=project_id,
+            user_id=user_id,
+            title=title,
+            description=description,
+            source_language=source_language,
+            target_scenes=target_scenes,
+            status=status,
+            config=config or {},
+            created_at=now,
+            updated_at=now,
         )
         self._save_project(project)
         return project
@@ -78,21 +92,60 @@ class RedisContentStore(ContentStore):
         self._save_project(updated)
         return updated
 
+    def update_project_if_current(
+        self, project_id: UUID, *, expected_updated_at: datetime, **fields: Any
+    ) -> Project | None:
+        key = _project_key(project_id)
+        for _attempt in range(3):
+            try:
+                with self._redis.pipeline(transaction=True) as pipe:
+                    pipe.watch(key)
+                    raw = pipe.get(key)
+                    if not raw:
+                        pipe.unwatch()
+                        return None
+                    current = Project.model_validate(json.loads(cast(str, raw)))
+                    if current.updated_at != expected_updated_at:
+                        pipe.unwatch()
+                        return None
+                    updated = current.model_copy(
+                        update={**fields, "updated_at": datetime.now(tz=UTC)}
+                    )
+                    pipe.multi()
+                    pipe.set(key, json.dumps(updated.model_dump(mode="json")))
+                    pipe.execute()
+                    return updated
+            except WatchError:
+                continue
+        return None
+
     def delete_project(self, project_id: UUID) -> None:
         project = self.get_project(project_id)
         if project:
-            self._redis.delete(_project_key(project_id), self._project_scenes_key(project_id))
+            scene_ids = cast(
+                list[str], self._redis.lrange(self._project_scenes_key(project_id), 0, -1)
+            )
+            keys = [_project_key(project_id), self._project_scenes_key(project_id)]
+            keys.extend(_scene_key(UUID(scene_id)) for scene_id in scene_ids)
+            self._redis.delete(*keys)
             self._redis.srem(self._user_projects_key(project.user_id), str(project_id))
 
     def get_scene(self, scene_id: UUID) -> Scene | None:
         raw = self._redis.get(_scene_key(scene_id))
         return Scene.model_validate(json.loads(cast(str, raw))) if raw else None
 
-    def list_scenes_for_project(self, project_id: UUID, *, limit: int, offset: int) -> tuple[list[Scene], int]:
+    def list_scenes_for_project(
+        self, project_id: UUID, *, limit: int, offset: int
+    ) -> tuple[list[Scene], int]:
         ids = cast(list[str], self._redis.lrange(self._project_scenes_key(project_id), 0, -1))
-        items = [self.get_scene(UUID(value)) for value in ids[offset : offset + limit]]
+        items = [self.get_scene(UUID(value)) for value in ids]
         scenes = sorted((item for item in items if item), key=lambda item: item.scene_order)
-        return scenes, len(ids)
+        return scenes[offset : offset + limit], len(scenes)
+
+    def get_project_scenes(self, project_id: UUID) -> list[Scene]:
+        ids = cast(list[str], self._redis.lrange(self._project_scenes_key(project_id), 0, -1))
+        items = [self.get_scene(UUID(value)) for value in ids]
+        return sorted((item for item in items if item), key=lambda item: item.scene_order)
 
     def create_scene(
         self,
@@ -106,9 +159,14 @@ class RedisContentStore(ContentStore):
     ) -> Scene:
         now = datetime.now(tz=UTC)
         scene = Scene(
-            id=scene_id, project_id=project_id, scene_order=scene_order,
-            storyboard_text=storyboard_text, voice_script=voice_script,
-            storyboard_status=storyboard_status, created_at=now, updated_at=now,
+            id=scene_id,
+            project_id=project_id,
+            scene_order=scene_order,
+            storyboard_text=storyboard_text,
+            voice_script=voice_script,
+            storyboard_status=storyboard_status,
+            created_at=now,
+            updated_at=now,
         )
         self._save_scene(scene)
         self._redis.rpush(self._project_scenes_key(project_id), str(scene.id))
@@ -122,6 +180,33 @@ class RedisContentStore(ContentStore):
         self._save_scene(updated)
         return updated
 
+    def update_scene_if_current(
+        self, scene_id: UUID, *, expected_updated_at: datetime, **fields: Any
+    ) -> Scene | None:
+        key = _scene_key(scene_id)
+        for _attempt in range(3):
+            try:
+                with self._redis.pipeline(transaction=True) as pipe:
+                    pipe.watch(key)
+                    raw = pipe.get(key)
+                    if not raw:
+                        pipe.unwatch()
+                        return None
+                    current = Scene.model_validate(json.loads(cast(str, raw)))
+                    if current.updated_at != expected_updated_at:
+                        pipe.unwatch()
+                        return None
+                    updated = current.model_copy(
+                        update={**fields, "updated_at": datetime.now(tz=UTC)}
+                    )
+                    pipe.multi()
+                    pipe.set(key, json.dumps(updated.model_dump(mode="json")))
+                    pipe.execute()
+                    return updated
+            except WatchError:
+                continue
+        return None
+
     def delete_scene(self, scene_id: UUID) -> None:
         scene = self.get_scene(scene_id)
         if scene:
@@ -130,7 +215,30 @@ class RedisContentStore(ContentStore):
 
     def get_dashboard_stats(self, user_id: UUID) -> DashboardStats:
         total = self._redis.scard(self._user_projects_key(user_id))
-        return DashboardStats(total_projects=total, active_jobs=0, total_tokens_used=0, total_render_time_hours=0.0)
+        project_ids = {
+            UUID(project_id) for project_id in self._redis.smembers(self._user_projects_key(user_id))
+        }
+        from app.services.job_store import RedisRenderJobStore
+
+        active_jobs, render_seconds = RedisRenderJobStore(self._redis).aggregate_for_projects(
+            project_ids
+        )
+        return DashboardStats(
+            total_projects=total,
+            active_jobs=active_jobs,
+            total_render_time_hours=round(render_seconds / 3600, 2),
+        )
+
+    def get_user_settings(self, user_id: UUID) -> UserSettings | None:
+        raw = self._redis.get(_user_settings_key(user_id))
+        return UserSettings.model_validate(json.loads(cast(str, raw))) if raw else None
+
+    def upsert_user_settings(self, user_settings: UserSettings) -> UserSettings:
+        self._redis.set(
+            _user_settings_key(user_settings.user_id),
+            json.dumps(user_settings.model_dump(mode="json")),
+        )
+        return user_settings
 
 
 def get_content_store() -> ContentStore:
@@ -140,5 +248,7 @@ def get_content_store() -> ContentStore:
     if settings.supabase_url and settings.supabase_service_role_key:
         return SupabaseContentStore()
     if settings.app_env.lower() in {"production", "prod", "staging"}:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required outside development")
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required outside development"
+        )
     return RedisContentStore(get_redis())

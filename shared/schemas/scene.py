@@ -11,12 +11,13 @@ StoryboardStatus = Literal["missing", "pending_review", "approved"]
 PlanStatus = Literal["missing", "pending_review", "approved"]
 VoiceScriptStatus = Literal["missing", "pending_review", "approved"]
 ReviewLoopStatus = Literal["idle", "running", "completed", "hitl_pending", "failed"]
+GenerationStatus = Literal["pending", "generating", "completed", "failed"]
 
 
 class SceneCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scene_order: int = Field(ge=0, description="Thứ tự của scene trong video (0-indexed)")
+    scene_order: int = Field(ge=1, description="Thứ tự của scene trong video (1-indexed)")
     storyboard_text: str | None = Field(
         default=None, max_length=20_000, description="Nội dung storyboard (draft)"
     )
@@ -28,7 +29,7 @@ class SceneCreate(BaseModel):
 class SceneUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scene_order: int | None = Field(default=None, ge=0)
+    scene_order: int | None = Field(default=None, ge=1)
     storyboard_text: str | None = None
     voice_script: str | None = None
     storyboard_status: StoryboardStatus | None = None
@@ -78,6 +79,8 @@ class Scene(BaseModel):
         default=None, description="Scene DSL structure in JSON format"
     )
     scene_dsl_version: int = Field(default=0, description="Scene DSL version number")
+    video_url: str | None = Field(default=None, description="Đường dẫn đến file video render")
+    generation_status: GenerationStatus = Field(default="pending", description="Trạng thái sinh code của scene")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -94,5 +97,7 @@ class Scene(BaseModel):
                 out["voice_script_status"] = "missing"
             if "review_loop_status" not in out:
                 out["review_loop_status"] = "idle"
+            if "generation_status" not in out:
+                out["generation_status"] = "pending"
             return out
         return data

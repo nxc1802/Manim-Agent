@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from shared.schemas.render_api import RenderJobStatusResponse
@@ -37,13 +38,29 @@ def get_job_signed_video_url(
             status_code=status.HTTP_409_CONFLICT,
             detail="Job is not completed yet",
         )
-    object_path = f"{job.project_id}/renders/{job_id}.mp4"
+    expected_prefix = f"supabase://{settings.supabase_storage_bucket.strip()}/"
+    if not job.asset_url or not job.asset_url.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job has no Supabase Storage artifact",
+        )
+    object_path = job.asset_url.removeprefix(expected_prefix).lstrip("/")
+    if not object_path or ".." in object_path.split("/"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job storage artifact is invalid",
+        )
     try:
         url = sign_storage_object_read_url(object_path=object_path)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to sign the render artifact",
         ) from exc
     return SignedVideoUrlResponse(
         signed_url=url,
@@ -77,8 +94,18 @@ def get_local_render_artifact(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     project_readable_by_user(content, job.project_id, user_id)
     if job.status != "completed" or not job.asset_url or not job.asset_url.startswith("file://"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No local artifact is available")
-    path = Path(job.asset_url.removeprefix("file://"))
-    if not str(path).startswith("/artifacts/") or not path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact path is not allowed")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="No local artifact is available"
+        )
+    artifact_root = Path("/artifacts").resolve()
+    try:
+        path = Path(job.asset_url.removeprefix("file://")).resolve(strict=True)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Artifact path is not allowed"
+        ) from exc
+    if not path.is_relative_to(artifact_root) or not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Artifact path is not allowed"
+        )
     return FileResponse(path, media_type="video/mp4", filename=f"{job_id}.mp4")

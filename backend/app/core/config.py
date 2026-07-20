@@ -26,24 +26,62 @@ class Settings(BaseSettings):
         validation_alias="DEV_DEFAULT_USER_ID",
     )
     supabase_jwt_secret: str | None = Field(default=None, validation_alias="SUPABASE_JWT_SECRET")
-    supabase_jwt_audience: str | None = Field(default="authenticated", validation_alias="SUPABASE_JWT_AUDIENCE")
+    supabase_jwt_audience: str | None = Field(
+        default="authenticated", validation_alias="SUPABASE_JWT_AUDIENCE"
+    )
 
     supabase_url: str | None = Field(default=None, validation_alias="SUPABASE_URL")
     supabase_anon_key: str | None = Field(default=None, validation_alias="SUPABASE_ANON_KEY")
     supabase_service_role_key: str | None = Field(
         default=None, validation_alias="SUPABASE_SERVICE_ROLE_KEY"
     )
-    supabase_storage_bucket: str = Field(default="videos", validation_alias="SUPABASE_STORAGE_BUCKET")
+    supabase_storage_bucket: str = Field(
+        default="videos", validation_alias="SUPABASE_STORAGE_BUCKET"
+    )
     supabase_signed_url_seconds: int = Field(
         default=604_800, validation_alias="SUPABASE_SIGNED_URL_SECONDS"
+    )
+    internal_render_signed_url_seconds: int = Field(
+        default=900, ge=60, le=3_600, validation_alias="INTERNAL_RENDER_SIGNED_URL_SECONDS"
     )
 
     redis_url: str = Field(default="redis://redis:6379/0", validation_alias="REDIS_URL")
     redis_prefix: str = Field(default="manim", validation_alias="REDIS_PREFIX")
     redis_max_connections: int = Field(default=10, ge=1, validation_alias="REDIS_MAX_CONNECTIONS")
+    pipeline_lock_timeout_seconds: int = Field(
+        default=300, ge=30, le=1_800, validation_alias="PIPELINE_LOCK_TIMEOUT_SECONDS"
+    )
+    pipeline_lock_blocking_seconds: int = Field(
+        default=10, ge=1, le=60, validation_alias="PIPELINE_LOCK_BLOCKING_SECONDS"
+    )
+    cache_enabled: bool = Field(default=True, validation_alias="CACHE_ENABLED")
+    cache_ttl_seconds: int = Field(default=60, ge=1, validation_alias="CACHE_TTL_SECONDS")
+    cache_list_ttl_seconds: int = Field(
+        default=30, ge=1, validation_alias="CACHE_LIST_TTL_SECONDS"
+    )
+    cache_negative_ttl_seconds: int = Field(
+        default=5, ge=1, validation_alias="CACHE_NEGATIVE_TTL_SECONDS"
+    )
+    cache_generation_ttl_seconds: int = Field(
+        default=86_400, ge=60, validation_alias="CACHE_GENERATION_TTL_SECONDS"
+    )
+    websocket_redis_reconnect_max_seconds: float = Field(
+        default=5.0, ge=0.1, validation_alias="WEBSOCKET_REDIS_RECONNECT_MAX_SECONDS"
+    )
+    readiness_cache_seconds: float = Field(
+        default=10.0, ge=1.0, validation_alias="READINESS_CACHE_SECONDS"
+    )
+    readiness_timeout_seconds: float = Field(
+        default=2.0, ge=0.1, validation_alias="READINESS_TIMEOUT_SECONDS"
+    )
+    ai_step_stale_after_seconds: int = Field(
+        default=1920, ge=120, validation_alias="AI_STEP_STALE_AFTER_SECONDS"
+    )
+    ai_step_queue_stale_after_seconds: int = Field(
+        default=180, ge=30, validation_alias="AI_STEP_QUEUE_STALE_AFTER_SECONDS"
+    )
     celery_broker_url: str | None = Field(default=None, validation_alias="CELERY_BROKER_URL")
 
-    ai_core_url: str = Field(default="http://ai-core:8001", validation_alias="AI_CORE_URL")
     internal_service_token: str = Field(
         default="change-me-in-production", validation_alias="INTERNAL_SERVICE_TOKEN"
     )
@@ -70,6 +108,12 @@ class Settings(BaseSettings):
                 raise ValueError("CORS_ORIGINS cannot be * outside development")
             if self.internal_service_token == "change-me-in-production":
                 raise ValueError("INTERNAL_SERVICE_TOKEN must be configured outside development")
+            if not self.supabase_url or not self.supabase_service_role_key:
+                raise ValueError(
+                    "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required outside development"
+                )
+            if not self.supabase_jwt_secret:
+                raise ValueError("SUPABASE_JWT_SECRET is required outside development")
         return self
 
     @cached_property

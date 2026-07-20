@@ -21,7 +21,10 @@ services:
         required: true
     environment:
       REDIS_URL: redis://redis:6379/0
-      AI_CORE_URL: http://ai-core:8001
+      # A legacy local backend/.env may still contain provider keys. Explicitly
+      # scrub them at the container boundary; only AI Core may receive them.
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
     depends_on:
       redis:
         condition: service_healthy
@@ -41,6 +44,16 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://backend:8000/internal
+      SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      DATABASE_URL: ""
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       redis:
         condition: service_healthy
@@ -60,8 +73,19 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://backend:8000/internal
       ARTIFACTS_DIR: /artifacts
+      MANIM_MEMORY_LIMIT_MB: 2048
+      MANIM_CPU_LIMIT_SECONDS: 300
+      SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      DATABASE_URL: ""
     volumes:
       - render_artifacts:/artifacts
+    mem_limit: 3g
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       redis:
         condition: service_healthy

@@ -1,32 +1,32 @@
-# React + TypeScript + Vite
+# Manim Studio frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The frontend is a Vite + React application. It talks only to Backend; AI Core is never called from the browser.
 
-Currently, two official plugins are available:
+## Run with Supabase JWT authentication
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Copy `.env.example` to `.env`, keep `VITE_AUTH_MODE=jwt`, and set the public Supabase URL and publishable/anon key. Then run:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Never put `SUPABASE_SERVICE_ROLE_KEY` in a `VITE_*` variable.
+
+## Standalone local development
+
+When Backend uses `AUTH_MODE=off`, set this frontend variable:
+
+```dotenv
+VITE_AUTH_MODE=off
+```
+
+The app then bypasses the login route, omits Bearer tokens, and opens the project WebSocket without a token. Blank Supabase browser values are safe in this mode. Do not use auth-off mode in production.
+
+## Verification
+
+```bash
+npm test
+npm run lint
+npm run build
+```

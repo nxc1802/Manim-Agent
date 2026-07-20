@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 from shared.schemas.render_job import RenderQuality
 
@@ -12,9 +12,8 @@ from shared.schemas.render_job import RenderQuality
 class RenderEnqueueBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    render_type: Literal["preview", "full"] = "preview"
+    render_type: Literal["preview", "full", "full_project"] = "preview"
     quality: RenderQuality = "720p"
-    webhook_url: HttpUrl | None = None
     scene_id: UUID | None = Field(
         default=None,
         description="When set, worker renders `manim_code` from this scene (class GeneratedScene).",
@@ -39,14 +38,13 @@ class RenderJobStatusResponse(BaseModel):
         default=None,
         description="Source scene when render was enqueued with scene_id.",
     )
-    job_type: Literal["preview", "full"]
+    job_type: Literal["preview", "full", "full_project"]
     render_quality: RenderQuality | None = None
     status: Literal["queued", "rendering", "completed", "failed", "cancelled"]
     progress: int = Field(default=0, ge=0, le=100)
     logs: str | None = None
     asset_url: str | None = None
     error_code: str | None = None
-    webhook_url: str | None = None
     docker_image_tag: str | None = None
     created_at: datetime
     started_at: datetime | None = None

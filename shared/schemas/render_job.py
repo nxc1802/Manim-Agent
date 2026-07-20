@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-RenderJobType = Literal["preview", "full"]
+RenderJobType = Literal["preview", "full", "full_project"]
 RenderJobStatus = Literal["queued", "rendering", "completed", "failed", "cancelled"]
 RenderQuality = Literal["720p", "1080p", "4k"]
 
@@ -27,7 +27,6 @@ class RenderJob(BaseModel):
     logs: str | None = None
     asset_url: str | None = None
     error_code: str | None = None
-    webhook_url: str | None = None
     docker_image_tag: str | None = None
     created_at: datetime
     started_at: datetime | None = None
