@@ -52,9 +52,13 @@ container_created=true
 
 ready=false
 for _attempt in {1..60}; do
-  if docker exec "$validation_container" pg_isready -U postgres >/dev/null 2>&1; then
-    ready=true
-    break
+  if docker exec "$validation_container" pg_isready -U postgres >/dev/null 2>&1 && \
+     docker exec "$validation_container" psql -U postgres -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+    sleep 0.5
+    if docker exec "$validation_container" psql -U postgres -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
   fi
   sleep 0.5
 done
