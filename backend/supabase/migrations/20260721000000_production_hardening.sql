@@ -1,5 +1,10 @@
 -- Production hardening for the Backend-only Supabase access model.
 --
+-- This is the final delta in the ordered migration chain, not a standalone
+-- bootstrap script. Apply every backend/supabase/migrations/*.sql file in
+-- timestamp order through Supabase CLI; never paste this file by itself into
+-- the SQL Editor.
+--
 -- The browser uses Supabase Auth, but it never reads or writes application
 -- tables directly. Backend is the sole Data API client and authenticates with
 -- service_role. RLS remains enabled as defense in depth if table grants change.
@@ -7,8 +12,19 @@
 BEGIN;
 
 -- ---------------------------------------------------------------------------
--- 1. Align the retained render_jobs table with the shared RenderJob contract.
+-- 1. Align active/retained tables with the strict application contracts.
 -- ---------------------------------------------------------------------------
+
+-- ProjectCreate defaults to Vietnamese and Project requires a non-null string.
+-- Older schemas allowed an explicitly-null source_language, which makes a
+-- PostgREST row fail strict Pydantic validation. Repair only missing values.
+UPDATE public.projects
+SET source_language = 'vi'
+WHERE source_language IS NULL;
+
+ALTER TABLE public.projects
+  ALTER COLUMN source_language SET DEFAULT 'vi',
+  ALTER COLUMN source_language SET NOT NULL;
 
 ALTER TABLE public.render_jobs
   ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -73,6 +89,37 @@ BEGIN
   ) THEN
     ALTER TABLE public.ai_runs
       ADD CONSTRAINT ai_runs_id_scene_id_key UNIQUE (id, scene_id);
+  END IF;
+END
+$$;
+
+-- This check originally lived only in an older lifecycle migration. A hosted
+-- database may have that version recorded from before the check was added, so
+-- production hardening must converge the catalog instead of assuming the
+-- historical file was replayed byte-for-byte. A same-name/different-definition
+-- constraint is unsafe drift and must fail explicitly.
+DO $$
+DECLARE
+  existing_type "char";
+  existing_expression TEXT;
+BEGIN
+  SELECT
+    constraint_record.contype,
+    pg_get_expr(constraint_record.conbin, constraint_record.conrelid)
+  INTO existing_type, existing_expression
+  FROM pg_constraint AS constraint_record
+  WHERE constraint_record.conname = 'scenes_scene_order_positive'
+    AND constraint_record.conrelid = 'public.scenes'::regclass;
+
+  IF NOT FOUND THEN
+    ALTER TABLE public.scenes
+      ADD CONSTRAINT scenes_scene_order_positive
+      CHECK (scene_order >= 1) NOT VALID;
+  ELSIF existing_type <> 'c'
+     OR regexp_replace(existing_expression, '[[:space:]()]', '', 'g') <> 'scene_order>=1' THEN
+    RAISE EXCEPTION
+      'Schema drift: public.scenes constraint scenes_scene_order_positive has unexpected definition: %',
+      COALESCE(existing_expression, '<non-check constraint>');
   END IF;
 END
 $$;
@@ -264,22 +311,69 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE USAGE, SELECT ON SEQUENCES
   FROM anon, authenticated, service_role;
 
-REVOKE ALL PRIVILEGES ON TABLE
-  public.projects,
-  public.scenes,
-  public.render_jobs,
-  public.voice_jobs,
-  public.assets,
-  public.pipeline_runs,
-  public.scene_code_history,
-  public.agent_logs,
-  public.worker_service_audit,
-  public.pipeline_events,
-  public.artifact_versions,
-  public.ai_runs,
-  public.ai_steps,
-  public.user_settings
-FROM anon, authenticated, service_role;
+-- PostgreSQL's built-in EXECUTE grant to PUBLIC is a global default and cannot
+-- be revoked by a per-schema default ACL. Revoke that global function default,
+-- then remove Supabase's explicit public-schema application-role defaults.
+-- Functions intended as RPCs must opt in with a reviewed explicit GRANT.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS
+  FROM PUBLIC;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS
+  FROM anon, authenticated, service_role;
+
+DO $$
+DECLARE
+  function_to_restrict REGPROCEDURE;
+BEGIN
+  FOR function_to_restrict IN
+    SELECT function_record.oid::regprocedure
+    FROM pg_proc AS function_record
+    JOIN pg_namespace AS namespace_record
+      ON namespace_record.oid = function_record.pronamespace
+    WHERE namespace_record.nspname = 'public'
+  LOOP
+    EXECUTE format(
+      'REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',
+      function_to_restrict
+    );
+  END LOOP;
+END
+$$;
+
+DO $$
+DECLARE
+  table_record RECORD;
+BEGIN
+  FOR table_record IN
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename = ANY (ARRAY[
+        'projects',
+        'scenes',
+        'render_jobs',
+        'voice_jobs',
+        'assets',
+        'pipeline_runs',
+        'scene_code_history',
+        'agent_logs',
+        'worker_service_audit',
+        'pipeline_events',
+        'artifact_versions',
+        'ai_runs',
+        'ai_steps',
+        'user_settings'
+      ])
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM anon, authenticated, service_role',
+      table_record.tablename
+    );
+  END LOOP;
+END
+$$;
 
 GRANT USAGE ON SCHEMA public TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
@@ -290,6 +384,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.user_settings
 TO service_role;
 
+-- The five active tables use UUID keys rather than sequences. The nine other
+-- public tables are retained only for migration/data-retention compatibility;
+-- no current Backend or worker adapter accesses them, so they intentionally
+-- remain unavailable to service_role.
+
 -- ---------------------------------------------------------------------------
 -- 5. Replace permissive legacy policies with explicit authenticated policies.
 --
@@ -298,21 +397,6 @@ TO service_role;
 -- Legacy tables keep RLS enabled but have no policies, so they are deny-by-
 -- default even if a grant is accidentally reintroduced.
 -- ---------------------------------------------------------------------------
-
-DROP POLICY IF EXISTS projects_owner_all ON public.projects;
-DROP POLICY IF EXISTS scenes_by_project_owner ON public.scenes;
-DROP POLICY IF EXISTS render_jobs_by_project_owner ON public.render_jobs;
-DROP POLICY IF EXISTS voice_jobs_by_project_owner ON public.voice_jobs;
-DROP POLICY IF EXISTS assets_by_project_owner ON public.assets;
-DROP POLICY IF EXISTS pipeline_runs_by_project_owner ON public.pipeline_runs;
-DROP POLICY IF EXISTS worker_service_audit_owner_select ON public.worker_service_audit;
-DROP POLICY IF EXISTS scene_code_history_by_project_owner ON public.scene_code_history;
-DROP POLICY IF EXISTS agent_logs_by_project_owner ON public.agent_logs;
-DROP POLICY IF EXISTS pipeline_events_owner_all ON public.pipeline_events;
-DROP POLICY IF EXISTS artifact_versions_policy ON public.artifact_versions;
-DROP POLICY IF EXISTS ai_runs_owner_all ON public.ai_runs;
-DROP POLICY IF EXISTS ai_steps_owner_all ON public.ai_steps;
-DROP POLICY IF EXISTS user_settings_owner_all ON public.user_settings;
 
 -- Remove policy drift created outside migrations. Backend-only access means no
 -- legacy table policy is part of the supported public contract.

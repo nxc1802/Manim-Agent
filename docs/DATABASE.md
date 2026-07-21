@@ -93,6 +93,11 @@ failed/replaced render cleanup require an operational lifecycle job.
 migrations with Supabase CLI so versions are recorded; never paste the files
 into the production SQL Editor.
 
+The `20260721000000_production_hardening.sql` file is a final delta and cannot
+bootstrap an empty database by itself. The complete schema is the result of the
+full timestamp-ordered chain, which CI replays from an empty PostgreSQL 17
+database on every change.
+
 Required pre-merge check:
 
 ```bash
@@ -113,8 +118,8 @@ Deployment sequence:
 1. Confirm a recoverable backup/PITR point and compare migration history.
 2. Run `supabase db push --dry-run` against staging.
 3. Apply with one serialized `supabase db push` job.
-4. Require zero unvalidated public constraints and zero duplicate step
-   sequences.
+4. Run `backend/supabase/postmigration_gate.sql` and require all eight counters
+   to be zero.
 5. Run Security/Performance Advisors and Backend readiness checks.
 6. Promote Backend only after the database gate succeeds.
 
@@ -130,20 +135,16 @@ immediately. Each is validated during migration when legacy data is already
 clean; otherwise the migration emits a warning and continues. The unique step
 sequence constraint follows the same rule.
 
-Before promotion, both queries must be empty:
+Before promotion, execute the canonical read-only gate:
 
-```sql
-select conrelid::regclass as table_name, conname
-from pg_constraint
-where connamespace = 'public'::regnamespace
-  and not convalidated;
-
-select run_id, sequence, count(*)
-from public.ai_steps
-group by run_id, sequence
-having count(*) > 1;
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+  -f backend/supabase/postmigration_gate.sql
 ```
 
-If either returns rows, create a reviewed data-repair migration, rerun the
-constraints, and repeat the staging restore/deploy test. Do not silently delete
-or reassign tenant data.
+All eight returned counters must be zero. Besides dirty rows, the gate detects a
+missing or redefined required constraint, an incomplete `service_role` grant,
+unexpected browser-role/table privileges, callable public functions, and a
+nullable/misaligned `projects.source_language`. If any counter is non-zero,
+create a reviewed repair migration and repeat the staging restore/deploy test.
+Do not silently delete or reassign tenant data.

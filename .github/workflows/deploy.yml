@@ -219,32 +219,15 @@ jobs:
             --linked \
             --include-all
 
-      - name: Gate post-migration legacy integrity
+      - name: Gate post-migration schema and ACL integrity
         timeout-minutes: 5
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          query="$(cat <<'SQL'
-          select
-            (
-              select count(*)
-              from pg_catalog.pg_constraint as constraint_record
-              where constraint_record.connamespace = pg_catalog.to_regnamespace('public')
-                and not constraint_record.convalidated
-            ) as unvalidated_constraint_count,
-            (
-              select count(*)
-              from (
-                select step_record.run_id, step_record.sequence
-                from public.ai_steps as step_record
-                group by step_record.run_id, step_record.sequence
-                having count(*) > 1
-              ) as duplicate_sequences
-            ) as duplicate_step_sequence_count;
-          SQL
-          )"
+          test -s backend/supabase/postmigration_gate.sql
+          query="$(< backend/supabase/postmigration_gate.sql)"
           request_body="$(jq --null-input --arg query "${query}" '{query: $query, parameters: []}')"
           response="$(
             curl --fail --silent --show-error --max-time 30 \
@@ -259,9 +242,15 @@ jobs:
           if ! jq --exit-status '
             type == "array" and length == 1 and
             ((.[0].unvalidated_constraint_count | tonumber) == 0) and
-            ((.[0].duplicate_step_sequence_count | tonumber) == 0)
+            ((.[0].duplicate_step_sequence_count | tonumber) == 0) and
+            ((.[0].required_constraint_issue_count | tonumber) == 0) and
+            ((.[0].scenes_check_definition_issue_count | tonumber) == 0) and
+            ((.[0].table_acl_issue_count | tonumber) == 0) and
+            ((.[0].schema_acl_issue_count | tonumber) == 0) and
+            ((.[0].function_acl_issue_count | tonumber) == 0) and
+            ((.[0].project_contract_issue_count | tonumber) == 0)
           ' <<<"${response}" >/dev/null; then
-            echo "::error::Post-migration integrity gate failed; repair legacy rows before application promotion."
+            echo "::error::Post-migration schema/ACL gate failed; inspect every non-zero counter before application promotion."
             jq --compact-output . <<<"${response}" || true
             exit 1
           fi

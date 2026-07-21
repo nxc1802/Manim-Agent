@@ -400,14 +400,11 @@ def _auto_approval_failure(step_kind: str, draft_output: dict[str, Any]) -> str 
 
 def _should_auto_approve(run: Any, step: Any) -> bool:
     """Decide if a completed step should be auto-approved."""
-    from shared.schemas.hitl import AgentStepKind
-
     from app.services.hitl_service import AUTO_PASS_KINDS
 
     if not getattr(run, "hitl_enabled", True):
         return True  # Testing mode: auto-approve everything
-    kind: AgentStepKind = step.kind
-    return kind in AUTO_PASS_KINDS
+    return step.kind in AUTO_PASS_KINDS
 
 
 @router.post("/hitl-steps/{step_id}/fail", dependencies=[Depends(require_internal_service)])

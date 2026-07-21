@@ -20,7 +20,7 @@ Profile này chỉ dành cho single-tenant/trusted-input. Xem [Security](../SECU
    ```
 
 5. Với database mới, để workflow CD chạy `supabase db push`. Với database đã tồn tại, đối chiếu `supabase migration list` và làm baseline có kiểm chứng trước lần deploy đầu.
-6. Sau migration, hai truy vấn post-deploy trong [Database](DATABASE.md) phải trả về 0 hàng; chạy Supabase Security và Performance Advisors.
+6. Sau migration, cả tám counter từ [postmigration gate](../backend/supabase/postmigration_gate.sql) phải bằng `0`; sau đó chạy Supabase Security và Performance Advisors.
 
 Migration tạo bucket `videos` private, chỉ nhận MP4 và giới hạn 1 GiB. Giới hạn toàn cục của gói Supabase vẫn có thể thấp hơn.
 

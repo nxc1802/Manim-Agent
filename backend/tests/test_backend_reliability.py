@@ -40,6 +40,7 @@ from fastapi.testclient import TestClient
 from kombu.exceptions import OperationalError as KombuOperationalError
 from redis.exceptions import RedisError
 from shared.schemas.hitl import AgentStep, AiRun, InternalStepCompleteRequest
+from shared.schemas.project import Project
 from shared.schemas.render_api import RenderEnqueueBody
 from shared.schemas.scene import Scene
 from shared.schemas.user import UserSettings
@@ -64,6 +65,16 @@ def _project_row(project_id: UUID, user_id: UUID, *, title: str = "Cache test") 
         "created_at": now,
         "updated_at": now,
     }
+
+
+def test_project_contract_round_trips_non_null_video_url() -> None:
+    row = _project_row(uuid4(), uuid4())
+    row["video_url"] = "supabase://videos/project/final.mp4"
+
+    project = Project.model_validate(row)
+
+    assert project.video_url == row["video_url"]
+    assert project.model_dump(mode="json")["video_url"] == row["video_url"]
 
 
 def test_redis_development_store_has_settings_and_full_project_parity() -> None:

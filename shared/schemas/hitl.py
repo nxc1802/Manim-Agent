@@ -15,6 +15,16 @@ AgentStepKind = Literal[
     "code_reviewer",
     "visual_reviewer",
 ]
+StoredAgentStepKind = Literal[
+    "director",
+    "planner",
+    "scene_designer",
+    "idea_sketcher",
+    "storyboarder",
+    "builder",
+    "code_reviewer",
+    "visual_reviewer",
+]
 RunStatus = Literal["queued", "waiting_for_human", "completed", "failed", "cancelled"]
 StepStatus = Literal[
     "queued",
@@ -47,7 +57,10 @@ class AgentStep(BaseModel):
     project_id: UUID
     scene_id: UUID | None = None
     sequence: int = Field(ge=1)
-    kind: AgentStepKind
+    # Reads must remain compatible with durable rows written by the legacy
+    # Director/Planner/Scene Designer pipeline. New writes stay restricted to
+    # AgentStepKind at SupabaseHitlStore.create_step().
+    kind: StoredAgentStepKind
     status: StepStatus
     input: dict[str, Any] = Field(default_factory=dict)
     draft_output: dict[str, Any] | None = None

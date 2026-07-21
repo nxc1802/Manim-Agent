@@ -296,6 +296,31 @@ def test_step_sequence_exposes_all_three_generation_stages() -> None:
     assert STEP_SEQUENCE == ("idea_sketcher", "storyboarder", "builder")
 
 
+@pytest.mark.parametrize("legacy_kind", ["director", "planner", "scene_designer"])
+def test_durable_legacy_step_kinds_remain_readable(legacy_kind: str) -> None:
+    now = datetime.now(UTC)
+    step = AgentStep.model_validate(
+        {
+            "id": str(uuid4()),
+            "run_id": str(uuid4()),
+            "project_id": str(uuid4()),
+            "scene_id": None,
+            "sequence": 1,
+            "kind": legacy_kind,
+            "status": "approved",
+            "input": {},
+            "draft_output": None,
+            "final_output": None,
+            "revision": 1,
+            "error": None,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+    )
+
+    assert step.kind == legacy_kind
+
+
 def test_auto_pass_kinds_correct() -> None:
     assert AUTO_PASS_KINDS == frozenset({"idea_sketcher"})
 

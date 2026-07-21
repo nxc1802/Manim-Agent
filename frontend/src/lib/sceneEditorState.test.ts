@@ -12,6 +12,7 @@ import {
   sceneWorkspaceReducer,
   shouldAcceptRunEvent,
   shouldAcceptTerminalRender,
+  stageLabel,
   websocketProjectUrl,
   websocketAuthProtocols,
 } from './sceneEditorState';
@@ -218,6 +219,13 @@ describe('scene editor workspace state', () => {
       builderStep({ id: 'retry', sequence: 2, status: 'generating' }),
     ];
     expect(latestStep(steps, 'builder')?.id).toBe('retry');
+  });
+
+  it('labels durable legacy pipeline steps without treating them as builders', () => {
+    expect(stageLabel(builderStep({ kind: 'director' }))).toContain('Director (legacy)');
+    expect(stageLabel(builderStep({ kind: 'planner' }))).toContain('Planner (legacy)');
+    expect(stageLabel(builderStep({ kind: 'scene_designer' })))
+      .toContain('Scene designer (legacy)');
   });
 
   it('maps backend render events to frontend render states', () => {

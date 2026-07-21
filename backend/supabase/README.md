@@ -4,6 +4,11 @@
 database. Never initialize a database from `init_schema.sql`; that file is a
 non-executable compatibility marker for older tooling.
 
+`20260721000000_production_hardening.sql` is the final production delta, not a
+standalone bootstrap script. A complete production schema is the result of
+replaying the full timestamp-ordered migration chain. Do not paste only the
+hardening file into SQL Editor.
+
 ## Access model
 
 - The browser uses Supabase Auth only and does not access application tables.
@@ -14,6 +19,8 @@ non-executable compatibility marker for older tooling.
   enabled and forced on every table as defense in depth.
 - Retained legacy tables have neither Data API grants nor RLS policies, so they
   are deny-by-default.
+- Application roles cannot execute functions in `public`; a new RPC must opt in
+  with an explicit, reviewed `GRANT`.
 - `videos` is a private Storage bucket. Backend uploads MP4 files and returns
   time-limited signed URLs; clients receive no direct Storage write policy.
 
@@ -35,9 +42,12 @@ Storage, role and Realtime stubs, and verifies:
 
 - clean replay of every migration in timestamp order;
 - upgrade replay with existing `idea_sketcher` and `storyboarder` rows;
-- non-destructive handling of orphan, invalid-order and duplicate legacy rows;
+- repair of a missing historical scene-order constraint without SQLSTATE 42704;
+- non-destructive handling of orphan, invalid-order and duplicate legacy rows,
+  including a missing-constraint drift fixture;
 - forced RLS and explicit role targeting;
-- Backend-only grants, private bucket configuration and cross-tenant rejection;
+- exact Backend-only ACLs, real CRUD as `service_role`, fail-closed function
+  privileges, private bucket configuration and cross-tenant rejection;
 - validated constraints, required foreign-key/query indexes and schema/model
   alignment for `render_jobs`.
 
@@ -94,24 +104,18 @@ For an existing project, first compare local and remote history. If Dashboard
 changes exist, capture and review them with `supabase db pull` before pushing.
 Never use `supabase db reset --linked` against production.
 
-After deployment, run Supabase Security and Performance Advisors and verify:
+After deployment, run Supabase Security and Performance Advisors, then execute
+the same read-only gate used by CI/CD:
 
-```sql
-select conrelid::regclass as table_name, conname
-from pg_constraint
-where connamespace = 'public'::regnamespace
-  and not convalidated;
-
-select run_id, sequence, count(*)
-from public.ai_steps
-group by run_id, sequence
-having count(*) > 1;
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+  -f backend/supabase/postmigration_gate.sql
 ```
 
-Both queries must return zero rows. The production-hardening migration uses
-`NOT VALID` constraints and a conditional unique constraint so unknown legacy
-data cannot abort deployment; warnings mean a data-repair migration is required
-before promotion.
+The single result row must contain eight zero counts. It verifies constraint
+validation and presence, canonical scene-order definition, duplicate sequences,
+the complete table/schema/function ACL matrix, and the strict Project column
+contract. Warnings mean a data-repair migration is required before promotion.
 
 ## Rollback and recovery
 

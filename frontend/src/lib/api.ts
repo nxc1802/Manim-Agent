@@ -157,7 +157,15 @@ export interface AgentStep {
   project_id: string;
   scene_id?: string | null;
   sequence: number;
-  kind: 'idea_sketcher' | 'storyboarder' | 'builder' | 'code_reviewer' | 'visual_reviewer';
+  kind:
+    | 'director'
+    | 'planner'
+    | 'scene_designer'
+    | 'idea_sketcher'
+    | 'storyboarder'
+    | 'builder'
+    | 'code_reviewer'
+    | 'visual_reviewer';
   status: AgentStepStatus;
   input: Record<string, unknown>;
   draft_output?: Record<string, any> | null;

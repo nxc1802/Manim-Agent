@@ -445,11 +445,17 @@ export const latestStep = (steps: AgentStep[], kind: AgentStep['kind']): AgentSt
     .at(-1) || null;
 
 export const stageLabel = (step?: AgentStep | null, eventStatus?: string, review?: ReviewStage) => {
-  const name = step?.kind === 'idea_sketcher'
-    ? 'Idea sketch'
-    : step?.kind === 'storyboarder'
-      ? 'Storyboard'
-      : 'Builder';
+  const stageNames: Record<AgentStep['kind'], string> = {
+    director: 'Director (legacy)',
+    planner: 'Planner (legacy)',
+    scene_designer: 'Scene designer (legacy)',
+    idea_sketcher: 'Idea sketch',
+    storyboarder: 'Storyboard',
+    builder: 'Builder',
+    code_reviewer: 'Code review',
+    visual_reviewer: 'Visual review',
+  };
+  const name = step ? stageNames[step.kind] : 'Builder';
   if (review?.message) return `${name}: ${review.message}`;
   const state = eventStatus || step?.status || 'working';
   const labels: Record<string, string> = {
