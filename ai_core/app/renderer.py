@@ -132,7 +132,7 @@ def _manim_preexec() -> None:
 
         resource.setrlimit(resource.RLIMIT_AS, (settings.manim_memory_limit_mb * 1024 * 1024,) * 2)
         resource.setrlimit(resource.RLIMIT_CPU, (settings.manim_cpu_limit_seconds,) * 2)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (4096, 4096))
     except (ImportError, OSError, ValueError):
         # Docker's read-only filesystem, dropped capabilities and cgroup limits
         # remain the primary containment boundary when rlimits are unavailable.
@@ -141,15 +141,22 @@ def _manim_preexec() -> None:
 
 def _sanitized_subprocess_env(work_dir: Path) -> dict[str, str]:
     """Return a minimal renderer environment with no provider/service secrets."""
+    texmfvar = work_dir / ".texmf-var"
+    texmfconfig = work_dir / ".texmf-config"
+    texmfvar.mkdir(parents=True, exist_ok=True)
+    texmfconfig.mkdir(parents=True, exist_ok=True)
+
     safe = {
         key: value
         for key, value in os.environ.items()
-        if key in {"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "SYSTEMROOT"}
+        if key in {"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "SYSTEMROOT", "FONTCONFIG_PATH"}
     }
     safe.update(
         {
             "HOME": str(work_dir),
             "TMPDIR": str(work_dir),
+            "TEXMFVAR": str(texmfvar),
+            "TEXMFCONFIG": str(texmfconfig),
             "PYTHONNOUSERSITE": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
         }
