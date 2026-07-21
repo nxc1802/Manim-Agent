@@ -83,6 +83,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           PLAN_PATH: ${{ runner.temp }}/deployment-plan/release-plan.json
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           test -s "${PLAN_PATH}"
@@ -92,6 +93,9 @@ jobs:
             --repository "${GITHUB_REPOSITORY}" \
             --api-url "${GITHUB_API_URL}" \
             --github-output "${GITHUB_OUTPUT}"
+          if [[ -z "${VERCEL_TOKEN:-}" ]]; then
+            echo "vercel=false" >> "${GITHUB_OUTPUT}"
+          fi
 
   migrate-supabase:
     name: Migrate Supabase
