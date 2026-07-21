@@ -145,9 +145,9 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
-          supabase db push --linked --include-all --dry-run
-          supabase db push --linked --include-all
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}" --password "${SUPABASE_DB_PASSWORD}"
+          supabase db push --linked --include-all --dry-run --password "${SUPABASE_DB_PASSWORD}"
+          supabase db push --linked --include-all --password "${SUPABASE_DB_PASSWORD}"
 
       - name: Gate post-migration schema and ACL integrity
         timeout-minutes: 5
@@ -228,7 +228,15 @@ jobs:
           VERCEL_PRODUCTION_ORIGIN: ${{ vars.VERCEL_PRODUCTION_ORIGIN }}
           HF_SPACE_ORIGIN: ${{ vars.HF_SPACE_ORIGIN }}
         run: |
-          set -euo pipefail
+          HF_SPACE_ORIGIN="${HF_SPACE_ORIGIN:-}"
+          if [[ -z "${HF_SPACE_ORIGIN}" && -n "${HF_SPACE_ID:-}" ]]; then
+            HF_SPACE_ORIGIN="https://$(tr '[:upper:]' '[:lower:]' <<< "${HF_SPACE_ID/\//-}").hf.space"
+          fi
+          VERCEL_PRODUCTION_ORIGIN="${VERCEL_PRODUCTION_ORIGIN:-}"
+          if [[ -z "${VERCEL_PRODUCTION_ORIGIN}" && -n "${HF_SPACE_ORIGIN}" ]]; then
+            VERCEL_PRODUCTION_ORIGIN="${HF_SPACE_ORIGIN}"
+          fi
+
           required=(
             HF_SPACE_ID
             HF_TOKEN
