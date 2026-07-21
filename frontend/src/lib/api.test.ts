@@ -153,7 +153,7 @@ describe('API authentication and render contract', () => {
   it('fetches a local video as an authenticated blob when signing is unavailable', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Storage unavailable' } }), { status: 503 }))
-      .mockResolvedValueOnce(new Response(new Blob(['video']), { status: 200, headers: { 'Content-Type': 'video/mp4' } }));
+      .mockResolvedValueOnce(new Response('video', { status: 200, headers: { 'Content-Type': 'video/mp4' } }));
 
     await expect(api.getRenderVideoUrl('job-1')).resolves.toBe('blob:authenticated-video');
     const [, localInit] = vi.mocked(fetch).mock.calls[1];
