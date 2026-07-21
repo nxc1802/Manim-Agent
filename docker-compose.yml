@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -9,6 +9,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   backend:
     build:
@@ -30,6 +31,12 @@ services:
         condition: service_healthy
     volumes:
       - render_artifacts:/artifacts:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   ai-core:
     image: manim-ai-core
@@ -45,6 +52,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://backend:8000/internal
       SUPABASE_URL: ""
+      SUPABASE_SECRET_KEY: ""
       SUPABASE_SERVICE_ROLE_KEY: ""
       DATABASE_URL: ""
     read_only: true
@@ -58,14 +66,15 @@ services:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
 
   ai-worker:
     image: manim-ai-core
     build:
       context: .
       dockerfile: ai_core/Dockerfile
-    command: celery -A app.worker:celery_app worker --loglevel=INFO -Q ai,render
+    command: celery -A app.worker:celery_app worker --loglevel=INFO -Q ai --concurrency=1 --prefetch-multiplier=1
     env_file:
       - path: ai_core/.env
         required: true
@@ -76,10 +85,12 @@ services:
       MANIM_MEMORY_LIMIT_MB: 2048
       MANIM_CPU_LIMIT_SECONDS: 300
       SUPABASE_URL: ""
+      SUPABASE_SECRET_KEY: ""
       SUPABASE_SERVICE_ROLE_KEY: ""
       DATABASE_URL: ""
-    volumes:
-      - render_artifacts:/artifacts
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
     mem_limit: 3g
     cpus: 2
     security_opt:
@@ -90,7 +101,44 @@ services:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
+
+  render-worker:
+    image: manim-ai-core
+    build:
+      context: .
+      dockerfile: ai_core/Dockerfile
+    command: celery -A app.worker:celery_app worker --loglevel=INFO -Q render --concurrency=1 --prefetch-multiplier=1
+    env_file:
+      - path: ai_core/.env
+        required: true
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_INTERNAL_URL: http://backend:8000/internal
+      ARTIFACTS_DIR: /artifacts
+      MANIM_MEMORY_LIMIT_MB: 2048
+      MANIM_CPU_LIMIT_SECONDS: 300
+      SUPABASE_URL: ""
+      SUPABASE_SECRET_KEY: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      DATABASE_URL: ""
+    volumes:
+      - render_artifacts:/artifacts
+    tmpfs:
+      - /tmp:noexec,nosuid,size=1g
+    mem_limit: 3g
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   redis_data:

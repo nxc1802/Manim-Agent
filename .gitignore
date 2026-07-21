@@ -32,6 +32,7 @@ storage/
 .DS_Store
 .env.test
 .python-version
+backend/supabase/.temp/
 
 # Frontend
 

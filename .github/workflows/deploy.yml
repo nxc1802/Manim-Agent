@@ -1,0 +1,415 @@
+name: Deploy production
+
+# Deliberate privileged handoff: the job gate below accepts only a successful
+# same-repository push to main and checks out that exact CI-tested revision.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Migrate and deploy Hugging Face Space
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production
+    steps:
+      - name: Check out the exact CI-tested revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate deployment configuration
+        env:
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          required=(
+            HF_SPACE_ID
+            SUPABASE_PROJECT_REF
+            HF_TOKEN
+            SUPABASE_ACCESS_TOKEN
+            SUPABASE_DB_PASSWORD
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required production secret or variable is missing: ${name}"
+              exit 1
+            fi
+          done
+          if [[ ! "${HF_SPACE_ID}" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::HF_SPACE_ID must use namespace/space-name format."
+            exit 1
+          fi
+          if [[ ! "${SUPABASE_PROJECT_REF}" =~ ^[a-z]{20}$ ]]; then
+            echo "::error::SUPABASE_PROJECT_REF must be a 20-letter hosted project ref."
+            exit 1
+          fi
+          test -s Dockerfile
+          test -s README.md
+          head -n 20 README.md | grep -Fxq "sdk: docker"
+          head -n 20 README.md | grep -Fxq "app_port: 7860"
+
+      - name: Reject a stale deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          main_sha="$(
+            curl --fail --silent --show-error --max-time 15 \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              | jq --raw-output --exit-status '.object.sha'
+          )"
+          if [[ "${main_sha}" != "${TESTED_SHA}" ]]; then
+            echo "::error::Refusing to deploy stale commit ${TESTED_SHA}; main is ${main_sha}."
+            exit 1
+          fi
+
+      - name: Validate Hugging Face runtime configuration
+        env:
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          variables_file="${RUNNER_TEMP}/hf-space-variables.json"
+          secrets_file="${RUNNER_TEMP}/hf-space-secrets.json"
+          space_file="${RUNNER_TEMP}/hf-space.json"
+          api_base="https://huggingface.co/api/spaces/${HF_SPACE_ID}"
+
+          curl --fail --silent --show-error --max-time 20 \
+            --retry 2 --retry-all-errors --retry-max-time 30 \
+            --header "Authorization: Bearer ${HF_TOKEN}" \
+            --output "${space_file}" \
+            "${api_base}"
+          curl --fail --silent --show-error --max-time 20 \
+            --retry 2 --retry-all-errors --retry-max-time 30 \
+            --header "Authorization: Bearer ${HF_TOKEN}" \
+            --output "${variables_file}" \
+            "${api_base}/variables"
+          curl --fail --silent --show-error --max-time 20 \
+            --retry 2 --retry-all-errors --retry-max-time 30 \
+            --header "Authorization: Bearer ${HF_TOKEN}" \
+            --output "${secrets_file}" \
+            "${api_base}/secrets"
+
+          if ! jq --exit-status '
+            .sdk == "docker" and
+            (
+              .visibility? == "private" or
+              .visibility? == "protected" or
+              (.visibility? == null and .private == true)
+            )
+          ' "${space_file}" >/dev/null; then
+            echo "::error::The target must be a private or protected Docker Space."
+            exit 1
+          fi
+
+          required_variables=(
+            APP_ENV
+            AUTH_MODE
+            SUPABASE_URL
+            VITE_AUTH_MODE
+            VITE_SUPABASE_URL
+            VITE_SUPABASE_PUBLISHABLE_KEY
+          )
+          for variable_name in "${required_variables[@]}"; do
+            if ! jq --exit-status --arg name "${variable_name}" \
+              '.[$name].value | type == "string" and length > 0' \
+              "${variables_file}" >/dev/null; then
+              echo "::error::Required Hugging Face Space Variable is missing: ${variable_name}"
+              exit 1
+            fi
+          done
+
+          for expected_pair in "APP_ENV=production" "AUTH_MODE=jwt" "VITE_AUTH_MODE=jwt"; do
+            variable_name="${expected_pair%%=*}"
+            expected_value="${expected_pair#*=}"
+            actual_value="$(
+              jq --raw-output --arg name "${variable_name}" '.[$name].value' \
+                "${variables_file}"
+            )"
+            if [[ "${actual_value}" != "${expected_value}" ]]; then
+              echo "::error::Hugging Face Variable ${variable_name} must be ${expected_value}."
+              exit 1
+            fi
+          done
+
+          supabase_url="$(jq --raw-output '.SUPABASE_URL.value' "${variables_file}")"
+          vite_supabase_url="$(jq --raw-output '.VITE_SUPABASE_URL.value' "${variables_file}")"
+          expected_supabase_url="https://${SUPABASE_PROJECT_REF}.supabase.co"
+          if [[ "${supabase_url%/}" != "${expected_supabase_url}" ]]; then
+            echo "::error::SUPABASE_URL does not match SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+          if [[ "${supabase_url%/}" != "${vite_supabase_url%/}" ]]; then
+            echo "::error::SUPABASE_URL and VITE_SUPABASE_URL must identify the same project."
+            exit 1
+          fi
+
+          if ! jq --exit-status 'has("INTERNAL_SERVICE_TOKEN")' \
+            "${secrets_file}" >/dev/null; then
+            echo "::error::Required Hugging Face Space Secret is missing: INTERNAL_SERVICE_TOKEN"
+            exit 1
+          fi
+          if ! jq --exit-status \
+            'has("SUPABASE_SECRET_KEY") or has("SUPABASE_SERVICE_ROLE_KEY")' \
+            "${secrets_file}" >/dev/null; then
+            echo "::error::A Supabase secret key is missing from the Hugging Face Space."
+            exit 1
+          fi
+          if ! jq --exit-status \
+            'keys | any(. == "GOOGLE_API_KEY" or . == "GEMINI_API_KEY" or test("^GOOGLE_API_KEY_[0-9]+$"))' \
+            "${secrets_file}" >/dev/null; then
+            echo "::error::A Google provider key is missing from the Hugging Face Space."
+            exit 1
+          fi
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.101.0
+
+      - name: Apply pending Supabase migrations
+        timeout-minutes: 15
+        working-directory: backend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f supabase/config.toml ]]; then
+            supabase init
+          fi
+          supabase link \
+            --project-ref "${SUPABASE_PROJECT_REF}"
+          supabase db push \
+            --linked \
+            --include-all \
+            --dry-run
+          supabase db push \
+            --linked \
+            --include-all
+
+      - name: Gate post-migration legacy integrity
+        timeout-minutes: 5
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          query="$(cat <<'SQL'
+          select
+            (
+              select count(*)
+              from pg_catalog.pg_constraint as constraint_record
+              where constraint_record.connamespace = pg_catalog.to_regnamespace('public')
+                and not constraint_record.convalidated
+            ) as unvalidated_constraint_count,
+            (
+              select count(*)
+              from (
+                select step_record.run_id, step_record.sequence
+                from public.ai_steps as step_record
+                group by step_record.run_id, step_record.sequence
+                having count(*) > 1
+              ) as duplicate_sequences
+            ) as duplicate_step_sequence_count;
+          SQL
+          )"
+          request_body="$(jq --null-input --arg query "${query}" '{query: $query, parameters: []}')"
+          response="$(
+            curl --fail --silent --show-error --max-time 30 \
+              --retry 2 --retry-all-errors --retry-max-time 45 \
+              --request POST \
+              --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data "${request_body}" \
+              "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query/read-only"
+          )"
+
+          if ! jq --exit-status '
+            type == "array" and length == 1 and
+            ((.[0].unvalidated_constraint_count | tonumber) == 0) and
+            ((.[0].duplicate_step_sequence_count | tonumber) == 0)
+          ' <<<"${response}" >/dev/null; then
+            echo "::error::Post-migration integrity gate failed; repair legacy rows before application promotion."
+            jq --compact-output . <<<"${response}" || true
+            exit 1
+          fi
+          echo "Post-migration integrity gate passed."
+
+      - name: Prepare an immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: release-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Reconfirm the release is still current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          main_sha="$(
+            curl --fail --silent --show-error --max-time 15 \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              | jq --raw-output --exit-status '.object.sha'
+          )"
+          if [[ "${main_sha}" != "${TESTED_SHA}" ]]; then
+            echo "::error::A newer main commit arrived during migration; skipping stale source sync."
+            exit 1
+          fi
+
+      - name: Sync the tested monorepo to the private Docker Space
+        timeout-minutes: 20
+        uses: huggingface/hub-sync@da166beda9a9aff15d1de9a82c6dc86c410ea3ee # v0.2.1
+        with:
+          github_repo_id: ${{ github.repository }}
+          subdirectory: release-source
+          huggingface_repo_id: ${{ vars.HF_SPACE_ID }}
+          hf_token: ${{ secrets.HF_TOKEN }}
+          hf_version: "1.24.0"
+          repo_type: space
+          space_sdk: docker
+          private: "true"
+
+      - name: Wait for the private Space runtime
+        id: hf_runtime
+        timeout-minutes: 35
+        env:
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo_url="https://huggingface.co/api/spaces/${HF_SPACE_ID}"
+          runtime_url="https://huggingface.co/api/spaces/${HF_SPACE_ID}/runtime"
+          target_response="$(
+            curl --fail --silent --show-error --max-time 20 \
+              --retry 2 --retry-all-errors --retry-max-time 30 \
+              --header "Authorization: Bearer ${HF_TOKEN}" \
+              "${repo_url}"
+          )"
+          target_sha="$(
+            jq --raw-output --exit-status \
+              '.sha | select(type == "string" and test("^[0-9a-f]{40}$"))' \
+              <<<"${target_response}"
+          )"
+          space_url="$(
+            jq --raw-output --exit-status \
+              '.host | select(type == "string" and test("^https://[A-Za-z0-9.-]+\\.hf\\.space/?$"))' \
+              <<<"${target_response}"
+          )"
+          echo "space_url=${space_url%/}" >>"${GITHUB_OUTPUT}"
+          echo "Waiting for Hugging Face revision ${target_sha:0:12}."
+
+          deadline=$((SECONDS + 1800))
+          attempt=0
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt + 1))
+            if response="$(
+              curl --fail --silent --show-error --max-time 10 \
+                --retry 2 --retry-all-errors --retry-max-time 20 \
+                --header "Authorization: Bearer ${HF_TOKEN}" \
+                "${runtime_url}"
+            )"; then
+              stage="$(jq --raw-output '.stage // empty' <<<"${response}")"
+              runtime_sha="$(jq --raw-output '.sha // empty' <<<"${response}")"
+              echo "Hugging Face runtime stage: ${stage:-unknown}, revision: ${runtime_sha:0:12} (attempt ${attempt})"
+              if [[ "${runtime_sha}" == "${target_sha}" ]]; then
+                case "${stage}" in
+                  RUNNING)
+                    exit 0
+                    ;;
+                  NO_APP_FILE|CONFIG_ERROR|BUILD_ERROR|RUNTIME_ERROR|DELETING|STOPPED|PAUSED)
+                    echo "::error::Hugging Face Space reached terminal stage ${stage} for the deployed revision."
+                    exit 1
+                    ;;
+                  BUILDING|RUNNING_BUILDING|APP_STARTING|RUNNING_APP_STARTING)
+                    ;;
+                  SLEEPING)
+                    echo "Waking the deployed Space; SLEEPING is not accepted as deployment success."
+                    curl --silent --show-error --max-time 10 \
+                      --header "Authorization: Bearer ${HF_TOKEN}" \
+                      "${space_url%/}/health" >/dev/null || true
+                    ;;
+                  *)
+                    echo "Waiting through unrecognized/non-terminal runtime stage."
+                    ;;
+                esac
+              else
+                echo "Waiting for the runtime to switch to the deployed revision."
+              fi
+            else
+              echo "Hugging Face runtime API is temporarily unavailable (attempt ${attempt})."
+            fi
+            sleep 10
+          done
+          echo "::error::Hugging Face Space revision did not reach RUNNING within 30 minutes."
+          exit 1
+
+      - name: Poll the deployed readiness endpoint
+        timeout-minutes: 7
+        env:
+          HF_SPACE_URL: ${{ steps.hf_runtime.outputs.space_url }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${HF_SPACE_URL}" =~ ^https://[A-Za-z0-9.-]+\.hf\.space/?$ ]]; then
+            echo "::error::HF_SPACE_URL must be an https://*.hf.space URL."
+            exit 1
+          fi
+          readiness_url="${HF_SPACE_URL%/}/ready"
+          deadline=$((SECONDS + 300))
+          attempt=0
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt + 1))
+            if body="$(
+              curl --fail --silent --show-error --max-time 10 \
+                --header "Authorization: Bearer ${HF_TOKEN}" \
+                "${readiness_url}"
+            )"; then
+              if jq --exit-status '.status == "ready"' <<<"${body}" >/dev/null; then
+                printf '%s\n' "${body}"
+                echo "Hugging Face Space is ready after attempt ${attempt}."
+                exit 0
+              fi
+              echo "Readiness endpoint returned an unexpected response (attempt ${attempt})."
+            fi
+            sleep 10
+          done
+          echo "::error::Hugging Face Space did not become ready within 5 minutes."
+          exit 1

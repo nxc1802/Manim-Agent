@@ -7,7 +7,7 @@ vi.mock('./supabase', () => ({
   supabase: { auth: { getSession } },
 }));
 
-import { ApiError, api } from './api';
+import { ApiError, api, apiBaseUrl } from './api';
 
 describe('API authentication and render contract', () => {
   beforeEach(() => {
@@ -17,6 +17,11 @@ describe('API authentication and render contract', () => {
       ...URL,
       createObjectURL: vi.fn(() => 'blob:authenticated-video'),
     });
+  });
+
+  it('uses the same-origin API prefix when no deployment override is provided', () => {
+    expect(apiBaseUrl()).toBe('/v1');
+    expect(apiBaseUrl(' https://api.example/v1/ ')).toBe('https://api.example/v1');
   });
 
   it('queues a scene render with auth and the scene render contract', async () => {
@@ -47,6 +52,17 @@ describe('API authentication and render contract', () => {
     await api.enqueueProjectRender('project-1');
     const [, init] = vi.mocked(fetch).mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({ render_type: 'full_project', quality: '720p' });
+  });
+
+  it('sends the selected low-quality render profile instead of silently forcing 720p', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: 'job-low' }), { status: 202 }),
+    );
+
+    await api.enqueueSceneRender('project-1', 'scene-1', 'step-1:3', '480p');
+
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body)).quality).toBe('480p');
   });
 
   it('sends the saved language through the project source-language contract', async () => {

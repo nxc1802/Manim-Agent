@@ -1,41 +1,110 @@
+---
+title: Manim Agent
+emoji: 🎬
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Manim Agent
 
-Manim Agent is now split into two independent services:
+Manim Agent biến một ý tưởng giáo dục thành storyboard, mã Manim có vòng review, video từng cảnh và video hoàn chỉnh. Frontend React cung cấp HITL; FastAPI quản lý quyền truy cập và trạng thái; Celery chạy AI/review/render; Supabase lưu dữ liệu và video bền vững.
 
-- `backend/` — FastAPI, authentication, Supabase/Postgres persistence, durable HITL approvals, WebSocket gateway and Redis task dispatch.
-- `ai_core/` — Google LLM runtime, token streaming, safe Manim validation and rendering workers.
-- `shared/` — small Pydantic contracts only; it has no service or database logic.
+## Kiến trúc triển khai
 
-The Backend never imports LLM, Manim or worker code. AI Core never imports Backend code or has database credentials. They communicate with authenticated internal HTTP and Redis/Celery queues.
+Bản phát hành đầu tiên dùng **một Hugging Face Docker Space**:
 
-## Start locally
+```mermaid
+flowchart LR
+  U["Browser"] -->|"HTTPS + WebSocket"| API["FastAPI :7860\nReact SPA + API"]
+  API --> DB["Supabase\nAuth + Postgres + Storage"]
+  API --> R[("Redis AOF")]
+  R --> AI["Celery AI worker\nconcurrency 1"]
+  R --> Render["Celery render worker\nconcurrency 1"]
+  AI -->|"internal callback"| API
+  Render -->|"internal callback + artifact"| API
+```
+
+Monorepo vẫn giữ ranh giới rõ:
+
+| Thư mục | Trách nhiệm |
+| --- | --- |
+| `frontend/` | React/Vite, Supabase Auth, REST và WebSocket cùng origin |
+| `backend/` | FastAPI, authorization, Supabase, HITL, cache và điều phối queue |
+| `ai_core/` | LLM, review loop, TTS, Manim và Celery workers |
+| `shared/` | Pydantic contracts dùng chung, không chứa persistence/runtime |
+| `deploy/huggingface/` | Supervisor, Redis và entrypoint cho Space |
+
+Một Space phù hợp với giới hạn cổng/outbound của Hugging Face và loại bỏ nhu cầu chia sẻ filesystem giữa nhiều Space. Đây là profile **protected/private, single-tenant, trusted-input**: mã Python Manim sinh tự động không chạy trong sandbox bảo mật hoàn chỉnh. Không dùng profile này làm dịch vụ thực thi code công khai cho nhiều tenant. Lộ trình tách ba dịch vụ được mô tả trong [kiến trúc](docs/ARCHITECTURE.md).
+
+## Chạy local
+
+Yêu cầu: Docker + Docker Compose, Node.js 22 nếu chạy frontend dev, Python 3.12 nếu chạy service trực tiếp, một Supabase project và Google API key cho luồng AI thật.
 
 ```bash
 cp backend/.env.example backend/.env
 cp ai_core/.env.example ai_core/.env
 cp frontend/.env.example frontend/.env
-# fill Supabase values in backend/.env and Google API keys in ai_core/.env
+```
+
+Điền cấu hình cần thiết, sau đó:
+
+```bash
+bash backend/supabase/validate_migrations.sh
 docker compose up --build
 ```
 
-Compose starts Redis, Backend, the private AI Core API, and the AI worker. Start the browser app separately:
+Ở terminal khác:
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend
+npm ci
+npm run dev
 ```
 
-Backend is available at `http://localhost:8000/docs`; AI Core remains private to Compose. Apply every file in `backend/supabase/migrations/` in lexical order before the first real HITL run. For production set `AUTH_MODE=jwt`, configure the Supabase JWT secret in Backend only, and put `VITE_SUPABASE_URL` plus the publishable/anon key in `frontend/.env`. For a local Redis-only UI/API session, set `VITE_AUTH_MODE=off` and `AUTH_MODE=off`; durable HITL still requires Supabase.
+- Frontend: `http://localhost:5173`
+- Backend OpenAPI: `http://localhost:8000/docs`
+- Backend liveness/readiness: `/health`, `/ready`
+- AI Core chỉ được expose trong mạng Compose tại cổng `8001`
 
-## Development
+`AUTH_MODE=off` và `VITE_AUTH_MODE=off` chỉ dành cho local. Production bắt buộc JWT.
+
+## Kiểm tra trước khi phát hành
 
 ```bash
-make install-be install-ai
-make dev-be       # terminal 1
-make dev-ai       # terminal 2
-make worker-ai    # terminal 3
-make dev-fe       # terminal 4
+make check       # lint + 3 test suites + frontend build + migration replay
+make audit       # Python locks + npm vulnerability audit
+make image       # build image một-Space ở local
 ```
 
-Run service checks independently with `make test-be`, `make test-ai`, and `make test-fe`. `GET /health` is a liveness check; `GET /ready` reports dependency readiness for Backend and AI Core.
+Dependency Python production/dev được khóa bằng hash trong `requirements*.lock`; frontend dùng `package-lock.json`. `backend/supabase/migrations/*.sql` là nguồn schema duy nhất có thể deploy; `init_schema.sql` chỉ là marker tương thích và không được chạy.
 
-Read [architecture](docs/ARCHITECTURE.md) before changing boundaries, and use the [Frontend API reference](docs/FRONTEND_API.md) as the public API contract.
+## Deploy
+
+1. Tạo Supabase production project và Hugging Face Docker Space `Private` hoặc `Protected`, dùng hardware always-on và persistent storage gắn tại `/data`.
+2. Cấu hình Space Variables/Secrets theo [hướng dẫn deployment](docs/DEPLOYMENT.md).
+3. Tạo GitHub Environment `production`, thêm `HF_SPACE_ID`, `SUPABASE_PROJECT_REF` và ba deployment secrets.
+4. Bảo vệ nhánh `main` bằng toàn bộ required checks của workflow `CI`.
+5. Merge/push vào `main`. CD chỉ chạy khi CI của đúng commit thành công, push migration trước rồi đồng bộ commit đó sang Space.
+
+Các tên key hiện hành được ưu tiên:
+
+- Browser build: `VITE_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_*`).
+- Backend runtime: `SUPABASE_SECRET_KEY` (`sb_secret_*`).
+- Legacy `anon`/`service_role` vẫn được chấp nhận trong giai đoạn chuyển đổi.
+- JWT ES256/RS256 được xác minh qua Supabase JWKS; chỉ cấu hình `SUPABASE_JWT_SECRET` khi còn dùng HS256 legacy.
+
+Không commit `.env`, service key hoặc Google key. File `frontend/.env` cũ đã được loại khỏi tracking; production build cũng không đọc file `.env` của developer.
+
+## Tài liệu
+
+- [Mục lục tài liệu](docs/README.md)
+- [Kiến trúc và state machine](docs/ARCHITECTURE.md)
+- [Deployment Hugging Face + Supabase](docs/DEPLOYMENT.md)
+- [CI/CD](docs/CI_CD.md)
+- [Database và migration](docs/DATABASE.md)
+- [Vận hành và khôi phục](docs/OPERATIONS.md)
+- [Security model](SECURITY.md)
+- [Frontend API contract](docs/FRONTEND_API.md)

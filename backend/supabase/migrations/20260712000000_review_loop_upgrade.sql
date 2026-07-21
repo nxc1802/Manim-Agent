@@ -11,4 +11,13 @@ ALTER TABLE public.ai_steps
   DROP CONSTRAINT IF EXISTS ai_steps_kind_check;
 ALTER TABLE public.ai_steps
   ADD CONSTRAINT ai_steps_kind_check
-  CHECK (kind IN ('director','planner','scene_designer','builder','code_reviewer','visual_reviewer'));
+  CHECK (kind IN (
+    'director',
+    'planner',
+    'scene_designer',
+    'idea_sketcher',
+    'storyboarder',
+    'builder',
+    'code_reviewer',
+    'visual_reviewer'
+  ));

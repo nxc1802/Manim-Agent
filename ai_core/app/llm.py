@@ -7,16 +7,17 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
 
-import redis
 import litellm
+import redis
 from litellm import acompletion, completion
 
-litellm.drop_params = True
-
 from app.config import settings
+
+litellm.drop_params = True
 
 
 class KeyState(StrEnum):
@@ -92,8 +93,13 @@ class GoogleAPIKeyPool:
             redis_store or (redis_client if namespace else _MemoryKeyStateStore())
         )
 
-    def _state(self, key: str) -> dict[str, str]:
-        state_key = f"{self._prefix}{key}"
+    @staticmethod
+    def _identity(key: str) -> str:
+        # Provider keys must never appear in Redis key names, snapshots or logs.
+        return sha256(key.encode("utf-8")).hexdigest()[:24]
+
+    def _state(self, identity: str) -> dict[str, str]:
+        state_key = f"{self._prefix}{identity}"
         if not self._redis.exists(state_key):
             self._redis.hset(
                 state_key,
@@ -106,18 +112,19 @@ class GoogleAPIKeyPool:
         for _ in range(len(self._keys)):
             idx = (self._redis.incr(f"{self._prefix}index") - 1) % len(self._keys)
             key = self._keys[idx]
+            identity = self._identity(key)
 
-            state_data = self._state(key)
+            state_data = self._state(identity)
             state = state_data.get("state", KeyState.AVAILABLE)
             retry_at = float(state_data.get("retry_at", "0"))
 
             if state == KeyState.AVAILABLE or (retry_at > 0 and now >= retry_at):
                 if state != KeyState.AVAILABLE:
                     self._redis.hset(
-                        f"{self._prefix}{key}",
+                        f"{self._prefix}{identity}",
                         mapping={"state": KeyState.AVAILABLE, "retry_at": "0"},
                     )
-                return key, key
+                return key, identity
         raise RuntimeError("No AVAILABLE Google API key")
 
     def record_failure(self, identity: str, error: BaseException) -> None:
@@ -146,7 +153,7 @@ class GoogleAPIKeyPool:
     def snapshot(self) -> list[dict[str, str | None]]:
         res = []
         for key in self._keys:
-            state_data = self._state(key)
+            state_data = self._state(self._identity(key))
             state = state_data.get("state", KeyState.AVAILABLE)
             retry_at = float(state_data.get("retry_at", "0"))
             retry_str = datetime.fromtimestamp(retry_at, tz=UTC).isoformat() if retry_at > 0 else None
@@ -159,14 +166,30 @@ def configured_google_keys() -> list[str]:
     configured = settings.google_api_key or os.getenv("GEMINI_API_KEY")
     if configured:
         values.extend(value.strip() for value in configured.split(",") if value.strip())
-    index = 1
-    while key := os.getenv(f"GOOGLE_API_KEY_{index}"):
-        values.append(key.strip())
-        index += 1
+    numbered_keys = sorted(
+        (
+            int(suffix),
+            value.strip(),
+        )
+        for name, value in os.environ.items()
+        if name.startswith("GOOGLE_API_KEY_")
+        and (suffix := name.removeprefix("GOOGLE_API_KEY_")).isdigit()
+        and value.strip()
+    )
+    values.extend(value for _, value in numbered_keys)
     return list(dict.fromkeys(values))
 
 
 _SHARED_POOL = GoogleAPIKeyPool(configured_google_keys(), namespace="ai_keys:shared")
+
+
+def _redacted_provider_error(error: BaseException, keys: list[str]) -> str:
+    """Keep provider diagnostics useful without copying credentials to logs/state."""
+    message = str(error) or error.__class__.__name__
+    for key in keys:
+        if key:
+            message = message.replace(key, "[REDACTED]")
+    return message[:1_000]
 
 
 class GoogleLLM:
@@ -196,9 +219,12 @@ class GoogleLLM:
         for _ in range(len(self.pool._keys)):
             try:
                 key, identity = self.pool.acquire()
-            except RuntimeError as exc:
+            except RuntimeError:
                 if last_exc:
-                    raise last_exc from exc
+                    raise RuntimeError(
+                        f"Google provider request failed: "
+                        f"{_redacted_provider_error(last_exc, self.pool._keys)}"
+                    ) from None
                 raise
             try:
                 response = completion(
@@ -215,10 +241,16 @@ class GoogleLLM:
             except Exception as exc:  # noqa: BLE001
                 self.pool.record_failure(identity, exc)
                 last_exc = exc
-                logger.warning("Key failed in complete, trying next: %s", exc)
+                logger.warning(
+                    "Key failed in complete, trying next: %s",
+                    _redacted_provider_error(exc, self.pool._keys),
+                )
 
         if last_exc:
-            raise last_exc
+            raise RuntimeError(
+                f"Google provider request failed: "
+                f"{_redacted_provider_error(last_exc, self.pool._keys)}"
+            ) from None
         raise RuntimeError("No AVAILABLE Google API key")
 
     def complete_with_image(
@@ -270,9 +302,12 @@ class GoogleLLM:
         for _ in range(len(self.pool._keys)):
             try:
                 key, identity = self.pool.acquire()
-            except RuntimeError as exc:
+            except RuntimeError:
                 if last_exc:
-                    raise last_exc from exc
+                    raise RuntimeError(
+                        f"Google provider request failed: "
+                        f"{_redacted_provider_error(last_exc, self.pool._keys)}"
+                    ) from None
                 raise
             try:
                 response = await acompletion(
@@ -306,8 +341,14 @@ class GoogleLLM:
             except Exception as exc:  # noqa: BLE001
                 self.pool.record_failure(identity, exc)
                 last_exc = exc
-                logger.warning("Key failed in stream, trying next: %s", exc)
+                logger.warning(
+                    "Key failed in stream, trying next: %s",
+                    _redacted_provider_error(exc, self.pool._keys),
+                )
 
         if last_exc:
-            raise last_exc
+            raise RuntimeError(
+                f"Google provider request failed: "
+                f"{_redacted_provider_error(last_exc, self.pool._keys)}"
+            ) from None
         raise RuntimeError("No AVAILABLE Google API key")

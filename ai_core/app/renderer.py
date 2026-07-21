@@ -37,6 +37,26 @@ _FORBIDDEN_CALLS = {
     "__import__",
 }
 _FORBIDDEN_NAMES = {"__builtins__", "__loader__", "__package__", "__spec__"}
+_FORBIDDEN_IO_ATTRIBUTES = {
+    "fromfile",
+    "fromregex",
+    "genfromtxt",
+    "load",
+    "load_library",
+    "loadtxt",
+    "memmap",
+    "save",
+    "savetxt",
+    "tofile",
+}
+_FORBIDDEN_PATH_PREFIXES = (
+    "/dev/",
+    "/etc/",
+    "/home/",
+    "/proc/",
+    "/root/",
+    "/sys/",
+)
 
 
 def _get_manim_cmd() -> list[str]:
@@ -90,6 +110,19 @@ def validate_manim_code(code: str) -> None:
             raise UnsafeManimCode(f"Name is not allowed: {node.id}")
         elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             raise UnsafeManimCode(f"Private attribute access is not allowed: {node.attr}")
+        elif isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_IO_ATTRIBUTES:
+            raise UnsafeManimCode(f"File-backed operation is not allowed: {node.attr}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            value = node.value.strip().lower()
+            has_parent_traversal = bool(re.search(r"(?:^|[\\/])\.\.(?:[\\/]|$)", value))
+            has_external_scheme = bool(re.match(r"^[a-z][a-z0-9+.-]*://", value))
+            if (
+                value.startswith(("/", "~"))
+                or value.startswith(_FORBIDDEN_PATH_PREFIXES)
+                or has_parent_traversal
+                or has_external_scheme
+            ):
+                raise UnsafeManimCode("External or sensitive resource paths are not allowed")
 
 
 def _manim_preexec() -> None:
@@ -207,7 +240,7 @@ def render_manim_code(
         )
         if result.returncode != 0:
             raise UnsafeManimCode(f"Manim Error:\n{result.stderr}")
-        mp4_files = list((temp / "media").rglob("*.mp4"))
+        mp4_files = _final_manim_videos(temp / "media")
         if not mp4_files:
             raise UnsafeManimCode("Manim did not produce any MP4 files")
         final_mp4 = mp4_files[0]
@@ -226,6 +259,17 @@ def render_manim_code(
         dest_path = settings.artifacts_dir / f"{job_id}.mp4"
         shutil.copy(final_mp4, dest_path)
         return f"file://{dest_path.absolute()}"
+
+
+def _final_manim_videos(media_dir: Path) -> list[Path]:
+    """Exclude Manim's partial render fragments from publishable outputs."""
+    candidates = [
+        path
+        for path in media_dir.rglob("*.mp4")
+        if "partial_movie_files" not in path.parts
+    ]
+    named = [path for path in candidates if path.name == "GeneratedScene.mp4"]
+    return sorted(named or candidates, key=lambda path: (path.stat().st_mtime_ns, str(path)))
 
 
 def _probe_duration(media_file: Path, work_dir: Path) -> float:
@@ -611,7 +655,7 @@ def render_manim_for_validation(
         images = list(media_dir.rglob("*.png"))
         if images:
             image_path = images[0]
-        videos = list(media_dir.rglob("*.mp4"))
+        videos = _final_manim_videos(media_dir)
         if videos:
             video_path = videos[0]
 

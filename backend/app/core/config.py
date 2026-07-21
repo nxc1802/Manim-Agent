@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import cached_property
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,20 +26,35 @@ class Settings(BaseSettings):
         validation_alias="DEV_DEFAULT_USER_ID",
     )
     supabase_jwt_secret: str | None = Field(default=None, validation_alias="SUPABASE_JWT_SECRET")
+    supabase_jwt_jwks_url: str | None = Field(
+        default=None, validation_alias="SUPABASE_JWT_JWKS_URL"
+    )
+    supabase_jwt_issuer: str | None = Field(
+        default=None, validation_alias="SUPABASE_JWT_ISSUER"
+    )
+    supabase_jwks_cache_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=600,
+        validation_alias="SUPABASE_JWKS_CACHE_SECONDS",
+    )
     supabase_jwt_audience: str | None = Field(
         default="authenticated", validation_alias="SUPABASE_JWT_AUDIENCE"
     )
 
     supabase_url: str | None = Field(default=None, validation_alias="SUPABASE_URL")
-    supabase_anon_key: str | None = Field(default=None, validation_alias="SUPABASE_ANON_KEY")
     supabase_service_role_key: str | None = Field(
-        default=None, validation_alias="SUPABASE_SERVICE_ROLE_KEY"
+        default=None,
+        validation_alias=AliasChoices("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
     )
     supabase_storage_bucket: str = Field(
         default="videos", validation_alias="SUPABASE_STORAGE_BUCKET"
     )
     supabase_signed_url_seconds: int = Field(
-        default=604_800, validation_alias="SUPABASE_SIGNED_URL_SECONDS"
+        default=3_600,
+        ge=60,
+        le=86_400,
+        validation_alias="SUPABASE_SIGNED_URL_SECONDS",
     )
     internal_render_signed_url_seconds: int = Field(
         default=900, ge=60, le=3_600, validation_alias="INTERNAL_RENDER_SIGNED_URL_SECONDS"
@@ -104,16 +119,18 @@ class Settings(BaseSettings):
         if self.app_env.lower() in {"production", "prod", "staging"}:
             if self.auth_mode != "jwt":
                 raise ValueError("AUTH_MODE must be jwt outside development")
-            if self.cors_origins == "*":
+            if "*" in self.cors_origins_list:
                 raise ValueError("CORS_ORIGINS cannot be * outside development")
-            if self.internal_service_token == "change-me-in-production":
-                raise ValueError("INTERNAL_SERVICE_TOKEN must be configured outside development")
+            if len(self.internal_service_token.strip()) < 32:
+                raise ValueError(
+                    "INTERNAL_SERVICE_TOKEN must contain at least 32 characters "
+                    "outside development"
+                )
             if not self.supabase_url or not self.supabase_service_role_key:
                 raise ValueError(
-                    "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required outside development"
+                    "SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy service-role key) "
+                    "are required outside development"
                 )
-            if not self.supabase_jwt_secret:
-                raise ValueError("SUPABASE_JWT_SECRET is required outside development")
         return self
 
     @cached_property
@@ -123,6 +140,22 @@ class Settings(BaseSettings):
     @cached_property
     def celery_broker_url_resolved(self) -> str:
         return (self.celery_broker_url or self.redis_url).strip()
+
+    @cached_property
+    def supabase_jwt_issuer_resolved(self) -> str | None:
+        configured = (self.supabase_jwt_issuer or "").strip()
+        if configured:
+            return configured.rstrip("/")
+        base = (self.supabase_url or "").strip().rstrip("/")
+        return f"{base}/auth/v1" if base else None
+
+    @cached_property
+    def supabase_jwt_jwks_url_resolved(self) -> str | None:
+        configured = (self.supabase_jwt_jwks_url or "").strip()
+        if configured:
+            return configured
+        issuer = self.supabase_jwt_issuer_resolved
+        return f"{issuer}/.well-known/jwks.json" if issuer else None
 
 
 settings = Settings()

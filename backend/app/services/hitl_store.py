@@ -10,6 +10,7 @@ from shared.schemas.hitl import AgentStep, AgentStepKind, AiRun
 from app.core.config import settings
 from app.services.cache import CACHE_MISS, RedisJsonCache
 from app.services.redis_client import get_redis
+from app.services.supabase_http import supabase_admin_headers
 
 
 class HitlStoreError(RuntimeError):
@@ -28,8 +29,7 @@ class SupabaseHitlStore:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._headers = {
-            "apikey": service_key,
-            "Authorization": f"Bearer {service_key}",
+            **supabase_admin_headers(service_key),
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }

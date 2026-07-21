@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
-from app.llm import GoogleAPIKeyPool, KeyState
+from app.config import Settings
+from app.llm import GoogleAPIKeyPool, GoogleLLM, KeyState
 from app.renderer import (
     ManimProcessTimeout,
     UnsafeManimCode,
@@ -35,6 +37,60 @@ def test_google_key_daily_quota_is_exhausted_until_next_day() -> None:
         pool.acquire()
 
 
+def test_google_key_value_is_never_used_as_state_key() -> None:
+    pool = GoogleAPIKeyPool(["super-secret-provider-key"])
+
+    pool.acquire()
+
+    stored_keys = set(pool._redis._hashes)  # type: ignore[attr-defined]
+    assert stored_keys
+    assert all("super-secret-provider-key" not in key for key in stored_keys)
+
+
+def test_provider_failures_redact_api_keys_from_logs_and_task_errors(
+    monkeypatch, caplog
+) -> None:  # type: ignore[no-untyped-def]
+    import app.llm as llm_module
+
+    secret = "super-secret-provider-key"
+    pool = GoogleAPIKeyPool([secret])
+    client = GoogleLLM(pool)
+
+    def fail_completion(**_kwargs):  # noqa: ANN202
+        raise RuntimeError(f"provider rejected credential {secret}")
+
+    monkeypatch.setattr(llm_module, "completion", fail_completion)
+    with pytest.raises(RuntimeError, match="Google provider request failed") as error:
+        client.complete(
+            messages=[{"role": "user", "content": "test"}],
+            model="gemini-3-flash-preview",
+            temperature=0.1,
+            max_tokens=32,
+        )
+
+    assert secret not in str(error.value)
+    assert secret not in caplog.text
+    assert "[REDACTED]" in str(error.value)
+
+
+def test_production_ai_settings_require_a_provider_key(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv(
+        "INTERNAL_SERVICE_TOKEN", "a-production-internal-token-with-32-characters"
+    )
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for name in tuple(os.environ):
+        if name.startswith("GOOGLE_API_KEY_"):
+            monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="Google provider key"):
+        Settings(_env_file=None)
+
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "provider-key-with-a-numbering-gap")
+    assert Settings(_env_file=None).app_env == "production"
+
+
 def test_renderer_rejects_unsafe_import_before_subprocess() -> None:
     with pytest.raises(UnsafeManimCode, match="Import is not allowed"):
         validate_manim_code("import os\nfrom manim import Scene\n")
@@ -42,6 +98,21 @@ def test_renderer_rejects_unsafe_import_before_subprocess() -> None:
 
 def test_renderer_rejects_reflection_import_bypass() -> None:
     bypass = "imp = getattr(__builtins__, '__import__')\nos = imp('os')\n"
+    with pytest.raises(UnsafeManimCode, match="not allowed"):
+        validate_manim_code(bypass)
+
+
+@pytest.mark.parametrize(
+    "bypass",
+    [
+        "import numpy as np\npayload = np.fromfile('/proc/1/environ')",
+        "import numpy as np\npayload = np.load('../../data/redis/appendonly.aof')",
+        "from numpy import memmap\npayload = memmap('/etc/passwd')",
+        "from manim import *\nlabel = Text('https://169.254.169.254/latest/meta-data')",
+        "from manim import *\nimage = ImageMobject('/data/redis/appendonly.aof')",
+    ],
+)
+def test_renderer_rejects_file_and_network_resource_bypasses(bypass: str) -> None:
     with pytest.raises(UnsafeManimCode, match="not allowed"):
         validate_manim_code(bypass)
 
@@ -87,6 +158,8 @@ def test_tts_sends_the_configured_voice_and_writes_mp3(tmp_path: Path, monkeypat
 
     assert audio and audio.read_bytes() == b"mp3"
     payload = request.call_args.kwargs["json"]
+    assert request.call_args.kwargs["headers"] == {"x-goog-api-key": "test-key"}
+    assert "params" not in request.call_args.kwargs
     assert payload["voice"] == {"languageCode": "vi-VN", "name": "vi-VN-Standard-A"}
     assert payload["audioConfig"]["audioEncoding"] == "MP3"
 

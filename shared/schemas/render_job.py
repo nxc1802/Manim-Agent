@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RenderJobType = Literal["preview", "full", "full_project"]
 RenderJobStatus = Literal["queued", "rendering", "completed", "failed", "cancelled"]
-RenderQuality = Literal["720p", "1080p", "4k"]
+RenderQuality = Literal["480p", "720p", "1080p", "4k"]
 
 
 class RenderJob(BaseModel):
@@ -20,7 +20,7 @@ class RenderJob(BaseModel):
     project_id: UUID
     scene_id: UUID | None = None
     job_type: RenderJobType
-    # Ephemeral in Phase 3 (Redis JSON). Add to SQL migration in Phase 6 when wiring Supabase.
+    # Render-job coordination remains ephemeral in Redis for the single-Space profile.
     render_quality: RenderQuality | None = None
     status: RenderJobStatus = "queued"
     progress: int = Field(default=0, ge=0, le=100)

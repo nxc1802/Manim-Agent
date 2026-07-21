@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.base import ContentStore
 from app.services.cache import CACHE_MISS, RedisJsonCache
 from app.services.redis_client import get_redis
+from app.services.supabase_http import supabase_admin_headers
 from shared.schemas.project import DashboardStats, Project, ProjectStatus
 from shared.schemas.scene import Scene, StoryboardStatus
 from shared.schemas.user import UserSettings
@@ -22,8 +23,7 @@ class SupabaseContentStore(ContentStore):
             raise RuntimeError("Supabase is not configured")
         self.base_url = settings.supabase_url.rstrip("/")
         self.headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            **supabase_admin_headers(settings.supabase_service_role_key),
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }

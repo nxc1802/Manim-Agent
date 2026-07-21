@@ -78,9 +78,10 @@ that no longer own the target.
 ## Operational rules
 
 1. Set the same non-default `INTERNAL_SERVICE_TOKEN` in both service environments.
-2. Keep `SUPABASE_SERVICE_ROLE_KEY` only in `backend/.env`.
+2. Keep `SUPABASE_SECRET_KEY` (or the legacy service-role alias) only in Backend.
 3. Keep `GOOGLE_API_KEY` only in `ai_core/.env`. The Redis-backed key pool coordinates `AVAILABLE`, `COOLDOWN`, and `EXHAUSTED` states across parallel Celery processes.
-4. Apply every migration in lexical order, including `20260716000000_render_and_status.sql` for persisted scene/project video state, `20260718000000_runtime_lifecycle_backfill.sql` for legacy lifecycle repair, and `20260718000001_drop_legacy_dashboard_rpc.sql` to remove the obsolete public dashboard RPC.
-5. Set `AUTH_MODE=jwt`, `SUPABASE_JWT_SECRET`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` outside development. The frontend sends the active Supabase access token on HTTP and WebSocket requests; never expose the service-role key.
-6. Local Compose shares the read-only `render_artifacts` volume with Backend. When Supabase Storage is configured, Backend uploads the completed worker artifact and signs the durable project/scene reference; otherwise it authorizes the local project/scene video stream. Job-specific video routes remain available immediately after completion, but reload does not depend on Redis job retention.
+4. Treat `backend/supabase/migrations/*.sql` as the only deployable schema and apply them through Supabase CLI/CI; never deploy `init_schema.sql`.
+5. Set `AUTH_MODE=jwt`, `SUPABASE_URL`, and the Backend secret key outside development. Prefer asymmetric JWT signing and JWKS; configure `SUPABASE_JWT_SECRET` only for legacy HS256. Frontend sends access tokens in HTTP Authorization and the WebSocket subprotocol header, never in a URL.
+6. Local Compose shares the read-only `render_artifacts` volume with Backend. When Supabase Storage is configured, Backend uploads the completed worker artifact and signs the durable project/scene reference; after that callback confirms a `supabase://` object, the render worker removes its local staging file. Without Storage, it retains and authorizes the local project/scene video stream. Reload of production video does not depend on Redis job retention.
 7. The worker runs as an unprivileged user with dropped Linux capabilities, cgroup limits and Manim process memory/CPU/file-descriptor limits. Generated Manim subprocesses receive a minimal environment with provider, Backend and database secrets removed.
+8. The initial Hugging Face profile co-locates all processes to satisfy its port/network and artifact-transfer constraints. It is protected/private, single-tenant and trusted-input only; a hostile multi-tenant renderer requires an ephemeral sandbox with no runtime secrets.

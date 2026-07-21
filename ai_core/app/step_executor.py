@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from contextlib import nullcontext
 from typing import Any
 
 from app.backend_client import BackendClient
@@ -19,15 +20,19 @@ class StepExecutor:
     def __init__(self, llm: GoogleLLM | None = None) -> None:
         self.llm = llm or GoogleLLM()
 
-    def generate(self, work_item: dict[str, Any]) -> dict[str, Any]:
+    def generate(
+        self,
+        work_item: dict[str, Any],
+        backend_client: BackendClient | None = None,
+    ) -> dict[str, Any]:
         raw_step = work_item["step"]
         kind = str(raw_step["kind"])
 
         # code_reviewer and visual_reviewer use the ReviewLoop engine
         if kind == "code_reviewer":
-            return self._run_review_loop(work_item, CODE_REVIEW_CONFIG)
+            return self._run_review_loop(work_item, CODE_REVIEW_CONFIG, backend_client)
         if kind == "visual_reviewer":
-            return self._run_review_loop(work_item, VISUAL_REVIEW_CONFIG)
+            return self._run_review_loop(work_item, VISUAL_REVIEW_CONFIG, backend_client)
 
         # Idea sketch, storyboard and builder are durable public stages.
         config = self._effective_model_config(kind, work_item.get("settings") or {})
@@ -42,7 +47,29 @@ class StepExecutor:
                 context,
                 work_item.get("settings") or {},
             )
-        client = BackendClient()
+        client_scope = (
+            nullcontext(backend_client) if backend_client is not None else BackendClient()
+        )
+        with client_scope as client:
+            return self._generate_with_client(
+                work_item=work_item,
+                raw_step=raw_step,
+                kind=kind,
+                config=config,
+                context=context,
+                client=client,
+            )
+
+    def _generate_with_client(
+        self,
+        *,
+        work_item: dict[str, Any],
+        raw_step: dict[str, Any],
+        kind: str,
+        config: AgentModel,
+        context: dict[str, Any],
+        client: BackendClient,
+    ) -> dict[str, Any]:
         step_id = raw_step["id"]
 
         async def _stream_generate() -> str:
@@ -83,11 +110,11 @@ class StepExecutor:
 
         if kind == "builder":
             code = re.sub(r"^```(?:python)?\s*|\s*```$", "", text).strip()
-            
+
             settings = work_item.get("settings") or {}
             code_review_enabled = settings.get("code_review_enabled", True)
             visual_review_enabled = settings.get("visual_review_enabled", True)
-            
+
             auto_review: dict[str, Any] = {}
             try:
                 if code_review_enabled:
@@ -280,14 +307,16 @@ class StepExecutor:
             tiers=self._review_tiers(custom_tiers) if custom_tiers is not None else None,
         )
         step_id = work_item["step"]["id"]
-        result = loop.run(
-            code,
-            config=config,
-            context=work_item,
-            on_stage=lambda stage: (client or BackendClient()).publish_step_stage(step_id, stage),
-            max_attempts=max_attempts,
-            llm_config=llm_config,
-        )
+        client_scope = nullcontext(client) if client is not None else BackendClient()
+        with client_scope as active_client:
+            result = loop.run(
+                code,
+                config=config,
+                context=work_item,
+                on_stage=lambda stage: active_client.publish_step_stage(step_id, stage),
+                max_attempts=max_attempts,
+                llm_config=llm_config,
+            )
         logger.info(
             "Review loop (%s) completed: passed=%s, attempts=%d, iterations=%d",
             "visual" if config.uses_vision else "code",

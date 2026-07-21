@@ -1,4 +1,4 @@
-.PHONY: dev-be dev-ai worker-ai dev-fe install-be install-ai install-fe test-be test-ai test-fe lint-be lint-ai lint-fe build-fe check compose-up
+.PHONY: dev-be dev-ai worker-ai dev-fe install-be install-ai install-fe lock test-be test-ai test-fe lint-be lint-ai lint-fe build-fe schema-check audit check image compose-up
 
 dev-be:
 	$(MAKE) -C backend dev
@@ -19,7 +19,11 @@ install-ai:
 	$(MAKE) -C ai_core install
 
 install-fe:
-	cd frontend && npm install
+	cd frontend && npm ci
+
+lock:
+	$(MAKE) -C backend lock
+	$(MAKE) -C ai_core lock
 
 test-be:
 	$(MAKE) -C backend test
@@ -42,7 +46,18 @@ lint-fe:
 build-fe:
 	cd frontend && npm run build
 
-check: lint-be lint-ai lint-fe test-be test-ai test-fe build-fe
+schema-check:
+	bash backend/supabase/validate_migrations.sh
+
+audit:
+	$(MAKE) -C backend audit
+	$(MAKE) -C ai_core audit
+	cd frontend && npm audit --audit-level=high
+
+check: lint-be lint-ai lint-fe test-be test-ai test-fe build-fe schema-check
+
+image:
+	docker build --build-arg VITE_AUTH_MODE=off -t manim-agent:local .
 
 compose-up:
 	docker compose up --build

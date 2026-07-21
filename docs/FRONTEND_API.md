@@ -1,6 +1,8 @@
 # Frontend API reference
 
-Base URL: `http://localhost:8000/v1`. Send `Authorization: Bearer <Supabase JWT>` when `AUTH_MODE=jwt`; development may use `AUTH_MODE=off`.
+Production uses the same-origin base `/v1`; local Backend defaults to
+`http://localhost:8000/v1`. Send `Authorization: Bearer <Supabase JWT>` when
+`AUTH_MODE=jwt`; development may use `AUTH_MODE=off`.
 
 All IDs are UUIDs. Public errors use the stable envelope below. `409 Conflict` means the state changed since the client last read it; refresh and use the new `revision`.
 
@@ -171,7 +173,12 @@ percentages.
 
 | Transport | Path | Purpose |
 | --- | --- | --- |
-| WebSocket | `/ws/projects/{projectId}?token=<jwt>` | HITL and render state events |
+| WebSocket | `/ws/projects/{projectId}` | HITL and render state events |
+
+In JWT mode the browser requests subprotocols `manim.jwt` and `<access-token>`.
+Backend authenticates the second value and negotiates only `manim.jwt`; query
+string tokens are not accepted because URLs are commonly retained in access
+logs and browser/proxy telemetry.
 
 For step events, retain the latest step from `data.step`; render and rollback events intentionally do not require a step. Typical types are `hitl.step.queued`, `hitl.step.generating`, `hitl.step.review`, `hitl.step.pending_review`, `hitl.step.edited`, `hitl.step.approved`, `hitl.step.auto_approved`, `hitl.step.rejected`, `hitl.step.failed`, `hitl.run.rolled_back`, `render.queued`, `render.started`, `render.completed` and `render.failed`.
 

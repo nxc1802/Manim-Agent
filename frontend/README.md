@@ -4,14 +4,18 @@ The frontend is a Vite + React application. It talks only to Backend; AI Core is
 
 ## Run with Supabase JWT authentication
 
-Copy `.env.example` to `.env`, keep `VITE_AUTH_MODE=jwt`, and set the public Supabase URL and publishable/anon key. Then run:
+Copy `.env.example` to `.env`, keep `VITE_AUTH_MODE=jwt`, and set the public
+Supabase URL plus `VITE_SUPABASE_PUBLISHABLE_KEY`. The legacy anon-key variable
+remains a fallback. Then run:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Never put `SUPABASE_SERVICE_ROLE_KEY` in a `VITE_*` variable.
+Never put `SUPABASE_SECRET_KEY` or a legacy service-role key in a `VITE_*`
+variable. HTTP uses an Authorization bearer; WebSocket auth uses the
+`Sec-WebSocket-Protocol` header so the token is not placed in a URL.
 
 ## Standalone local development
 

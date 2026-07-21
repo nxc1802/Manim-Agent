@@ -1,6 +1,9 @@
 import { isAuthDisabled, supabase } from './supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/v1';
+export const apiBaseUrl = (configured?: string) =>
+  ((configured || '').trim() || '/v1').replace(/\/+$/, '');
+
+const API_BASE_URL = apiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 const newRequestId = () => globalThis.crypto?.randomUUID?.() || `fe-${Date.now()}-${Math.random()}`;
 
@@ -391,6 +394,7 @@ export const api = {
     projectId: string,
     sceneId: string,
     operationVersion = 'current',
+    quality: UserSettings['video_quality'] = '720p',
   ): Promise<RenderEnqueueResponse> {
     const res = await request(`/projects/${projectId}/render`, {
       method: 'POST',
@@ -398,7 +402,7 @@ export const api = {
         'Content-Type': 'application/json',
         'X-Idempotency-Key': renderIdempotencyKey(`${projectId}:scene:${sceneId}:${operationVersion}`),
       },
-      body: JSON.stringify({ scene_id: sceneId, render_type: 'full', quality: '720p' }),
+      body: JSON.stringify({ scene_id: sceneId, render_type: 'full', quality }),
     });
     if (!res.ok) throw await responseError(res, 'Failed to queue scene render');
     return res.json();
@@ -407,6 +411,7 @@ export const api = {
   async enqueueProjectRender(
     projectId: string,
     operationVersion = 'current',
+    quality: UserSettings['video_quality'] = '720p',
   ): Promise<RenderEnqueueResponse> {
     const res = await request(`/projects/${projectId}/render`, {
       method: 'POST',
@@ -414,7 +419,7 @@ export const api = {
         'Content-Type': 'application/json',
         'X-Idempotency-Key': renderIdempotencyKey(`${projectId}:full-project:${operationVersion}`),
       },
-      body: JSON.stringify({ render_type: 'full_project', quality: '720p' }),
+      body: JSON.stringify({ render_type: 'full_project', quality }),
     });
     if (!res.ok) throw await responseError(res, 'Failed to queue full project render');
     return res.json();

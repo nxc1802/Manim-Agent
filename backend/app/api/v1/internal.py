@@ -467,6 +467,11 @@ def claim_render_job(
     )
     project = content.get_project(job.project_id)
     user_settings = content.get_user_settings(project.user_id) if project else None
+    render_settings = user_settings.model_dump(mode="json") if user_settings else {}
+    if job.render_quality:
+        # The per-job request is authoritative even when the user's saved
+        # preference changes while this queued render is waiting to start.
+        render_settings["video_quality"] = job.render_quality
 
     if job.job_type == "full_project":
         project_scenes = content.get_project_scenes(job.project_id)
@@ -515,7 +520,7 @@ def claim_render_job(
                 key=lambda item: (item.scene_order, str(item.id)),
             )
         ]
-        payload["settings"] = user_settings.model_dump(mode="json") if user_settings else None
+        payload["settings"] = render_settings
         payload["source_language"] = project.source_language if project else "en"
         return payload
 
@@ -560,7 +565,7 @@ def claim_render_job(
     return {
         "job": running.model_dump(mode="json"),
         "manim_code": scene.manim_code,
-        "settings": user_settings.model_dump(mode="json") if user_settings else None,
+        "settings": render_settings,
         "voice_script": scene.voice_script,
         "source_language": project.source_language if project else "en",
     }

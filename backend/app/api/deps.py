@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
@@ -25,24 +25,32 @@ def get_hitl_store() -> SupabaseHitlStore:
 
 
 def get_request_user_id(
+    request: Request,
     auth: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
 ) -> UUID:
     """Resolve the caller without granting AI Core access to user credentials."""
     if settings.auth_mode != "jwt":
+        request.state.user_id = settings.dev_default_user_id
         return settings.dev_default_user_id
     if auth is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
-    secret = (settings.supabase_jwt_secret or "").strip()
-    if not secret:
+    secret = (settings.supabase_jwt_secret or "").strip() or None
+    jwks_url = settings.supabase_jwt_jwks_url_resolved
+    if not secret and not jwks_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="JWT is not configured"
         )
     try:
-        return user_id_from_supabase_jwt(
+        user_id = user_id_from_supabase_jwt(
             auth.credentials.strip(),
             secret=secret,
             audience=(settings.supabase_jwt_audience or "").strip() or None,
+            jwks_url=jwks_url,
+            issuer=settings.supabase_jwt_issuer_resolved,
+            jwks_cache_seconds=settings.supabase_jwks_cache_seconds,
         )
+        request.state.user_id = user_id
+        return user_id
     except JwtValidationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 

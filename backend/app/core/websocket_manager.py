@@ -22,8 +22,17 @@ class ConnectionManager:
         self.active_connections: dict[str, set[WebSocket]] = {}
         self._pubsub_task: asyncio.Task[None] | None = None
 
-    async def connect(self, websocket: WebSocket, project_id: str) -> None:
-        await websocket.accept()
+    async def connect(
+        self,
+        websocket: WebSocket,
+        project_id: str,
+        *,
+        subprotocol: str | None = None,
+    ) -> None:
+        if subprotocol:
+            await websocket.accept(subprotocol=subprotocol)
+        else:
+            await websocket.accept()
         self.active_connections.setdefault(project_id, set()).add(websocket)
         self._ensure_listener()
         logger.info(

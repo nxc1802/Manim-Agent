@@ -249,6 +249,7 @@ def get_content_store() -> ContentStore:
         return SupabaseContentStore()
     if settings.app_env.lower() in {"production", "prod", "staging"}:
         raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required outside development"
+            "SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy service-role key) "
+            "are required outside development"
         )
     return RedisContentStore(get_redis())

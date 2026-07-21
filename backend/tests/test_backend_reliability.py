@@ -384,6 +384,7 @@ def test_full_project_claim_returns_all_ordered_scene_sources(monkeypatch) -> No
     assert [scene["scene_order"] for scene in payload["scenes"]] == [1, 2]
     assert [scene["voice_script"] for scene in payload["scenes"]] == [None, None]
     assert payload["source_language"] == "en"
+    assert payload["settings"]["video_quality"] == "720p"
     assert payload["metadata"]["source_snapshot"]["kind"] == "full_project"
 
 

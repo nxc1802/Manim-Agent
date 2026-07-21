@@ -39,6 +39,7 @@ import {
   shouldAcceptTerminalRender,
   stageLabel,
   websocketProjectUrl,
+  websocketAuthProtocols,
 } from '../lib/sceneEditorState';
 import type { ReviewStage, SceneRenderStatus } from '../lib/sceneEditorState';
 import { isAuthDisabled, supabase } from '../lib/supabase';
@@ -216,6 +217,7 @@ export const SceneEditor: React.FC = () => {
   const resolvedProjectVideoAssetRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const hitlEnabledRef = useRef(true);
+  const renderQualityRef = useRef<'480p' | '720p' | '1080p' | '4k'>('720p');
 
   const setSelectedSceneId = useCallback((sceneId: string | null) => {
     selectedSceneIdRef.current = sceneId;
@@ -388,6 +390,7 @@ export const SceneEditor: React.FC = () => {
           return;
         }
         hitlEnabledRef.current = settings?.hitl_enabled ?? true;
+        renderQualityRef.current = settings?.video_quality ?? '720p';
         const projectRestSnapshotIsCurrent = canApplyRestSnapshot(
           observedProjectEventVersion,
           projectEventVersionRef.current,
@@ -1102,7 +1105,9 @@ export const SceneEditor: React.FC = () => {
       }
       if (disposed) return;
 
-      socket = new WebSocket(websocketProjectUrl(import.meta.env.VITE_WS_BASE_URL, projectId, token));
+      const socketUrl = websocketProjectUrl(import.meta.env.VITE_WS_BASE_URL, projectId);
+      const protocols = websocketAuthProtocols(token);
+      socket = protocols ? new WebSocket(socketUrl, protocols) : new WebSocket(socketUrl);
       wsRef.current = socket;
       socket.onopen = () => {
         if (disposed) {
@@ -1501,6 +1506,7 @@ export const SceneEditor: React.FC = () => {
         projectId,
         selectedSceneId,
         operationVersion,
+        renderQualityRef.current,
       );
       sceneEventVersionRef.current[selectedSceneId] =
         (sceneEventVersionRef.current[selectedSceneId] || 0) + 1;
@@ -1524,7 +1530,11 @@ export const SceneEditor: React.FC = () => {
           return `${scene.id}:${workspace?.stepId || 'persisted'}:${workspace?.revision || 0}:${scene.manim_code || ''}`;
         })
         .join('|');
-      const { job_id: jobId } = await api.enqueueProjectRender(projectId, operationVersion);
+      const { job_id: jobId } = await api.enqueueProjectRender(
+        projectId,
+        operationVersion,
+        renderQualityRef.current,
+      );
       projectEventVersionRef.current += 1;
       activeProjectRenderJobRef.current = jobId;
       setProjectRender(previous => ({ ...previous, jobId, status: 'queued', progress: 0 }));

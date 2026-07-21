@@ -24,7 +24,9 @@ export const App: React.FC = () => {
     if (isAuthDisabled) return;
 
     if (!hasSupabaseConfig) {
-      console.error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required in jwt mode.');
+      console.error(
+        'VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required in jwt mode.',
+      );
       setReady(true);
       return;
     }

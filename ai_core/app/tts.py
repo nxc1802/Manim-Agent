@@ -54,6 +54,7 @@ def synthesize_speech(
     key = api_keys[0]
 
     # Try Gemini 3.1 Flash TTS first (Free AI Studio Developer API model)
+    pcm_path: Path | None = None
     try:
         gemini_payload = {
             "contents": [{"parts": [{"text": text}]}],
@@ -70,7 +71,7 @@ def synthesize_speech(
         }
         resp = httpx.post(
             _GEMINI_TTS_URL,
-            params={"key": key},
+            headers={"x-goog-api-key": key},
             json=gemini_payload,
             timeout=settings.tts_timeout_seconds,
         )
@@ -85,26 +86,37 @@ def synthesize_speech(
                         pcm_bytes = base64.b64decode(raw_b64)
                         with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as pcm_file:
                             pcm_file.write(pcm_bytes)
-                            pcm_path = pcm_file.name
+                            pcm_path = Path(pcm_file.name)
 
                         cmd = [
                             "ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1",
-                            "-i", pcm_path, str(destination)
+                            "-i", str(pcm_path), str(destination)
                         ]
-                        res = subprocess.run(cmd, capture_output=True)
+                        res = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            timeout=settings.tts_timeout_seconds,
+                            check=False,
+                        )
                         if res.returncode == 0 and destination.is_file() and destination.stat().st_size > 0:
                             return destination
     except Exception as exc:
         logger.warning("Gemini Flash TTS failed, falling back to Cloud TTS: %s", exc)
+    finally:
+        if pcm_path is not None:
+            pcm_path.unlink(missing_ok=True)
 
     # Fallback to Google Cloud Text-to-Speech API
     requested_voice = str(user_settings.get("tts_voice") or "auto")
-    voice_name = (
-        "vi-VN-Standard-A" if str(source_language or "en").lower() == "vi" else "en-US-Standard-C"
-        if requested_voice == "auto"
-        else requested_voice
-    )
-    language_code = "vi-VN" if "vi-VN" in voice_name else "en-US"
+    if requested_voice == "auto":
+        voice_name = (
+            "vi-VN-Standard-A"
+            if str(source_language or "en").lower().startswith("vi")
+            else "en-US-Standard-C"
+        )
+    else:
+        voice_name = requested_voice
+    language_code = "vi-VN" if voice_name.startswith("vi-") else "en-US"
 
     payload = {
         "input": {"text": text},
@@ -118,7 +130,7 @@ def synthesize_speech(
     try:
         response = httpx.post(
             _CLOUD_TTS_URL,
-            params={"key": key},
+            headers={"x-goog-api-key": key},
             json=payload,
             timeout=settings.tts_timeout_seconds,
         )

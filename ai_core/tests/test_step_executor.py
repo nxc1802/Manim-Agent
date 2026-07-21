@@ -152,6 +152,34 @@ def test_review_loop_receives_the_user_attempt_limit() -> None:
     assert loop.run.call_args.kwargs["max_attempts"] == 2
 
 
+def test_reviewer_reuses_the_task_backend_client_for_stage_callbacks() -> None:
+    executor = StepExecutor(llm=MagicMock())
+    work_item = _work_item()
+    work_item["step"]["kind"] = "code_reviewer"
+    work_item["step"]["input"] = {"manim_code": "class GeneratedScene: pass"}
+    backend_client = MagicMock()
+    loop = MagicMock()
+    loop.run.return_value.model_dump.return_value = {
+        "passed": True,
+        "manim_code": "valid code",
+        "iterations": [],
+        "total_attempts": 1,
+        "final_error": None,
+    }
+
+    with (
+        patch("app.step_executor.BackendClient") as backend_client_type,
+        patch("app.step_executor.ReviewLoop", return_value=loop),
+    ):
+        executor.generate(work_item, backend_client=backend_client)
+
+    loop.run.call_args.kwargs["on_stage"]({"status": "reviewing"})
+    backend_client.publish_step_stage.assert_called_once_with(
+        work_item["step"]["id"], {"status": "reviewing"}
+    )
+    backend_client_type.assert_not_called()
+
+
 def test_generation_model_overrides_are_applied_without_changing_defaults() -> None:
     default = StepExecutor._effective_model_config("builder", {})
     overridden = StepExecutor._effective_model_config(
@@ -163,7 +191,7 @@ def test_generation_model_overrides_are_applied_without_changing_defaults() -> N
         },
     )
 
-    assert default.model == "gemini-3-flash-preview"
+    assert default.model == "gemini-3.5-flash"
     assert default.temperature == 0.1
     assert overridden.model == "gemini-3.5-flash"
     assert overridden.temperature == 0.7

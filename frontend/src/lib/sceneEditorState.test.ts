@@ -13,6 +13,7 @@ import {
   shouldAcceptRunEvent,
   shouldAcceptTerminalRender,
   websocketProjectUrl,
+  websocketAuthProtocols,
 } from './sceneEditorState';
 
 const scene = (id: string): Scene => ({
@@ -226,12 +227,19 @@ describe('scene editor workspace state', () => {
     expect(renderStatusFromEvent('render.failed')).toBe('failed');
   });
 
-  it('uses step scene IDs and supports auth-off WebSocket URLs without a token query', () => {
+  it('uses step scene IDs and keeps bearer tokens out of WebSocket URLs', () => {
     expect(eventSceneId({}, builderStep())).toBe('scene-a');
-    expect(websocketProjectUrl('http://localhost:8000/v1/', 'project-1', null))
+    expect(websocketProjectUrl(
+      undefined,
+      'project-1',
+      { protocol: 'https:', host: 'manim.example.hf.space' },
+    )).toBe('wss://manim.example.hf.space/v1/ws/projects/project-1');
+    expect(websocketProjectUrl('http://localhost:8000/v1/', 'project-1'))
       .toBe('ws://localhost:8000/v1/ws/projects/project-1');
-    expect(websocketProjectUrl('https://api.example/v1', 'project-1', 'jwt token'))
-      .toBe('wss://api.example/v1/ws/projects/project-1?token=jwt%20token');
+    expect(websocketProjectUrl('https://api.example/v1', 'project-1'))
+      .toBe('wss://api.example/v1/ws/projects/project-1');
+    expect(websocketAuthProtocols('jwt.token')).toEqual(['manim.jwt', 'jwt.token']);
+    expect(websocketAuthProtocols(null)).toBeUndefined();
   });
 
   it('rejects late events from an older run but accepts an explicitly announced new run', () => {

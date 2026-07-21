@@ -22,9 +22,9 @@ const DEFAULT_REVIEW_TIERS: ReviewTierConfig[] = [
   { model: 'gemini-3.5-flash', max_attempts: 3, reasoning_effort: 'medium' },
 ];
 const DEFAULT_AGENT_MODELS: Record<GenerationAgent, ReviewTierConfig['model']> = {
-  idea_sketcher: 'gemini-3-flash-preview',
-  storyboarder: 'gemini-3-flash-preview',
-  builder: 'gemini-3-flash-preview',
+  idea_sketcher: 'gemini-3.5-flash',
+  storyboarder: 'gemini-3.5-flash',
+  builder: 'gemini-3.5-flash',
   code_reviewer: 'gemma-4-31b-it',
   visual_reviewer: 'gemma-4-31b-it',
 };

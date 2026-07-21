@@ -18,9 +18,12 @@ from app.core.config import settings
 from app.core.correlation import CorrelationIdMiddleware
 from app.core.errors import register_exception_handlers
 from app.core.limiter import limiter
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.sentry_setup import init_sentry
+from app.core.static_spa import mount_static_spa
 from app.core.websocket_manager import manager
 from app.services.redis_client import close_redis, get_redis
+from app.services.supabase_http import supabase_admin_headers
 
 init_sentry()
 logging.basicConfig(
@@ -43,10 +46,7 @@ def _check_supabase_reachability() -> tuple[bool, str]:
     try:
         response = httpx.get(
             f"{settings.supabase_url.rstrip('/')}/rest/v1/projects",
-            headers={
-                "apikey": settings.supabase_service_role_key,
-                "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            },
+            headers=supabase_admin_headers(settings.supabase_service_role_key),
             params={"select": "id", "limit": "1"},
             timeout=settings.readiness_timeout_seconds,
         )
@@ -85,6 +85,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    enable_hsts=settings.app_env.lower() in {"production", "prod", "staging"},
+)
 app.include_router(api_router, prefix="/v1")
 app.include_router(internal_router, prefix="/internal", include_in_schema=False)
 
@@ -121,3 +125,8 @@ def ready() -> JSONResponse:
         status_code=status.HTTP_200_OK if all_ready else status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"status": "ready" if all_ready else "not_ready", "checks": checks},
     )
+
+
+# Keep this mount last. Starlette resolves routes in registration order, so the
+# API, internal callbacks, health probes, and OpenAPI UI remain authoritative.
+mount_static_spa(app)

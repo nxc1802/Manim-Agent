@@ -472,17 +472,29 @@ export const eventSceneId = (data: any, step?: AgentStep | null): string | null 
   return typeof value === 'string' && value ? value : null;
 };
 
-export const websocketBaseUrl = (configured?: string) => {
-  const base = (configured || 'ws://localhost:8000/v1').replace(/\/$/, '');
+type PageLocation = Pick<Location, 'host' | 'protocol'>;
+
+export const websocketBaseUrl = (configured?: string, pageLocation?: PageLocation) => {
+  const location = pageLocation || window.location;
+  const requested = (configured || '').trim() || '/v1';
+  if (requested.startsWith('/')) {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${location.host}${requested}`.replace(/\/$/, '');
+  }
+  const base = requested.replace(/\/$/, '');
   if (base.startsWith('https://')) return `wss://${base.slice('https://'.length)}`;
   if (base.startsWith('http://')) return `ws://${base.slice('http://'.length)}`;
   return base;
 };
 
-export const websocketProjectUrl = (configured: string | undefined, projectId: string, token?: string | null) => {
-  const authQuery = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${websocketBaseUrl(configured)}/ws/projects/${projectId}${authQuery}`;
-};
+export const websocketProjectUrl = (
+  configured: string | undefined,
+  projectId: string,
+  pageLocation?: PageLocation,
+) => `${websocketBaseUrl(configured, pageLocation)}/ws/projects/${projectId}`;
+
+export const websocketAuthProtocols = (token?: string | null): string[] | undefined =>
+  token ? ['manim.jwt', token] : undefined;
 
 export const appendStreamChunk = (current: string, delta: string) => `${current}${delta}`;
 

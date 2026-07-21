@@ -1,22 +1,22 @@
 defaults:
-  model: gemini-3-flash-preview
+  model: gemini-3.5-flash
   temperature: 0.3
   max_tokens: 4096
   reasoning_effort: medium
 
 agents:
   idea_sketcher:
-    model: gemini-3-flash-preview
+    model: gemini-3.5-flash
     temperature: 0.2
     max_tokens: 4096
     reasoning_effort: low
   storyboarder:
-    model: gemini-3-flash-preview
+    model: gemini-3.5-flash
     temperature: 0.3
     max_tokens: 16384
     reasoning_effort: medium
   builder:
-    model: gemini-3-flash-preview
+    model: gemini-3.5-flash
     temperature: 0.1
     max_tokens: 8192
     reasoning_effort: medium

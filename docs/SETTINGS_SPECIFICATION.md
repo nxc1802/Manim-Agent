@@ -33,8 +33,8 @@ consumed by the application.
 
 ## Storage and migration
 
-Apply all files in `backend/supabase/migrations/` in lexical order before
-using durable settings. In particular,
+Deploy all files in `backend/supabase/migrations/` through Supabase CLI/CI
+before using durable settings; never run `init_schema.sql`. In particular,
 `20260720000000_settings_extension.sql` adds the review, rendering, LLM, and
 TTS columns.
 

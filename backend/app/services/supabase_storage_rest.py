@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 
 from app.core.config import settings
+from app.services.supabase_http import supabase_admin_headers
 
 
 def upload_render_artifact(*, source_path: Path, object_path: str) -> str:
@@ -16,17 +17,21 @@ def upload_render_artifact(*, source_path: Path, object_path: str) -> str:
         raise RuntimeError("Supabase Storage is not configured")
     if not source_path.is_file():
         raise RuntimeError("Render artifact is unavailable to Backend")
-    response = httpx.post(
-        f"{base}/storage/v1/object/{bucket}/{object_path}",
-        headers={
-            "Authorization": f"Bearer {key}",
-            "apikey": key,
-            "x-upsert": "true",
-            "Content-Type": "video/mp4",
-        },
-        content=source_path.read_bytes(),
-        timeout=120.0,
-    )
+    size = source_path.stat().st_size
+    if size <= 0:
+        raise RuntimeError("Render artifact is empty")
+    with source_path.open("rb") as source:
+        response = httpx.post(
+            f"{base}/storage/v1/object/{bucket}/{object_path}",
+            headers={
+                **supabase_admin_headers(key),
+                "x-upsert": "true",
+                "Content-Type": "video/mp4",
+                "Content-Length": str(size),
+            },
+            content=iter(lambda: source.read(1024 * 1024), b""),
+            timeout=httpx.Timeout(300.0, connect=10.0),
+        )
     response.raise_for_status()
     return object_path
 
@@ -45,10 +50,7 @@ def sign_storage_object_read_url(
         raise RuntimeError(msg)
     exp = int(expires_in_seconds or settings.supabase_signed_url_seconds)
     sign_url = f"{base}/storage/v1/object/sign/{bucket}/{object_path}"
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "apikey": key,
-    }
+    headers = supabase_admin_headers(key)
     with httpx.Client(timeout=60.0) as client:
         sign_resp = client.post(
             sign_url,
