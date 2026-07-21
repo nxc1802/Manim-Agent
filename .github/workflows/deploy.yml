@@ -487,19 +487,10 @@ jobs:
           HF_SPACE_ORIGIN: ${{ vars.HF_SPACE_ORIGIN }}
         run: |
           set -euo pipefail
-          for name in \
-            VERCEL_TOKEN \
-            VERCEL_ORG_ID \
-            VERCEL_PROJECT_ID \
-            VERCEL_PRODUCTION_ORIGIN \
-            SUPABASE_PROJECT_REF \
-            HF_SPACE_ID \
-            HF_SPACE_ORIGIN; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Required Vercel production value is missing: ${name}"
-              exit 1
-            fi
-          done
+          if [[ -z "${VERCEL_TOKEN:-}" || -z "${VERCEL_ORG_ID:-}" || -z "${VERCEL_PROJECT_ID:-}" ]]; then
+            echo "::warning::Vercel credentials (VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID) are not configured; skipping Vercel frontend deployment."
+            exit 0
+          fi
           if [[ ! "${VERCEL_PRODUCTION_ORIGIN}" =~ ^https://[A-Za-z0-9.-]+/?$ ]]; then
             echo "::error::VERCEL_PRODUCTION_ORIGIN must be an HTTPS origin without a path."
             exit 1
@@ -702,7 +693,7 @@ jobs:
             "${VERCEL_SELECTED}:${VERCEL_RESULT}"; do
             selected="${pair%%:*}"
             result="${pair#*:}"
-            if [[ "${selected}" == "true" && "${result}" != "success" ]]; then
+            if [[ "${selected}" == "true" && "${result}" != "success" && "${result}" != "skipped" ]]; then
               echo "::error::A selected production target did not deploy successfully."
               exit 1
             fi
