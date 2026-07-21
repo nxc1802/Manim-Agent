@@ -1,6 +1,6 @@
 # Backend
 
-FastAPI owns browser/API authorization, tenant checks, projects/scenes/settings, durable HITL state, Redis cache/events/jobs, task dispatch and Supabase Storage upload/signing. It must not import LLM, Manim or AI Core implementation.
+Fast API owns browser/API authorization, tenant checks, projects/scenes/settings, durable HITL state, Redis cache/events/jobs, task dispatch and Supabase Storage upload/signing. It must not import LLM, Manim or AI Core implementation.
 
 ## Local
 
