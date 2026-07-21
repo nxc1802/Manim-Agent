@@ -2,7 +2,11 @@
 
 ## Supported profile
 
-The supported initial production profile is a protected/private, single-tenant Hugging Face Docker Space operated by a trusted team. Generated and user-edited Manim Python executes inside the same container as application processes. AST checks, a minimal subprocess environment, non-root execution and resource limits are defense in depth; they are **not a complete sandbox**.
+The supported production profile is a Vercel frontend backed by a protected,
+single-tenant Hugging Face Docker Space operated by a trusted team. Generated
+and user-edited Manim Python executes inside the same container as application
+processes. AST checks, a minimal subprocess environment, non-root execution and
+resource limits are defense in depth; they are **not a complete sandbox**.
 
 Do not expose this profile as an anonymous or hostile multi-tenant code-execution service. That requires an isolated ephemeral render job with a separate UID/VM boundary, no database/provider secrets, disabled or policy-controlled network, a one-time claim token, and presigned artifact upload.
 
@@ -16,7 +20,7 @@ Do not expose this profile as an anonymous or hostile multi-tenant code-executio
 - Supervisor strips all application secrets from Redis, provider keys from Backend, and database/JWT secrets from both workers before process start.
 - Workers are non-root, queues use late acknowledgement, and render tasks have hard/soft time and resource limits.
 - Generated-code subprocesses receive a sanitized environment; sensitive paths, external URLs, reflection, unsafe imports and file-backed NumPy operations are rejected before execution.
-- Production dependencies are exact, hash-locked and audited; CI builds and scans the root image before CD.
+- Production dependencies are exact, hash-locked and audited; CI builds and scans the same allowlisted Hugging Face payload that CD mirrors.
 
 ## Secret ownership
 
@@ -26,7 +30,7 @@ Do not expose this profile as an anonymous or hostile multi-tenant code-executio
 | `SUPABASE_JWT_SECRET` (legacy only) | Backend runtime only |
 | `GOOGLE_API_KEY*` | AI/render runtime only |
 | `INTERNAL_SERVICE_TOKEN` | Backend and workers in the same deployment |
-| `HF_TOKEN`, Supabase access token/database password | GitHub production deployment only |
+| `HF_TOKEN`, Supabase access token/database password, `VERCEL_TOKEN` | GitHub production deployment only |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Public browser configuration; not a secret |
 
 Never commit `.env` files. Never place a secret in `VITE_*`, Docker `ARG`, README, workflow logs, Redis key names, URL query strings or exception bodies.

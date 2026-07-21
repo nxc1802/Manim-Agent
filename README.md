@@ -10,15 +10,17 @@ pinned: false
 
 # Manim Agent
 
-Manim Agent biến một ý tưởng giáo dục thành storyboard, mã Manim có vòng review, video từng cảnh và video hoàn chỉnh. Frontend React cung cấp HITL; FastAPI quản lý quyền truy cập và trạng thái; Celery chạy AI/review/render; Supabase lưu dữ liệu và video bền vững.
+Manim Agent biến một ý tưởng giáo dục thành storyboard, mã Manim có vòng review, video từng cảnh và video hoàn chỉnh. Frontend React trên Vercel cung cấp HITL; FastAPI trên Hugging Face quản lý quyền truy cập và trạng thái; Celery chạy AI/review/render; Supabase lưu dữ liệu và video bền vững.
 
 ## Kiến trúc triển khai
 
-Bản phát hành đầu tiên dùng **một Hugging Face Docker Space**:
+Bản phát hành production dùng **Vercel cho frontend** và **một Hugging Face
+Docker Space cho API/AI/render runtime**:
 
 ```mermaid
 flowchart LR
-  U["Browser"] -->|"HTTPS + WebSocket"| API["FastAPI :7860\nReact SPA + API"]
+  U["Browser"] --> WEB["React SPA\nVercel"]
+  WEB -->|"HTTPS + WebSocket"| API["FastAPI :7860\nHugging Face"]
   API --> DB["Supabase\nAuth + Postgres + Storage"]
   API --> R[("Redis AOF")]
   R --> AI["Celery AI worker\nconcurrency 1"]
@@ -31,13 +33,17 @@ Monorepo vẫn giữ ranh giới rõ:
 
 | Thư mục | Trách nhiệm |
 | --- | --- |
-| `frontend/` | React/Vite, Supabase Auth, REST và WebSocket cùng origin |
+| `frontend/` | React/Vite trên Vercel, Supabase Auth, REST và WebSocket tới HF |
 | `backend/` | FastAPI, authorization, Supabase, HITL, cache và điều phối queue |
 | `ai_core/` | LLM, review loop, TTS, Manim và Celery workers |
 | `shared/` | Pydantic contracts dùng chung, không chứa persistence/runtime |
 | `deploy/huggingface/` | Supervisor, Redis và entrypoint cho Space |
 
-Một Space phù hợp với giới hạn cổng/outbound của Hugging Face và loại bỏ nhu cầu chia sẻ filesystem giữa nhiều Space. Đây là profile **protected/private, single-tenant, trusted-input**: mã Python Manim sinh tự động không chạy trong sandbox bảo mật hoàn chỉnh. Không dùng profile này làm dịch vụ thực thi code công khai cho nhiều tenant. Lộ trình tách ba dịch vụ được mô tả trong [kiến trúc](docs/ARCHITECTURE.md).
+Space phải dùng visibility **Protected** để browser trên Vercel gọi được API
+trong khi source vẫn kín. Đây là profile **single-tenant, trusted-input**: mã
+Python Manim sinh tự động không chạy trong sandbox bảo mật hoàn chỉnh. Không
+dùng profile này làm dịch vụ thực thi code công khai cho nhiều tenant. Lộ trình
+tách ba dịch vụ được mô tả trong [kiến trúc](docs/ARCHITECTURE.md).
 
 ## Chạy local
 
@@ -76,18 +82,19 @@ npm run dev
 ```bash
 make check       # lint + 3 test suites + frontend build + migration replay
 make audit       # Python locks + npm vulnerability audit
-make image       # build image một-Space ở local
+make image       # build image API/AI/render dùng cho Hugging Face
 ```
 
 Dependency Python production/dev được khóa bằng hash trong `requirements*.lock`; frontend dùng `package-lock.json`. `backend/supabase/migrations/*.sql` là nguồn schema duy nhất có thể deploy; `init_schema.sql` chỉ là marker tương thích và không được chạy.
 
 ## Deploy
 
-1. Tạo Supabase production project và Hugging Face Docker Space `Private` hoặc `Protected`, dùng hardware always-on và persistent storage gắn tại `/data`.
-2. Cấu hình Space Variables/Secrets theo [hướng dẫn deployment](docs/DEPLOYMENT.md).
-3. Tạo GitHub Environment `production`, thêm `HF_SPACE_ID`, `SUPABASE_PROJECT_REF` và ba deployment secrets.
-4. Bảo vệ nhánh `main` bằng toàn bộ required checks của workflow `CI`.
-5. Merge/push vào `main`. CD chỉ chạy khi CI của đúng commit thành công, push migration trước rồi đồng bộ commit đó sang Space.
+1. Tạo Supabase production project, Hugging Face Docker Space `Protected`, và Vercel project có root directory `frontend`.
+2. Cấu hình Space/Vercel Variables và Secrets theo [hướng dẫn deployment](docs/DEPLOYMENT.md).
+3. Tạo GitHub Environment `production`, thêm các biến target và deployment credentials.
+4. Bảo vệ nhánh `main` bằng required check ổn định `CI Gate`.
+5. Tắt Vercel Git auto-deploy để tránh deploy kép; GitHub Actions sẽ build prebuilt output và promote production.
+6. Merge/push vào `main`. CD chỉ chạy target có artifact production thay đổi: migration → Supabase, frontend → Vercel, Backend/AI/shared/runtime → Hugging Face.
 
 Các tên key hiện hành được ưu tiên:
 
@@ -102,7 +109,7 @@ Không commit `.env`, service key hoặc Google key. File `frontend/.env` cũ đ
 
 - [Mục lục tài liệu](docs/README.md)
 - [Kiến trúc và state machine](docs/ARCHITECTURE.md)
-- [Deployment Hugging Face + Supabase](docs/DEPLOYMENT.md)
+- [Deployment Vercel + Hugging Face + Supabase](docs/DEPLOYMENT.md)
 - [CI/CD](docs/CI_CD.md)
 - [Database và migration](docs/DATABASE.md)
 - [Vận hành và khôi phục](docs/OPERATIONS.md)

@@ -7,12 +7,13 @@ sdk: docker
 app_port: 7860
 ---
 
-# Hugging Face single-Space deployment
+# Hugging Face API/AI/render deployment
 
-This deployment profile runs the React application, FastAPI Backend, an
-embedded Redis instance, and separate `ai` and `render` Celery workers in one
-Docker Space. Supervisor keeps the four processes alive and stops the render
-worker, AI worker, Backend, and Redis in reverse priority order.
+This deployment profile runs the FastAPI Backend, an embedded Redis instance,
+and separate `ai` and `render` Celery workers in one protected Docker Space.
+The React application deploys independently on Vercel. Supervisor keeps the
+four Space processes alive and stops the render worker, AI worker, Backend, and
+Redis in reverse priority order.
 
 ## Security boundary
 
@@ -29,23 +30,17 @@ artifact upload URL.
 
 ## Space setup
 
-Create a protected or private Docker Space and deploy the repository with the
-root `Dockerfile`. Port `7860` is the only public port. API calls use `/v1` and
-WebSockets use `/v1/ws`; the React SPA is served at `/`, so no cross-origin API
-configuration is required.
+Create a **protected** Docker Space and deploy the curated payload with its root
+`Dockerfile`. Port `7860` is the only public port. API calls use `/v1` and
+WebSockets use `/v1/ws`. Set `CORS_ORIGINS` to the exact Vercel production
+origin; wildcards are rejected. A private Space is not supported because a
+browser hosted by Vercel cannot safely receive an `HF_TOKEN`.
 
 Use paid always-on hardware and attach persistent storage at `/data` for the
 supported production profile. Queue, lock, and render-job coordination live in
 Redis AOF; without persistent `/data`, the deployment is a non-durable
 demo/staging profile and queued work can be lost on restart. Rendered files are
 staged under `/artifacts` and are uploaded to Supabase Storage by the Backend.
-
-Set these public Space build Variables:
-
-- `VITE_AUTH_MODE=jwt`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- Leave `VITE_API_BASE_URL` and `VITE_WS_BASE_URL` empty for same-origin routing.
 
 Set these runtime Secrets:
 
@@ -55,14 +50,19 @@ Set these runtime Secrets:
   Backend and both workers in this single container.
 - `GOOGLE_API_KEY` or the numbered Google key pool variables.
 
-Optional runtime Variables include `SUPABASE_STORAGE_BUCKET`, `LOG_LEVEL`, and
-the render/review timeout and resource-limit settings documented in the service
-environment examples. `SUPABASE_URL` is required; the JWT issuer and JWKS URL
-are derived from it unless explicitly overridden.
+Required runtime Variables include `APP_ENV=production`, `AUTH_MODE=jwt`,
+`SUPABASE_URL`, and the exact Vercel origin in `CORS_ORIGINS`. Optional values
+include `SUPABASE_STORAGE_BUCKET`, `LOG_LEVEL`, and the render/review timeout and
+resource-limit settings documented in the service environment examples. The
+JWT issuer and JWKS URL are derived from `SUPABASE_URL` unless overridden.
 
 Do not configure an external `REDIS_URL` for this profile. The embedded Redis
 binds only to loopback, uses append-only persistence, and is shared by the API
 and both Celery workers.
 
-The complete production checklist is in
-[`docs/DEPLOYMENT.md`](../../docs/DEPLOYMENT.md).
+The complete production checklist is maintained in the source repository's
+`docs/DEPLOYMENT.md`. GitHub Actions mirrors only runtime files, this README,
+`SOURCE_REVISION`, and the payload hash manifest into the Space repository.
+The Docker healthcheck requires all four Supervisor processes to be `RUNNING`;
+public `/ready` additionally verifies Supabase and live consumers for both
+Celery queues before CD records a successful deployment baseline.

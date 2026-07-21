@@ -2,104 +2,124 @@
 
 ## Profile được hỗ trợ
 
-Production ban đầu là một Hugging Face Docker Space chạy root `Dockerfile`. Space phục vụ React/FastAPI trên cổng `7860`, Redis chỉ bind loopback, và Supervisor quản lý Backend cùng hai Celery worker độc lập. Supabase cung cấp Auth, Postgres và private Storage.
+- Vercel phục vụ React/Vite SPA.
+- Một Hugging Face Docker Space `Protected` chạy FastAPI, Redis, AI worker và
+  render worker.
+- Supabase cung cấp Auth, Postgres và private Storage.
 
-Chọn Space `Protected` nếu người dùng cần truy cập ứng dụng nhưng source phải kín; chọn `Private` nếu cả ứng dụng chỉ dành cho thành viên được cấp quyền. Với production, dùng hardware always-on và gắn persistent storage tại `/data`: queue, lock và render-job coordination nằm trong Redis AOF nên disk ephemeral chỉ phù hợp demo/staging và có thể mất công việc đang chờ sau restart. Video hoàn tất vẫn phải được upload vào Supabase Storage.
+Space là profile single-tenant/trusted-input; mã Manim sinh tự động chưa chạy
+trong sandbox cô lập hoàn chỉnh. Dùng hardware always-on và persistent storage
+gắn tại `/data` để Redis AOF không mất queue/lock khi restart.
 
-Profile này chỉ dành cho single-tenant/trusted-input. Xem [Security](../SECURITY.md) trước khi mở quyền truy cập.
+## 1. Supabase
 
-## 1. Chuẩn bị Supabase
-
-1. Tạo project production và bật các Auth provider cần dùng.
-2. Thêm URL của Space/custom domain vào Auth Site URL và Redirect URLs.
-3. Lấy Project URL, publishable key `sb_publishable_*`, secret key `sb_secret_*`, project ref và database password.
-4. Chạy validator local:
+1. Tạo project production và bật Auth provider.
+2. Thêm origin Vercel vào Auth Site URL và Redirect URLs.
+3. Lấy Project URL, publishable key, secret key, project ref và database
+   password.
+4. Chạy local:
 
    ```bash
    bash backend/supabase/validate_migrations.sh
    ```
 
-5. Với database mới, để workflow CD chạy `supabase db push`. Với database đã tồn tại, đối chiếu `supabase migration list` và làm baseline có kiểm chứng trước lần deploy đầu.
-6. Sau migration, cả tám counter từ [postmigration gate](../backend/supabase/postmigration_gate.sql) phải bằng `0`; sau đó chạy Supabase Security và Performance Advisors.
+5. Để GitHub Actions áp dụng full ordered migration chain. Sau deploy, cả tám
+   counter trong `backend/supabase/postmigration_gate.sql` phải bằng 0.
 
-Migration tạo bucket `videos` private, chỉ nhận MP4 và giới hạn 1 GiB. Giới hạn toàn cục của gói Supabase vẫn có thể thấp hơn.
+Migration tạo private bucket `videos`, chỉ nhận MP4 và giới hạn object 1 GiB.
 
-## 2. Tạo Hugging Face Space
+## 2. Hugging Face
 
-Tạo Docker Space rồi cấu hình các build Variables:
+Tạo trước một Docker Space với visibility **Protected**, port `7860`, always-on
+hardware và persistent `/data`. Private Space không dùng được với browser
+Vercel vì không được đưa `HF_TOKEN` cho client.
 
-| Variable | Giá trị |
-| --- | --- |
-| `VITE_AUTH_MODE` | `jwt` |
-| `VITE_SUPABASE_URL` | Supabase Project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_*` |
-| `VITE_API_BASE_URL` | Để trống để dùng `/v1` cùng origin |
-| `VITE_WS_BASE_URL` | Để trống để dùng `/v1` cùng origin |
-
-Các giá trị `VITE_*` được nhúng lúc build và luôn có thể đọc trong browser; tuyệt đối không đặt secret key ở đây.
-
-Cấu hình runtime Secrets:
-
-| Secret | Ghi chú |
-| --- | --- |
-| `SUPABASE_SECRET_KEY` | `sb_secret_*`, chỉ Backend dùng; legacy alias là `SUPABASE_SERVICE_ROLE_KEY` |
-| `INTERNAL_SERVICE_TOKEN` | Chuỗi ngẫu nhiên ít nhất 32 byte, dùng chung nội bộ trong container |
-| `GOOGLE_API_KEY` | Một key hoặc danh sách phân cách bằng dấu phẩy; cũng hỗ trợ `_1`, `_2`, ... |
-| `SENTRY_DSN` | Tùy chọn |
-| `SUPABASE_JWT_SECRET` | Chỉ cho JWT HS256 legacy; bỏ khi đã chuyển sang JWKS |
-
-Cấu hình runtime Variables:
+Runtime Variables:
 
 | Variable | Giá trị production |
 | --- | --- |
 | `APP_ENV` | `production` |
 | `AUTH_MODE` | `jwt` |
 | `SUPABASE_URL` | Supabase Project URL |
+| `CORS_ORIGINS` | Origin Vercel chính xác, không `*` |
 | `SUPABASE_STORAGE_BUCKET` | `videos` |
-| `SUPABASE_SIGNED_URL_SECONDS` | `3600`; URL video là bearer URL, không đặt quá 86400 giây. |
+| `SUPABASE_SIGNED_URL_SECONDS` | `3600` |
 | `SUPABASE_JWT_AUDIENCE` | `authenticated` |
-| `SUPABASE_JWT_ISSUER` | Tùy chọn; mặc định `<SUPABASE_URL>/auth/v1` |
-| `SUPABASE_JWT_JWKS_URL` | Tùy chọn; tự suy ra từ issuer |
-| `CORS_ORIGINS` | Để trống cho same-origin hoặc đặt origin chính xác; không dùng `*` |
 | `REDIS_URL` / `CELERY_BROKER_URL` | `redis://127.0.0.1:6379/0` |
 | `BACKEND_INTERNAL_URL` | `http://127.0.0.1:7860/internal` |
 | `ARTIFACTS_DIR` | `/artifacts` |
-| `LOG_LEVEL` | `INFO` |
 
-Root image đã đặt các default nội bộ phù hợp. Không trỏ Redis sang host ngoài trong profile này: Hugging Face chỉ cho outbound qua một số cổng HTTP và current runtime phụ thuộc Redis loopback.
+Runtime Secrets:
 
-## 3. Cấu hình GitHub
+| Secret | Ghi chú |
+| --- | --- |
+| `SUPABASE_SECRET_KEY` | Backend only; legacy alias `SUPABASE_SERVICE_ROLE_KEY` |
+| `INTERNAL_SERVICE_TOKEN` | Chuỗi ngẫu nhiên ít nhất 32 ký tự, dùng nội bộ |
+| `GOOGLE_API_KEY` / numbered pool | AI/render provider keys |
+| `SUPABASE_JWT_SECRET` | Chỉ cho HS256 legacy; bỏ khi dùng JWKS |
+| `SENTRY_DSN` | Tùy chọn |
 
-Tạo Environment `production`, bật required reviewers và chỉ cho nhánh `main` deploy.
+Không đặt biến `VITE_*` trên Space. Frontend không còn nằm trong HF image.
 
-Environment variables:
+## 3. Vercel
 
-- `HF_SPACE_ID`: `namespace/space-name`.
-- `SUPABASE_PROJECT_REF`: project ref production.
-- `HF_SPACE_URL`: tùy chọn, `https://<slug>.hf.space`; chỉ dùng khi endpoint truy cập được từ GitHub runner.
+Tạo Vercel project và đặt Root Directory là `frontend`. Tắt Git auto-deploy vì
+GitHub Actions là deployment authority; nếu để cả hai, mỗi commit frontend sẽ
+tạo hai deployment.
 
-Environment secrets:
+Production Environment Variables:
 
-- `HF_TOKEN`: fine-grained write chỉ trên Space đích.
-- `SUPABASE_ACCESS_TOKEN`: token dùng bởi Supabase CLI.
-- `SUPABASE_DB_PASSWORD`: password của đúng production project.
+| Variable | Giá trị |
+| --- | --- |
+| `VITE_AUTH_MODE` | `jwt` |
+| `VITE_API_BASE_URL` | `https://<space>.hf.space/v1` |
+| `VITE_WS_BASE_URL` | `https://<space>.hf.space/v1` |
+| `VITE_SUPABASE_URL` | Supabase Project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public publishable key |
 
-Không đưa Google/Supabase runtime secret vào GitHub Environment vì workflow không cần đọc chúng; đặt trực tiếp trong Space Settings.
+`frontend/vercel.json` cấu hình Vite build output và rewrite deep-link SPA. Build
+production không đọc `frontend/.env` của developer.
 
-Bảo vệ `main` bằng các job Backend, AI Core, Frontend, migration replay, dependency audit và production image. Workflow deploy dùng đúng SHA đã qua CI, dry-run/push migration, sync Space, rồi kiểm tra trạng thái build/runtime.
+## 4. GitHub
 
-## 4. Xác minh sau deploy
+Tạo Environment `production`, bật required reviewers và chỉ cho `main` deploy.
+
+Environment Variables:
+
+- `HF_SPACE_ID=namespace/space-name`
+- `HF_SPACE_ORIGIN=https://<canonical-space-host>.hf.space`
+- `SUPABASE_PROJECT_REF=<20-character-ref>`
+- `VERCEL_PRODUCTION_ORIGIN=https://<canonical-domain>`
+
+Environment Secrets:
+
+- `HF_TOKEN`: fine-grained write chỉ trên Space.
+- `SUPABASE_ACCESS_TOKEN` và `SUPABASE_DB_PASSWORD`.
+- `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
+
+Bảo vệ `main` bằng required check `CI Gate`. Workflow tự chọn target theo
+production dependency graph; docs-only không deploy, frontend-only chỉ Vercel,
+runtime-only chỉ HF, migration-only chỉ Supabase.
+
+## Xác minh sau deploy
 
 ```bash
 curl --fail https://<space>.hf.space/health
 curl --fail https://<space>.hf.space/ready
+curl --fail https://<vercel-production-origin>/
 ```
 
-- `/health` chỉ chứng minh FastAPI còn sống.
-- `/ready` chỉ trả 200 khi Redis và Supabase sẵn sàng.
-- Mở `/`, đăng nhập, tạo một project test, chạy một Builder, render một scene và reload trang để xác nhận video được lấy lại từ private Storage.
-- Kiểm tra log có đủ bốn process: `redis`, `backend`, `ai-worker`, `render-worker`.
+- Space `/health` là liveness; `/ready` chỉ trả 200 khi Redis/Supabase sẵn sàng
+  và worker đang consume đủ queue `ai`, `render`. Docker healthcheck còn yêu cầu
+  `redis`, `backend`, `ai-worker`, `render-worker` đều `RUNNING`.
+- Vercel root và deep-link như `/settings` phải trả SPA.
+- Đăng nhập, tạo project, chạy HITL, render scene và reload để xác nhận video
+  được lấy lại từ private Storage.
+- HF log phải có `redis`, `backend`, `ai-worker`, `render-worker` ở trạng thái
+  `RUNNING`.
 
 ## Rollback
 
-Ứng dụng rollback bằng cách redeploy một commit đã qua CI và còn tương thích schema. Database migration là forward-only: tạo migration bù đã kiểm thử, không sửa migration đã áp dụng và không chạy `db reset --linked`. Nếu migration thành công nhưng Space build lỗi, dữ liệu không tự rollback; sửa/revert ứng dụng rồi chạy lại CD.
+Revert bằng commit mới trên `main` đã qua CI. GitHub Deployments baseline ngăn
+CI cũ ghi đè revision mới. Migration là forward-only: tạo migration bù, không
+sửa migration đã apply và không chạy `db reset --linked` trên production.

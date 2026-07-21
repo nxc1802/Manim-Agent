@@ -22,6 +22,7 @@ from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.sentry_setup import init_sentry
 from app.core.static_spa import mount_static_spa
 from app.core.websocket_manager import manager
+from app.services.ai_queue import check_worker_queues
 from app.services.redis_client import close_redis, get_redis
 from app.services.supabase_http import supabase_admin_headers
 
@@ -33,6 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _supabase_readiness: tuple[float, bool, str] = (0.0, False, "not_checked")
+_worker_readiness: tuple[float, bool, tuple[str, ...]] = (0.0, False, ())
 
 
 def _check_supabase_reachability() -> tuple[bool, str]:
@@ -57,6 +59,17 @@ def _check_supabase_reachability() -> tuple[bool, str]:
         result = (False, "unreachable")
     _supabase_readiness = (now, *result)
     return result
+
+
+def _check_worker_reachability() -> tuple[bool, tuple[str, ...]]:
+    global _worker_readiness
+    now = monotonic()
+    checked_at, reachable, queues = _worker_readiness
+    if now - checked_at < settings.readiness_cache_seconds:
+        return reachable, queues
+    reachable, queues = check_worker_queues()
+    _worker_readiness = (now, reachable, queues)
+    return reachable, queues
 
 
 @asynccontextmanager
@@ -120,7 +133,19 @@ def ready() -> JSONResponse:
     checks["hitl_store"] = {"ok": supabase_ok, "mode": "supabase"}
     checks["task_queue"] = {"ok": checks["redis"]["ok"], "broker": "redis"}
 
-    all_ready = bool(checks["redis"]["ok"] and checks["hitl_store"]["ok"])
+    require_workers = settings.app_env.lower() in {"production", "prod", "staging"}
+    worker_ok, worker_queues = (
+        _check_worker_reachability() if require_workers else (True, ())
+    )
+    checks["workers"] = {
+        "ok": worker_ok,
+        "required": require_workers,
+        "queues": list(worker_queues),
+    }
+
+    all_ready = bool(
+        checks["redis"]["ok"] and checks["hitl_store"]["ok"] and worker_ok
+    )
     return JSONResponse(
         status_code=status.HTTP_200_OK if all_ready else status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"status": "ready" if all_ready else "not_ready", "checks": checks},

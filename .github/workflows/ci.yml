@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -19,8 +20,96 @@ defaults:
     shell: bash
 
 jobs:
+  changes:
+    name: Release scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.plan.outputs.backend }}
+      ai_core: ${{ steps.plan.outputs.ai_core }}
+      frontend: ${{ steps.plan.outputs.frontend }}
+      migrations: ${{ steps.plan.outputs.migrations }}
+      dependency_audit: ${{ steps.plan.outputs.dependency_audit }}
+      python_dependency_audit: ${{ steps.plan.outputs.python_dependency_audit }}
+      frontend_dependency_audit: ${{ steps.plan.outputs.frontend_dependency_audit }}
+      production_image: ${{ steps.plan.outputs.production_image }}
+      workflow: ${{ steps.plan.outputs.workflow }}
+      supabase: ${{ steps.plan.outputs.supabase }}
+      huggingface: ${{ steps.plan.outputs.huggingface }}
+      vercel: ${{ steps.plan.outputs.vercel }}
+    steps:
+      - name: Check out complete history for exact change detection
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create the immutable release plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECKED_SHA: ${{ github.sha }}
+          PLAN_PATH: ${{ runner.temp }}/release-plan.json
+          GH_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+        run: |
+          set -euo pipefail
+          head_sha="${CHECKED_SHA}"
+          force_all_ci=false
+          cumulative_ci=false
+          case "${EVENT_NAME}" in
+            push)
+              base_sha="${PUSH_BASE_SHA}"
+              cumulative_ci=true
+              ;;
+            pull_request)
+              head_sha="${PR_HEAD_SHA}"
+              base_sha="$(git merge-base "${PR_BASE_SHA}" "${PR_HEAD_SHA}")"
+              ;;
+            workflow_dispatch)
+              base_sha="$(git rev-parse "${CHECKED_SHA}^")"
+              force_all_ci=true
+              ;;
+            *)
+              echo "::error::Unsupported CI event: ${EVENT_NAME}"
+              exit 1
+              ;;
+          esac
+
+          arguments=(
+            create
+            --base "${base_sha}"
+            --head "${head_sha}"
+            --output "${PLAN_PATH}"
+            --github-output "${GITHUB_OUTPUT}"
+          )
+          if [[ "${force_all_ci}" == "true" ]]; then
+            arguments+=(--force-all-ci)
+          fi
+          if [[ "${cumulative_ci}" == "true" ]]; then
+            arguments+=(
+              --cumulative-ci
+              --repository "${GITHUB_REPOSITORY}"
+              --api-url "${GITHUB_API_URL}"
+            )
+          fi
+          python3 scripts/ci/release_plan.py "${arguments[@]}"
+
+      - name: Upload the trusted deployment plan
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deployment-plan-${{ github.sha }}
+          path: ${{ runner.temp }}/release-plan.json
+          if-no-files-found: error
+          retention-days: 1
+
   backend:
     name: Backend / Python 3.12
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -63,6 +152,8 @@ jobs:
 
   ai-core:
     name: AI Core / Python 3.12
+    needs: changes
+    if: needs.changes.outputs.ai_core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -115,6 +206,8 @@ jobs:
 
   frontend:
     name: Frontend / Node 22
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -152,6 +245,8 @@ jobs:
 
   migrations:
     name: Replay Supabase migrations
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -164,7 +259,8 @@ jobs:
         run: bash backend/supabase/validate_migrations.sh
 
   dependency-audit:
-    name: Dependency vulnerability audit
+    name: Repository security and scoped dependency audit
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -184,11 +280,13 @@ jobs:
           exit-code: "1"
 
       - name: Set up Python
+        if: needs.changes.outputs.python_dependency_audit == 'true'
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
       - name: Audit Python dependencies
+        if: needs.changes.outputs.python_dependency_audit == 'true'
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check "pip-audit==2.10.1"
@@ -202,6 +300,7 @@ jobs:
           done
 
       - name: Set up Node.js
+        if: needs.changes.outputs.frontend_dependency_audit == 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
@@ -209,14 +308,44 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Audit frontend dependencies
+        if: needs.changes.outputs.frontend_dependency_audit == 'true'
         working-directory: frontend
         run: npm audit --audit-level=high
+
+      - name: Validate release classifier and deployment scripts
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts/ci/test_release_plan.py
+          python3 -m py_compile scripts/ci/release_plan.py scripts/ci/test_release_plan.py
+          bash -n deploy/huggingface/prepare-payload.sh
+          sh -n deploy/huggingface/entrypoint.sh
+          sh -n deploy/huggingface/healthcheck.sh
+          sh -n deploy/huggingface/service-entrypoint.sh
+          python3 -m json.tool frontend/vercel.json >/dev/null
+
+      - name: Validate GitHub Actions workflows
+        if: needs.changes.outputs.workflow == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/repo:ro" \
+            --workdir /repo \
+            rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
 
   production-image:
     name: Production image build, scan, and smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [backend, ai-core, frontend, migrations, dependency-audit]
+    needs: [changes, backend, ai-core, frontend, migrations, dependency-audit]
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.production_image == 'true' &&
+      (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
+      (needs['ai-core'].result == 'success' || needs['ai-core'].result == 'skipped') &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      (needs.migrations.result == 'success' || needs.migrations.result == 'skipped') &&
+      needs['dependency-audit'].result == 'success'
     steps:
       - name: Check out the tested revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -224,12 +353,21 @@ jobs:
           persist-credentials: false
 
       - name: Validate the Hugging Face Docker Space entrypoint
+        env:
+          HF_CONTEXT: ${{ runner.temp }}/hf-release
         run: |
           set -euo pipefail
-          test -s Dockerfile
-          test -s README.md
-          head -n 20 README.md | grep -Fxq "sdk: docker"
-          head -n 20 README.md | grep -Fxq "app_port: 7860"
+          bash deploy/huggingface/prepare-payload.sh \
+            "${GITHUB_SHA}" \
+            "${HF_CONTEXT}"
+          test -s "${HF_CONTEXT}/Dockerfile"
+          test -s "${HF_CONTEXT}/README.md"
+          test -s "${HF_CONTEXT}/PAYLOAD_MANIFEST.sha256"
+          test "$(< "${HF_CONTEXT}/SOURCE_REVISION")" = "${GITHUB_SHA}"
+          head -n 20 "${HF_CONTEXT}/README.md" | grep -Fxq "sdk: docker"
+          head -n 20 "${HF_CONTEXT}/README.md" | grep -Fxq "app_port: 7860"
+          test ! -e "${HF_CONTEXT}/frontend"
+          test ! -e "${HF_CONTEXT}/backend/supabase"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -239,15 +377,11 @@ jobs:
       - name: Build the production image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: .
-          file: ./Dockerfile
+          context: ${{ runner.temp }}/hf-release
+          file: ${{ runner.temp }}/hf-release/Dockerfile
           load: true
           push: false
           tags: manim-agent:${{ github.sha }}
-          build-args: |
-            VITE_AUTH_MODE=jwt
-            VITE_SUPABASE_URL=https://ci.invalid
-            VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ci_placeholder
           cache-from: type=gha,scope=production-space
           cache-to: type=gha,mode=max,scope=production-space
 
@@ -303,13 +437,12 @@ jobs:
             --publish 17860:7860 \
             --env APP_ENV=production \
             --env AUTH_MODE=jwt \
+            --env CORS_ORIGINS=https://frontend-ci.invalid \
             --env PORT=7860 \
             --env INTERNAL_SERVICE_TOKEN=ci-only-internal-token-at-least-32-bytes \
             --env GOOGLE_API_KEY=ci-only-placeholder \
             --env SUPABASE_URL=https://ci.invalid \
             --env SUPABASE_SECRET_KEY=sb_secret_ci_placeholder \
-            --env VITE_SUPABASE_URL=https://ci.invalid \
-            --env VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ci_placeholder \
             "${IMAGE_TAG}"
 
           healthy=false
@@ -328,11 +461,12 @@ jobs:
             exit 1
           fi
           curl --fail --silent --show-error --max-time 10 http://127.0.0.1:17860/health
-          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:17860/ \
-            | grep -Fq '<div id="root"></div>'
-          docker exec "${app_container}" \
-            grep --recursive --fixed-strings --quiet \
-              'https://ci.invalid' /srv/frontend/assets
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:17860/docs \
+            | grep -Fq 'Swagger UI'
+          test "$(
+            curl --silent --output /dev/null --write-out '%{http_code}' \
+              --max-time 10 http://127.0.0.1:17860/
+          )" = "404"
 
           all_running=false
           for _ in $(seq 1 30); do
@@ -415,3 +549,60 @@ jobs:
               raise SystemExit("Manim smoke render did not produce a video")
           artifact.unlink()
           PY
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [changes, backend, ai-core, frontend, migrations, dependency-audit, production-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      BACKEND_RESULT: ${{ needs.backend.result }}
+      AI_CORE_RESULT: ${{ needs['ai-core'].result }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+      MIGRATIONS_RESULT: ${{ needs.migrations.result }}
+      SECURITY_RESULT: ${{ needs['dependency-audit'].result }}
+      IMAGE_RESULT: ${{ needs['production-image'].result }}
+      BACKEND_SELECTED: ${{ needs.changes.outputs.backend }}
+      AI_CORE_SELECTED: ${{ needs.changes.outputs.ai_core }}
+      FRONTEND_SELECTED: ${{ needs.changes.outputs.frontend }}
+      MIGRATIONS_SELECTED: ${{ needs.changes.outputs.migrations }}
+      IMAGE_SELECTED: ${{ needs.changes.outputs.production_image }}
+    steps:
+      - name: Require every selected check to pass
+        run: |
+          set -euo pipefail
+          for result_name in \
+            CHANGES_RESULT \
+            BACKEND_RESULT \
+            AI_CORE_RESULT \
+            FRONTEND_RESULT \
+            MIGRATIONS_RESULT \
+            SECURITY_RESULT \
+            IMAGE_RESULT; do
+            result="${!result_name}"
+            if [[ "${result}" != "success" && "${result}" != "skipped" ]]; then
+              echo "::error::${result_name} finished with ${result}."
+              exit 1
+            fi
+          done
+          if [[ "${CHANGES_RESULT}" != "success" || "${SECURITY_RESULT}" != "success" ]]; then
+            echo "::error::Release scope and repository security checks must always succeed."
+            exit 1
+          fi
+
+          for pair in \
+            "${BACKEND_SELECTED}:${BACKEND_RESULT}" \
+            "${AI_CORE_SELECTED}:${AI_CORE_RESULT}" \
+            "${FRONTEND_SELECTED}:${FRONTEND_RESULT}" \
+            "${MIGRATIONS_SELECTED}:${MIGRATIONS_RESULT}" \
+            "${IMAGE_SELECTED}:${IMAGE_RESULT}"; do
+            selected="${pair%%:*}"
+            result="${pair#*:}"
+            if [[ "${selected}" == "true" && "${result}" != "success" ]]; then
+              echo "::error::A selected CI scope was not executed successfully."
+              exit 1
+            fi
+          done
+          echo "All selected CI scopes passed."

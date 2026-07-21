@@ -1198,6 +1198,36 @@ def test_readiness_reports_redis_and_cached_supabase_reachability(monkeypatch) -
     assert calls == 1
 
 
+def test_production_readiness_requires_both_worker_queues(monkeypatch) -> None:
+    main_module = importlib.import_module("app.main")
+
+    class RedisReady:
+        def ping(self) -> bool:
+            return True
+
+    class SupabaseReady:
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "service-key")
+    monkeypatch.setattr(main_module, "get_redis", lambda: RedisReady())
+    monkeypatch.setattr(main_module.httpx, "get", lambda *_args, **_kwargs: SupabaseReady())
+    monkeypatch.setattr(main_module, "check_worker_queues", lambda: (False, ("ai",)))
+    monkeypatch.setattr(main_module, "_supabase_readiness", (0.0, False, "not_checked"))
+    monkeypatch.setattr(main_module, "_worker_readiness", (0.0, False, ()))
+
+    response = main_module.ready()
+    payload = json.loads(response.body)
+    assert response.status_code == 503
+    assert payload["checks"]["workers"] == {
+        "ok": False,
+        "required": True,
+        "queues": ["ai"],
+    }
+
+
 def test_websocket_manager_shutdown_closes_connections_and_listener() -> None:
     class Socket:
         def __init__(self) -> None:

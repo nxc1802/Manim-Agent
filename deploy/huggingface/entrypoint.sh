@@ -20,9 +20,8 @@ case "${APP_ENV:-development}" in
       echo "SUPABASE_SECRET_KEY (or legacy service-role key) is required" >&2
       exit 1
     fi
-    if [ -z "${VITE_SUPABASE_URL:-}" ] || \
-       [ -z "${VITE_SUPABASE_PUBLISHABLE_KEY:-}" ]; then
-      echo "VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY must be set at build time" >&2
+    if [ -z "${CORS_ORIGINS:-}" ]; then
+      echo "CORS_ORIGINS must contain the Vercel production origin" >&2
       exit 1
     fi
     if [ -z "${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}" ] && \

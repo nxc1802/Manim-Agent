@@ -1,8 +1,10 @@
 # Frontend API reference
 
-Production uses the same-origin base `/v1`; local Backend defaults to
-`http://localhost:8000/v1`. Send `Authorization: Bearer <Supabase JWT>` when
-`AUTH_MODE=jwt`; development may use `AUTH_MODE=off`.
+Production Vercel builds use the absolute protected Hugging Face base
+`https://<space>.hf.space/v1`; local Backend defaults to
+`http://localhost:8000/v1`. `VITE_WS_BASE_URL` uses the same HTTPS base and is
+converted to `wss://` by the client. Send `Authorization: Bearer <Supabase JWT>`
+when `AUTH_MODE=jwt`; development may use `AUTH_MODE=off`.
 
 All IDs are UUIDs. Public errors use the stable envelope below. `409 Conflict` means the state changed since the client last read it; refresh and use the new `revision`.
 
@@ -207,8 +209,8 @@ Send `ping` to receive `pong`. Clients reconnect with backoff and refetch projec
 ## Health and API schema
 
 - `GET /health` confirms the API process.
-- Backend `GET /ready` checks Redis, Supabase/HITL persistence, content-store mode, and queue readiness.
-- AI Core `GET /ready` checks Redis, provider-key presence, and the importable Manim runtime version. Render smoke tests separately execute `sys.executable -m manim`, the same interpreter used for API introspection.
+- Backend `GET /ready` checks Redis, Supabase/HITL persistence, content-store mode, and live Celery consumers for both `ai` and `render` queues.
+- The single-Space production profile runs AI Core as Celery workers, not as a public HTTP service. Its standalone Compose API may expose a separate readiness endpoint for development diagnostics.
 - `GET /openapi.json` and `/docs` are generated from the running public contract.
 
 `/internal/*` endpoints are service-to-service only and must never be called by the frontend.

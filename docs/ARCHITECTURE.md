@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  FE["Frontend"] -->|"HTTPS / WebSocket"| BE["Backend\nAPI + Auth + cache + DB + HITL"]
+  FE["Frontend\nVercel"] -->|"HTTPS / WebSocket"| BE["Backend on HF\nAPI + Auth + cache + DB + HITL"]
   BE -->|"Redis / Celery: ai, render"| Q[("Redis")]
   Q --> AIW["AI Core worker\nGoogle LLM + review + Manim render"]
   AIW -->|"internal HTTP callbacks"| BE
@@ -84,4 +84,4 @@ that no longer own the target.
 5. Set `AUTH_MODE=jwt`, `SUPABASE_URL`, and the Backend secret key outside development. Prefer asymmetric JWT signing and JWKS; configure `SUPABASE_JWT_SECRET` only for legacy HS256. Frontend sends access tokens in HTTP Authorization and the WebSocket subprotocol header, never in a URL.
 6. Local Compose shares the read-only `render_artifacts` volume with Backend. When Supabase Storage is configured, Backend uploads the completed worker artifact and signs the durable project/scene reference; after that callback confirms a `supabase://` object, the render worker removes its local staging file. Without Storage, it retains and authorizes the local project/scene video stream. Reload of production video does not depend on Redis job retention.
 7. The worker runs as an unprivileged user with dropped Linux capabilities, cgroup limits and Manim process memory/CPU/file-descriptor limits. Generated Manim subprocesses receive a minimal environment with provider, Backend and database secrets removed.
-8. The initial Hugging Face profile co-locates all processes to satisfy its port/network and artifact-transfer constraints. It is protected/private, single-tenant and trusted-input only; a hostile multi-tenant renderer requires an ephemeral sandbox with no runtime secrets.
+8. The Hugging Face profile co-locates Backend, Redis and both workers to satisfy its port/network and artifact-transfer constraints; the frontend is isolated on Vercel. The Space is protected, single-tenant and trusted-input only. A hostile multi-tenant renderer requires an ephemeral sandbox with no runtime secrets.

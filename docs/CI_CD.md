@@ -1,130 +1,221 @@
 # CI/CD và triển khai production
 
-Dự án được phát hành dưới dạng **một Hugging Face Docker Space**. Space nhận toàn bộ monorepo, build `Dockerfile` ở thư mục gốc, phục vụ frontend và Backend trên một cổng công khai, đồng thời chạy Redis, AI worker và render worker dưới Supervisor trong cùng container. Supabase là nguồn dữ liệu và artifact bền vững; Redis AOF được lưu dưới `/data/redis` khi Space có persistent storage.
+Production có ba target độc lập:
 
-## Luồng phát hành
-
-Workflow `CI` chạy trên mọi pull request vào `main`, mọi push lên `main`, và khi kích hoạt thủ công:
-
-1. Backend: cài dependency khóa phiên bản, `ruff check`, chạy `pytest` trên Python 3.12.
-2. AI Core: cài thư viện hệ thống của Manim, dependency khóa phiên bản, `ruff check`, chạy `pytest` trên Python 3.12.
-3. Frontend: `npm ci`, lint, test và production build trên Node.js 22.
-4. Database: bắt buộc chạy `bash backend/supabase/validate_migrations.sh`; script replay toàn bộ migration trên PostgreSQL tạm thời. Thiếu validator hoặc replay lỗi đều làm CI thất bại.
-5. Supply chain: Trivy quét secret đã commit, `pip-audit` kiểm tra các lock file Python, `npm audit` kiểm tra frontend.
-6. Image: kiểm tra metadata Docker Space (`sdk: docker`, `app_port: 7860`), build `Dockerfile` gốc với cấu hình frontend JWT giả an toàn, quét CVE `HIGH`/`CRITICAL` có bản vá bằng Trivy, xác nhận entrypoint production từ chối `AUTH_MODE=off`, rồi khởi động đầy đủ profile production bằng placeholder không có quyền truy cập thật. Smoke test đợi `GET /health`, xác nhận bốn process Supervisor, kiểm tra secret đã bị loại khỏi từng process và render một cảnh MathTex 480p thật bằng Manim/TeX/FFmpeg.
-
-Workflow `Deploy production` chỉ chạy khi chính workflow `CI` thành công cho một sự kiện `push` lên `main` từ repository này. Job còn phải vượt qua approval của GitHub Environment `production`. Nó checkout đúng commit SHA đã được CI kiểm tra và từ chối tiếp tục nếu commit đó không còn là HEAD của `main`, tránh một CI cũ hoàn tất muộn rồi ghi đè bản mới. Trước khi migrate, CD xác minh Space đã có đủ Variables/Secrets production; sau đó chạy migration Supabase, đồng bộ monorepo và đợi đúng Hugging Face commit vừa upload đạt `RUNNING`. Cuối cùng, workflow lấy canonical `*.hf.space` URL từ Hub API và bắt buộc `GET /ready` trả JSON có `status: ready`.
-
-`workflow_run` ở đây là ranh giới privilege có chủ đích để secret deploy không bao giờ đi vào job pull request. Các scanner như Zizmor sẽ cảnh báo heuristic `dangerous-triggers` cho mọi `workflow_run`; không được bỏ các gate `success` + `push` + `main` + same-repository, checkout exact SHA, stale-HEAD checks hay Environment approval khi xử lý cảnh báo này.
-
-Runtime poll dùng deadline tuyệt đối 30 phút; readiness poll đích có xác thực dùng tối đa 5 phút. Job deploy có timeout 90 phút để còn đủ thời gian cho checkout, preflight, migration và upload, thay vì cộng các lần `curl` retry ngoài thời lượng dự kiến.
-
-Không có secret production nào được cấp cho pull request hoặc job CI. Workflow deploy dùng quyền GitHub tối thiểu `contents: read`; credential checkout không được giữ lại.
-
-## Cấu hình GitHub
-
-Tạo Environment tên `production` và nên cấu hình:
-
-- Required reviewers cho mọi deployment.
-- Deployment branch chỉ cho phép `main`.
-- Branch protection của `main` yêu cầu toàn bộ job trong workflow `CI` thành công trước khi merge.
-- Không cho phép bỏ qua required checks hoặc force-push lên `main`.
-
-Khai báo các Environment variables sau:
-
-| Tên | Bắt buộc | Ý nghĩa |
-| --- | --- | --- |
-| `HF_SPACE_ID` | Có | Hugging Face repo theo dạng `namespace/space-name`. |
-| `SUPABASE_PROJECT_REF` | Có | Project ref của Supabase production. |
-
-Khai báo các Environment secrets sau:
-
-| Tên | Bắt buộc | Phạm vi tối thiểu |
-| --- | --- | --- |
-| `HF_TOKEN` | Có | Hugging Face fine-grained token có quyền write **chỉ** trên Space đích. |
-| `SUPABASE_ACCESS_TOKEN` | Có | Personal access token dùng bởi Supabase CLI và Management API; fine-grained token phải có quyền database migration write và database read. |
-| `SUPABASE_DB_PASSWORD` | Có | Mật khẩu database của đúng project production. |
-
-Không dùng service-role key, Google API key hoặc Redis password làm GitHub deployment secret: workflow không cần và không nên nhìn thấy các giá trị runtime đó.
-
-## Tạo Hugging Face Space
-
-1. Tạo Space trước với SDK `Docker` và cùng ID đã đặt trong `HF_SPACE_ID`. CD cố ý preflight cấu hình trước migration nên không hỗ trợ deploy lần đầu vào một Space chưa tồn tại.
-2. Chọn visibility `Private` hoặc `Protected` theo nhu cầu. Workflow vẫn truyền `private: true` cho action sync như lớp phòng vệ, nhưng không thay đổi visibility của Space đã tồn tại; cần kiểm tra thiết lập này khi provisioning.
-3. Đảm bảo metadata đầu `README.md` ở root khai báo `sdk: docker` và `app_port: 7860`, khớp với root `Dockerfile`.
-4. CD luôn xác minh build/runtime private qua Hugging Face API bằng `HF_TOKEN`, lấy canonical URL do Hub trả về và gửi Bearer token khi gọi `GET /ready`; không cần khai báo URL thủ công, kể cả với Space private.
-5. Dùng hardware always-on và persistent storage gắn tại `/data` cho production. Disk mặc định là ephemeral và chỉ phù hợp demo/staging vì Redis chứa queue/lock/render-job coordination; video hoàn tất luôn phải được đưa vào Supabase Storage.
-
-Hugging Face rebuild Space sau mỗi lần đồng bộ. Workflow dùng `huggingface/hub-sync` chính thức tại commit của `v0.2.1`, khóa `hf` CLI `1.24.0`, và root Dockerfile khóa Node/Python base image bằng manifest digest để lần rebuild không đổi nền tảng sau khi CI đã test. Trước khi sync, workflow checkout lại đúng SHA đã qua CI vào một thư mục sạch; file tạm do Supabase CLI tạo không thể lọt vào Space. Action mirror source, xóa file remote không còn trong GitHub, và loại `.git/`, `.github/`. CD đọc revision SHA từ Hub sau khi sync và chỉ chấp nhận `RUNNING` khi runtime báo đúng SHA đó. Nếu đúng revision đang `SLEEPING`, workflow chỉ gọi health endpoint để đánh thức rồi tiếp tục đợi; `BUILD_ERROR`, `CONFIG_ERROR`, `RUNTIME_ERROR`, `NO_APP_FILE`, `STOPPED` hoặc `PAUSED` làm deployment thất bại.
-
-## Runtime variables và secrets trên Hugging Face
-
-Các giá trị này được cấu hình trong **Settings của Space**, độc lập với GitHub Environment.
-
-### Secrets
-
-| Tên | Thành phần dùng |
-| --- | --- |
-| `INTERNAL_SERVICE_TOKEN` | Backend và worker; cùng một chuỗi ngẫu nhiên ít nhất 32 ký tự, không dùng giá trị mặc định. |
-| `GOOGLE_API_KEY` | AI Core; có thể chứa danh sách key theo contract hiện tại. |
-| `SUPABASE_SECRET_KEY` | `sb_secret_*`, chỉ Backend; legacy alias là `SUPABASE_SERVICE_ROLE_KEY`. Tuyệt đối không đặt vào biến `VITE_*`. |
-| `SUPABASE_JWT_SECRET` | Chỉ cần trong thời gian còn xác thực legacy HS256. Khi Backend dùng JWKS ES256/RS256 thì loại bỏ secret này. |
-| `SENTRY_DSN` | Tùy chọn cho quan sát lỗi Backend. |
-
-### Variables
-
-| Tên | Giá trị production gợi ý |
-| --- | --- |
-| `APP_ENV` | `production` |
-| `AUTH_MODE` | `jwt` |
-| `PORT` | `7860` |
-| `LOG_LEVEL` | `INFO` |
-| `CORS_ORIGINS` | Origin chính xác của Space hoặc custom domain, không dùng `*`. |
-| `SUPABASE_URL` | URL project production. |
-| `SUPABASE_STORAGE_BUCKET` | `videos` |
-| `SUPABASE_JWT_AUDIENCE` | `authenticated` |
-| `REDIS_PREFIX` | Prefix riêng cho môi trường, ví dụ `manim:prod`. |
-| `REDIS_URL` | `redis://127.0.0.1:6379/0` cho profile một Space. |
-| `CELERY_BROKER_URL` | `redis://127.0.0.1:6379/0` cho profile một Space. |
-| `BACKEND_INTERNAL_URL` | `http://127.0.0.1:7860/internal`. |
-| `ARTIFACTS_DIR` | Thư mục tạm worker có quyền ghi; artifact phải được upload trước khi job hoàn tất. |
-| `DEFAULT_CHAT_MODEL` | Model mặc định của runtime; hiện là bản GA `gemini-3.5-flash`. |
-| `VITE_API_BASE_URL` | Để trống; frontend tự dùng `/v1` cùng origin. |
-| `VITE_WS_BASE_URL` | Để trống; frontend tự dùng WebSocket `/v1` cùng origin. |
-| `VITE_AUTH_MODE` | `jwt` |
-| `VITE_SUPABASE_URL` | URL Supabase public dùng lúc frontend build. |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Publishable key public của Supabase, không phải service-role key. Frontend vẫn đọc `VITE_SUPABASE_ANON_KEY` như fallback legacy, nhưng image production dùng tên hiện hành này. |
-
-Docker Spaces truyền Variables vào cả build args và môi trường runtime. Root `Dockerfile` khai báo `ARG` cho các biến `VITE_*` cần lúc `npm run build`. Secrets chỉ được inject vào môi trường runtime trong profile này; workflow không chuyển chúng thành build arg và không ghi chúng vào image layer.
-
-Preflight CD bắt buộc các Variables `APP_ENV=production`, `AUTH_MODE=jwt`, `SUPABASE_URL`, `VITE_AUTH_MODE=jwt`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`; hai URL phải trùng canonical URL được suy ra từ `SUPABASE_PROJECT_REF`. Nó cũng kiểm tra sự hiện diện — không đọc giá trị — của `INTERNAL_SERVICE_TOKEN`, một Supabase secret key và ít nhất một Google provider key. Độ dài token nội bộ và giá trị secret được entrypoint kiểm tra khi container khởi động. Các giá trị runtime vẫn được quản lý trong Hugging Face Space Settings, không sao chép sang GitHub deployment secrets.
-
-Không trỏ `REDIS_URL` ra dịch vụ ngoài đối với profile một Space hiện tại: container đã chạy Redis chỉ bind loopback. Production phải gắn persistent storage của Space vào `/data` để giữ AOF qua restart; nếu không, coi deployment là demo/staging không bền vững. Supabase vẫn là nơi lưu project, trạng thái HITL và video; Redis không được coi là nguồn dữ liệu nghiệp vụ dài hạn.
-
-## Migration production lần đầu
-
-Trước lần deploy đầu tiên, chạy validator local:
-
-```bash
-bash backend/supabase/validate_migrations.sh
+```mermaid
+flowchart LR
+  CI["CI Gate"] --> Plan["Release plan theo Git SHA"]
+  Plan -->|"migration thay đổi"| DB["Supabase"]
+  Plan -->|"runtime thay đổi"| HF["Hugging Face API/AI/render"]
+  Plan -->|"frontend thay đổi"| Vercel["Vercel SPA"]
+  DB --> HF
+  HF --> Vercel
 ```
 
-Workflow deploy chạy `supabase db push --dry-run` rồi mới `supabase db push --include-all`. Ngay sau đó, nó gửi [postmigration_gate.sql](../backend/supabase/postmigration_gate.sql) tới endpoint read-only của Supabase Management API và chỉ promote khi cả tám counter đều bằng `0`: constraint được validate và hiện diện đúng định nghĩa, không trùng `(run_id, sequence)`, ACL table/schema/function đúng ma trận Backend-only, và contract cột Project khớp runtime. Nếu database production từng được tạo thủ công bằng `init_schema.sql`, cần đối chiếu `supabase migration list` và baseline lịch sử bằng `supabase migration repair` một lần, có kiểm chứng. Không sửa lịch sử migration production một cách tự động và không bỏ qua lỗi đồng bộ.
+Nếu cùng một commit thay đổi nhiều target, thứ tự promotion là Supabase →
+Hugging Face → Vercel. Nếu chỉ một target thay đổi, các job còn lại được skip và
+không nhận secret production.
 
-Migration là forward-only. Nếu migration hoặc integrity gate thất bại, workflow dừng trước khi source mới được đưa lên Hugging Face. Gate có thể thất bại sau khi DDL đã được áp dụng nếu production chứa legacy data bẩn; khi đó cần một migration sửa dữ liệu được review rồi chạy lại, không bỏ qua gate. Nếu source deploy lỗi sau khi migration đã thành công, revert commit ứng dụng hoặc chạy lại workflow với một commit tương thích; không tự động rollback database bằng SQL ngược chưa được kiểm thử.
+## Phạm vi thay đổi
 
-## Xử lý lỗi CI thường gặp
+`scripts/ci/release_plan.py` là classifier duy nhất dùng cho CI và CD.
 
-- `pip-audit` hoặc Trivy thất bại: nâng dependency trực tiếp, tái sinh lock file và chạy lại test; không thêm ignore CVE chỉ để làm xanh pipeline.
-- Frontend pass local nhưng fail GitHub: luôn tái hiện bằng `npm ci && npm test`, không dùng `node_modules` cũ; giữ Node major giống workflow.
-- Migration replay fail: xem migration đầu tiên báo lỗi trên PostgreSQL sạch, sửa migration mới thay vì sửa file đã áp dụng ở production.
-- Space không đạt `RUNNING`: kiểm tra runtime stage và build/run log của đúng revision SHA; `CONFIG_ERROR` thường là metadata hoặc Variable thiếu, còn `RUNTIME_ERROR` thường là entrypoint/Secret production.
-- `/ready` trả `503`: kiểm tra kết nối Redis, URL/key Supabase và quyền truy cập bảng; `/health` chỉ là liveness nên không thay thế readiness production.
-- `supabase db push` báo lịch sử lệch: dừng deployment, dùng `supabase migration list` để xác định baseline; chỉ dùng `migration repair` sau khi xác minh schema thực tế.
+| Target | File kích hoạt production deploy |
+| --- | --- |
+| Supabase | `backend/supabase/migrations/**`, `config.toml`, `postmigration_gate.sql` |
+| Hugging Face | root `Dockerfile`, `.dockerignore`, `backend/app/**`, production lock Backend, `ai_core/app/**`, `ai_core/config/**`, production lock AI, `shared/**`, `deploy/huggingface/**` |
+| Vercel | frontend source/public/build config/package lock và `frontend/vercel.json` |
 
-## Tài liệu nền tảng
+Docs, test, Makefile, Compose, `.env.example`, dev lock và Supabase validator
+không redeploy runtime. Test nằm cạnh frontend source (`*.test.ts[x]`) vẫn chạy
+frontend CI nhưng không redeploy Vercel.
 
-- [Hugging Face: Docker Spaces](https://huggingface.co/docs/hub/spaces-sdks-docker)
-- [Hugging Face: đồng bộ Space bằng GitHub Actions](https://huggingface.co/docs/hub/spaces-github-actions)
-- [Supabase: database migrations](https://supabase.com/docs/guides/deployment/database-migrations)
-- [Supabase: CLI `db push`](https://supabase.com/docs/reference/cli/supabase-db-push)
+Workflow không đặt `paths` ở cấp trigger vì required workflow bị skip có thể
+treo ở trạng thái Pending. Job `Release scope` luôn chạy, còn Backend, AI,
+Frontend, migration replay, dependency audit và production image dùng output
+boolean rõ ràng. `CI Gate` luôn tồn tại và là required check ổn định cần cấu hình
+trong branch protection.
+
+## Chống mất deploy và rollback do CI lệch thứ tự
+
+CI tính diff chính xác từ `github.event.before` đến `github.sha`, nên push nhiều
+commit và rename/delete đều được bao phủ. Trên `main`, CI còn so với deployment
+baseline của từng target và chạy **CI tích lũy** cho mọi artifact chưa deploy.
+Vì vậy, nếu CI của commit A lỗi/bị cancel rồi commit B chỉ sửa docs, B vẫn phải
+chạy lại test Backend/AI/image, Frontend hoặc migration tương ứng trước khi được
+phép mang thay đổi A lên production. Khi baseline thiếu/diverge, toàn bộ check
+của target đó được bật fail-safe.
+
+CI upload artifact JSON chứa SHA, danh sách file, boolean scope và
+`ci_target_coverage`. `CI Gate` đối chiếu mọi scope được chọn với job thực sự
+`success`; CD tái tính coverage từ artifact và từ chối deploy target chưa được
+CI của đúng SHA bao phủ. `Deploy production` được kích hoạt qua `workflow_run`,
+tải artifact từ đúng run ID, kiểm tra SHA/schema/type và không thực thi nội dung
+artifact.
+
+Mỗi target thành công được ghi vào GitHub Deployments với task riêng:
+
+- `deploy:supabase`
+- `deploy:huggingface`
+- `deploy:vercel`
+
+Trước mỗi release, planner so tested SHA với deployment thành công gần nhất của
+từng task rồi phân loại toàn bộ diff tích lũy. Cách này xử lý hai race quan trọng:
+
+- commit A đổi frontend, commit B chỉ đổi docs: B vẫn mang thay đổi frontend chưa
+  deploy từ A;
+- CI của commit cũ hoàn tất sau commit mới: nếu commit mới đã deploy, commit cũ
+  bị skip thay vì rollback production.
+
+Không có baseline, baseline mất khỏi Git history hoặc history phân nhánh đều
+fail-safe thành redeploy target tương ứng. Revision không còn là ancestor của
+`main` bị từ chối hoàn toàn.
+
+## Ranh giới privilege
+
+Pull request và CI không nhận secret production. Workflow deploy giữ các gate:
+
+- CI conclusion là `success`;
+- event gốc là `push` lên `main`;
+- source repository trùng repository hiện tại;
+- checkout đúng `workflow_run.head_sha` với credential persistence tắt;
+- artifact thuộc đúng triggering run;
+- GitHub Environment `production` phê duyệt từng job mutation.
+
+Job planner chỉ có `actions: read`, `contents: read`, `deployments: read`. Job
+mutation chỉ có `contents: read`, `deployments: write`. Cảnh báo heuristic
+`workflow_run` từ scanner không được xử lý bằng cách bỏ các gate trên.
+
+## Hugging Face: chỉ mirror payload runtime
+
+`deploy/huggingface/prepare-payload.sh <tested-sha> <new-dir>` dùng `git archive`
+trên đúng SHA đã qua CI và tạo allowlist:
+
+```text
+.dockerignore
+Dockerfile
+README.md                         # từ deploy/huggingface/README.md
+SOURCE_REVISION
+PAYLOAD_MANIFEST.sha256
+backend/requirements.lock
+backend/app/**
+ai_core/requirements.lock
+ai_core/app/**
+ai_core/config/**
+shared/**
+deploy/huggingface/{entrypoint.sh,healthcheck.sh,service-entrypoint.sh,redis.conf,supervisord.conf}
+```
+
+Script fail nếu có frontend, migration, tests, docs, `.env`, private key,
+symlink, bytecode hoặc thiếu executable/metadata bắt buộc. CI build, scan và
+smoke-test image từ chính thư mục staging này. CD sau đó đưa duy nhất staging
+directory cho `huggingface/hub-sync` được pin; action mirror với delete nên lần
+đầu sẽ xóa file monorepo thừa khỏi HEAD của Space. Variables, Secrets, persistent
+Storage và Git history không bị xóa. Space phải là target chuyên dụng; file sửa
+tay trên Space sẽ bị mirror xóa.
+
+Sau upload, CD so file tree remote với allowlist cộng `.gitattributes`, đợi đúng
+HF revision đạt `RUNNING`, rồi bắt buộc `/ready` trả `status=ready`. Readiness
+kiểm tra Redis, Supabase/HITL và xác nhận consumer Celery đang phục vụ đủ hai
+queue `ai`, `render`; Docker healthcheck cũng yêu cầu cả bốn process Supervisor
+ở trạng thái `RUNNING`.
+
+Space phải dùng SDK Docker, visibility **Protected**, always-on hardware và
+persistent storage `/data`. Private Space không phù hợp vì browser Vercel không
+được nhận `HF_TOKEN`.
+
+## Vercel: build prebuilt, không upload monorepo
+
+Tạo Vercel project với Root Directory `frontend`, sau đó tắt Git auto-deploy để
+tránh một commit được triển khai hai lần. GitHub Actions dùng Vercel CLI được pin:
+
+1. `vercel pull --environment=production`;
+2. `vercel build --prod`;
+3. parse file env do Vercel pull về mà không log giá trị; xác nhận đủ năm biến,
+   API/WS cùng trỏ đúng `HF_SPACE_ORIGIN`, auth là `jwt`, Supabase URL đúng
+   project và key bắt đầu bằng `sb_publishable_`;
+4. `vercel deploy --prebuilt --prod --archive=tgz`.
+
+Vercel chỉ nhận `.vercel/output`, không nhận Backend, AI, migration, docs hoặc
+toàn monorepo. `frontend/vercel.json` khai báo Vite output và SPA deep-link
+rewrite về `index.html`. Trước upload, workflow thêm marker SHA vào prebuilt
+output; sau deploy nó yêu cầu cả immutable deployment URL và canonical origin
+phục vụ đúng SHA đã qua CI trước khi ghi baseline thành công.
+
+Các Production Environment Variables bắt buộc trên Vercel:
+
+| Tên | Giá trị |
+| --- | --- |
+| `VITE_AUTH_MODE` | `jwt` |
+| `VITE_API_BASE_URL` | `https://<space>.hf.space/v1` |
+| `VITE_WS_BASE_URL` | `https://<space>.hf.space/v1` |
+| `VITE_SUPABASE_URL` | Supabase Project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public publishable key, không phải secret/service-role key |
+
+## GitHub Environment `production`
+
+Khuyến nghị bật required reviewers và deployment branch chỉ cho `main`.
+
+Variables:
+
+| Tên | Ý nghĩa |
+| --- | --- |
+| `HF_SPACE_ID` | `namespace/space-name` của protected Docker Space |
+| `HF_SPACE_ORIGIN` | Canonical origin do Space API trả về, ví dụ `https://namespace-space.hf.space` |
+| `SUPABASE_PROJECT_REF` | Project ref production |
+| `VERCEL_PRODUCTION_ORIGIN` | Origin production/canonical của SPA, ví dụ `https://app.example.com` |
+
+Secrets:
+
+| Tên | Phạm vi tối thiểu |
+| --- | --- |
+| `HF_TOKEN` | Fine-grained write chỉ trên Space đích |
+| `SUPABASE_ACCESS_TOKEN` | Migration write và database read cho đúng project |
+| `SUPABASE_DB_PASSWORD` | Password database production |
+| `VERCEL_TOKEN` | Deploy đúng Vercel project/team |
+| `VERCEL_ORG_ID` | Team/user ID dùng bởi Vercel CLI |
+| `VERCEL_PROJECT_ID` | Project ID của frontend |
+
+Google key, Supabase secret key và internal token chỉ nằm trong Space Settings;
+không đặt chúng vào GitHub deployment secrets hoặc Vercel.
+
+## Space Variables/Secrets
+
+Space Variables bắt buộc: `APP_ENV=production`, `AUTH_MODE=jwt`,
+`SUPABASE_URL`, và `CORS_ORIGINS` chứa chính xác
+`VERCEL_PRODUCTION_ORIGIN` (không `*`). Redis/Celery dùng loopback
+`redis://127.0.0.1:6379/0`.
+
+Space Secrets bắt buộc: `INTERNAL_SERVICE_TOKEN`, `SUPABASE_SECRET_KEY` (hoặc
+legacy service-role alias), và ít nhất một Google/Gemini provider key. Frontend
+VITE variables không còn thuộc Space.
+
+## Migration và rollback
+
+Supabase job chỉ chạy khi production schema inputs thay đổi. Nó thực hiện dry
+run, `db push --include-all`, rồi yêu cầu cả tám counter từ
+`postmigration_gate.sql` bằng 0 trước khi target sau được promote. Migration là
+forward-only; không sửa version đã apply và không dùng `db reset --linked`.
+
+Ứng dụng rollback bằng một commit tương thích schema đã qua CI. Cơ chế baseline
+không cho một CI run cũ tự rollback target mới hơn; rollback chủ đích phải là
+commit mới/revert trên `main` để có lịch sử và CI mới.
+
+## Kiểm tra local
+
+```bash
+python3 -m unittest scripts/ci/test_release_plan.py
+bash -n deploy/huggingface/prepare-payload.sh
+bash backend/supabase/validate_migrations.sh
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+```
+
+Tài liệu nền tảng:
+
+- [GitHub workflow path filters](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
+- [GitHub Deployments API](https://docs.github.com/en/rest/deployments/deployments)
+- [Vercel GitHub Actions](https://vercel.com/kb/guide/how-can-i-use-github-actions-with-vercel)
+- [Vercel prebuilt deployment](https://vercel.com/docs/cli/deploying-from-cli)
+- [Vite SPA trên Vercel](https://vercel.com/docs/frameworks/frontend/vite)
+- [Hugging Face hub-sync](https://github.com/huggingface/hub-sync)
+- [Supabase migrations](https://supabase.com/docs/guides/deployment/database-migrations)

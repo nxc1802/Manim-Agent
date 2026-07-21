@@ -5,7 +5,7 @@
 | Tín hiệu | Ý nghĩa |
 | --- | --- |
 | `GET /health` | Liveness của Backend/SPA process |
-| `GET /ready` | Redis broker và Supabase Data API có thể truy cập |
+| `GET /ready` | Redis/Supabase truy cập được và có consumer cho cả queue `ai`, `render` |
 | Hugging Face runtime stage | Image build/start có thành công |
 | Supabase Advisors | RLS, index và database security/performance drift |
 
@@ -48,7 +48,7 @@ Nếu task bị kẹt:
 | Hiện tượng | Kiểm tra đầu tiên |
 | --- | --- |
 | `/health` lỗi | Space build/runtime log, port `7860`, Supervisor |
-| `/ready` 503 | Redis process, `SUPABASE_URL`, secret key, grants/migration |
+| `/ready` 503 | Redis, Supabase URL/key/grants/migration, hoặc thiếu AI/render worker |
 | Login được nhưng API 401 | JWT issuer/audience, JWKS reachability, Auth redirect URL |
 | WebSocket reconnect liên tục | Proxy hỗ trợ subprotocol, access token còn hạn, Redis Pub/Sub |
 | Render fail/timeout | Manim stderr, worker memory/CPU, TeX/FFmpeg, hard limits |
