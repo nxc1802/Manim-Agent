@@ -58,7 +58,7 @@ class ProjectUpdate(BaseModel):
 class Project(BaseModel):
     """Row shape for `public.projects` (see docs/proposal/09_supabase_schema.md)."""
 
-    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     id: UUID
     user_id: UUID

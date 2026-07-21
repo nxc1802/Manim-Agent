@@ -14,7 +14,7 @@ RenderQuality = Literal["480p", "720p", "1080p", "4k"]
 class RenderJob(BaseModel):
     """Row shape for `public.render_jobs`."""
 
-    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     id: UUID
     project_id: UUID

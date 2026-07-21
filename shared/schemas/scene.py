@@ -41,7 +41,7 @@ class SceneUpdate(BaseModel):
 class Scene(BaseModel):
     """Row shape for `public.scenes`."""
 
-    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     id: UUID
     project_id: UUID
