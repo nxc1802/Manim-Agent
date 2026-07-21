@@ -327,18 +327,22 @@ jobs:
           bash deploy/huggingface/prepare-payload.sh "${TESTED_SHA}" "${HF_RELEASE_DIR}"
           find "${HF_RELEASE_DIR}" -type f -print | sed "s#^${HF_RELEASE_DIR}/##" | sort
 
-      - name: Mirror only the curated payload to the protected Docker Space
+      - name: Push curated payload to Hugging Face Space
         timeout-minutes: 20
-        uses: huggingface/hub-sync@da166beda9a9aff15d1de9a82c6dc86c410ea3ee # v0.2.1
-        with:
-          github_repo_id: ${{ github.repository }}
-          subdirectory: ${{ runner.temp }}/hf-release
-          huggingface_repo_id: ${{ vars.HF_SPACE_ID }}
-          hf_token: ${{ secrets.HF_TOKEN }}
-          hf_version: "1.24.0"
-          repo_type: space
-          space_sdk: docker
-          private: "false"
+        env:
+          HF_RELEASE_DIR: ${{ runner.temp }}/hf-release
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          cd "${HF_RELEASE_DIR}"
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "deploy: release ${TESTED_SHA:0:7}"
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_ID}.git" main
 
       - name: Verify the remote Space contains only the curated payload
         env:
