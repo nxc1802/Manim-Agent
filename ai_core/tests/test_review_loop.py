@@ -392,9 +392,9 @@ def test_review_model_tiers_are_ordered_without_duplicates() -> None:
 
     tiers = load_review_loop_tiers()
     assert [tier.model for tier in tiers] == [
-        "gemma-4-31b-it",
-        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
         "gemini-3.5-flash",
+        "gemini-3.6-flash",
     ]
     assert tiers[-1].max_attempts >= 1
 

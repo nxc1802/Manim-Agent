@@ -2,47 +2,49 @@ defaults:
   model: gemini-3.5-flash
   temperature: 0.3
   max_tokens: 4096
-  reasoning_effort: medium
+  reasoning_effort: high
 
 agents:
   idea_sketcher:
-    model: gemini-3.5-flash
-    temperature: 0.2
+    model: gemini-3-flash-preview
+    temperature: 0.5
     max_tokens: 4096
-    reasoning_effort: low
+    reasoning_effort: high
+
   storyboarder:
     model: gemini-3.5-flash
     temperature: 0.3
     max_tokens: 16384
-    reasoning_effort: medium
+    reasoning_effort: high
+
   builder:
-    model: gemini-3.5-flash
+    model: gemini-3.6-flash
     temperature: 0.1
     max_tokens: 8192
-    reasoning_effort: medium
-  # code_reviewer and visual_reviewer use the review_loop tiers below
-  # for model escalation.  These entries are only used if the step
-  # executor ever needs a "single-shot" model for the initial analysis.
-  code_reviewer:
-    model: gemma-4-31b-it
-    temperature: 0.1
-    max_tokens: 4096
-    reasoning_effort: none
-  visual_reviewer:
-    model: gemma-4-31b-it
-    temperature: 0.1
-    max_tokens: 4096
-    reasoning_effort: none
+    reasoning_effort: high
 
-# Model escalation tiers for review loops (code_reviewer & visual_reviewer)
-review_loop:
-  tiers:
-    - model: gemma-4-31b-it
-      max_attempts: 1
-      reasoning_effort: none
-    - model: gemini-3-flash-preview
-      max_attempts: 1
-      reasoning_effort: low
-    - model: gemini-3.5-flash
-      reasoning_effort: medium
-      # Uses REVIEW_LOOP_MAX_ATTEMPTS (default 3).
+  code_reviewer:
+    temperature: 0.1
+    max_tokens: 4096
+    review_tiers:
+      - model: gemini-3.5-flash-lite
+        max_attempts: 1
+        reasoning_effort: high
+      - model: gemini-3.5-flash
+        max_attempts: 1
+        reasoning_effort: high
+      - model: gemini-3.6-flash
+        reasoning_effort: high
+
+  visual_reviewer:
+    temperature: 0.1
+    max_tokens: 4096
+    review_tiers:
+      - model: gemini-3.5-flash-lite
+        max_attempts: 1
+        reasoning_effort: high
+      - model: gemini-3.5-flash
+        max_attempts: 1
+        reasoning_effort: high
+      - model: gemini-3.6-flash
+        reasoning_effort: high

@@ -12,20 +12,22 @@ const GENERATION_AGENTS: Array<{ id: GenerationAgent; label: string; description
   { id: 'visual_reviewer', label: 'Visual review', description: 'Checks rendered frames and repairs visual defects.' },
 ];
 const AVAILABLE_MODELS: ReviewTierConfig['model'][] = [
-  'gemma-4-31b-it',
+  'gemini-3.5-flash-lite',
   'gemini-3-flash-preview',
   'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemma-4-31b-it',
 ];
 const DEFAULT_REVIEW_TIERS: ReviewTierConfig[] = [
-  { model: 'gemma-4-31b-it', max_attempts: 1, reasoning_effort: 'none' },
-  { model: 'gemini-3-flash-preview', max_attempts: 1, reasoning_effort: 'low' },
-  { model: 'gemini-3.5-flash', max_attempts: 3, reasoning_effort: 'medium' },
+  { model: 'gemini-3.5-flash-lite', max_attempts: 1, reasoning_effort: 'high' },
+  { model: 'gemini-3.5-flash', max_attempts: 1, reasoning_effort: 'high' },
+  { model: 'gemini-3.6-flash', max_attempts: 3, reasoning_effort: 'high' },
 ];
 const DEFAULT_AGENT_MODELS: Record<GenerationAgent, ReviewTierConfig['model']> = {
-  idea_sketcher: 'gemini-3.5-flash',
+  idea_sketcher: 'gemini-3-flash-preview',
   storyboarder: 'gemini-3.5-flash',
-  builder: 'gemini-3.5-flash',
-  code_reviewer: 'gemma-4-31b-it',
+  builder: 'gemini-3.6-flash',
+  code_reviewer: 'gemini-3.5-flash-lite',
   visual_reviewer: 'gemma-4-31b-it',
 };
 const GEMINI_REASONING_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [

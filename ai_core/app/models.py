@@ -34,28 +34,45 @@ def load_agent_model(kind: str) -> AgentModel:
     defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
     agents = data.get("agents") if isinstance(data.get("agents"), dict) else {}
     config = agents.get(kind) if isinstance(agents.get(kind), dict) else {}
+
+    model = config.get("model")
+    if not model:
+        tiers = load_review_loop_tiers(kind)
+        model = tiers[0].model if tiers else (defaults.get("model") or settings.default_chat_model)
+
     return AgentModel(
-        model=str(config.get("model") or settings.default_chat_model),
+        model=str(model),
         temperature=float(config.get("temperature", defaults.get("temperature", 0.3))),
         max_tokens=int(config.get("max_tokens", defaults.get("max_tokens", 4096))),
         reasoning_effort=str(
-            config.get("reasoning_effort", defaults.get("reasoning_effort", "none"))
+            config.get("reasoning_effort", defaults.get("reasoning_effort", "high"))
         ),
     )
 
 
-def load_review_loop_tiers() -> list[ModelTier]:
+def load_review_loop_tiers(kind: str | None = None) -> list[ModelTier]:
     """Load model escalation tiers from ``agent_models.yaml``.
 
-    Falls back to hardcoded defaults if the YAML section is absent.
+    Checks agent-specific ``review_tiers`` under ``agents.<kind>`` first,
+    then falls back to top-level ``review_loop.tiers`` or defaults.
     """
     data = _load_yaml()
-    review_loop = data.get("review_loop")
-    if not isinstance(review_loop, dict):
-        return _default_tiers()
-    raw_tiers = review_loop.get("tiers")
+    raw_tiers = None
+    agents = data.get("agents")
+    if isinstance(agents, dict):
+        target_kind = kind or "code_reviewer"
+        agent_data = agents.get(target_kind)
+        if isinstance(agent_data, dict):
+            raw_tiers = agent_data.get("review_tiers") or agent_data.get("tiers")
+
+    if not isinstance(raw_tiers, list) or not raw_tiers:
+        review_loop = data.get("review_loop")
+        if isinstance(review_loop, dict):
+            raw_tiers = review_loop.get("tiers")
+
     if not isinstance(raw_tiers, list) or not raw_tiers:
         return _default_tiers()
+
     tiers: list[ModelTier] = []
     for idx, item in enumerate(raw_tiers):
         if not isinstance(item, dict):
@@ -68,7 +85,7 @@ def load_review_loop_tiers() -> list[ModelTier]:
             ModelTier(
                 model=model,
                 max_attempts=max_attempts,
-                reasoning_effort=str(item.get("reasoning_effort", "none")),
+                reasoning_effort=str(item.get("reasoning_effort", "high")),
             )
         )
     return tiers or _default_tiers()

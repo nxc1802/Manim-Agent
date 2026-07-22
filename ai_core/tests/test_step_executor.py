@@ -191,7 +191,7 @@ def test_generation_model_overrides_are_applied_without_changing_defaults() -> N
         },
     )
 
-    assert default.model == "gemini-3.5-flash"
+    assert default.model == "gemini-3.6-flash"
     assert default.temperature == 0.1
     assert overridden.model == "gemini-3.5-flash"
     assert overridden.temperature == 0.7
@@ -230,7 +230,7 @@ def test_custom_code_reviewer_chain_replaces_the_backend_default_chain() -> None
                 "temperature": 0.7,
                 "review_tiers": [
                     {"model": "gemini-3.5-flash", "max_attempts": 2, "reasoning_effort": "high"},
-                    {"model": "gemini-3-flash-preview", "max_attempts": 1, "reasoning_effort": "low"},
+                    {"model": "gemini-3.5-flash-lite", "max_attempts": 1, "reasoning_effort": "low"},
                 ],
             }
         },
@@ -250,7 +250,7 @@ def test_custom_code_reviewer_chain_replaces_the_backend_default_chain() -> None
     selected_tiers = review_loop.call_args.kwargs["tiers"]
     assert [(tier.model, tier.max_attempts) for tier in selected_tiers] == [
         ("gemini-3.5-flash", 2),
-        ("gemini-3-flash-preview", 1),
+        ("gemini-3.5-flash-lite", 1),
     ]
     assert [tier.reasoning_effort for tier in selected_tiers] == ["high", "low"]
     assert loop.run.call_args.kwargs["llm_config"].temperature == 0.7

@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 GenerationModel = Literal[
     "gemini-3-flash-preview",
     "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
     "gemma-4-31b-it",
 ]
 GenerationAgent = Literal[
