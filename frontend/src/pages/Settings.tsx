@@ -317,22 +317,6 @@ export const Settings: React.FC = () => {
                           ))}
                         </select>
                         <select
-                          className="select-field review-tier-retries"
-                          value={tier.max_attempts}
-                          onChange={event => updateReviewTiers(reviewTiers.map((item, itemIndex) => (
-                            itemIndex === index
-                              ? { ...item, max_attempts: Number(event.target.value) }
-                              : item
-                          )))}
-                          aria-label={`Retries for tier ${index + 1}`}
-                        >
-                          {[1, 2, 3, 4, 5].map(attempts => (
-                            <option key={attempts} value={attempts}>
-                              {attempts === 1 ? '1 retry' : `${attempts} retries`}
-                            </option>
-                          ))}
-                        </select>
-                        <select
                           className="select-field review-tier-reasoning"
                           value={tier.reasoning_effort || 'none'}
                           onChange={event => updateReviewTiers(reviewTiers.map((item, itemIndex) => (

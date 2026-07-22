@@ -34,6 +34,7 @@ agents:
         max_attempts: 1
         reasoning_effort: high
       - model: gemini-3.6-flash
+        max_attempts: 1
         reasoning_effort: high
 
   visual_reviewer:
@@ -47,4 +48,5 @@ agents:
         max_attempts: 1
         reasoning_effort: high
       - model: gemini-3.6-flash
+        max_attempts: 3
         reasoning_effort: high
