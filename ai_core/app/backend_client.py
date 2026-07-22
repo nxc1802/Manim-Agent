@@ -42,13 +42,21 @@ class BackendClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError:
-            logger.error(
-                "Backend callback failed method=%s path=%s status=%d request_id=%s",
-                method,
-                path,
-                response.status_code,
-                response.headers.get("x-request-id"),
-            )
+            if response.status_code == 409:
+                logger.info(
+                    "Backend callback conflict method=%s path=%s status=409 request_id=%s",
+                    method,
+                    path,
+                    response.headers.get("x-request-id"),
+                )
+            else:
+                logger.error(
+                    "Backend callback failed method=%s path=%s status=%d request_id=%s",
+                    method,
+                    path,
+                    response.status_code,
+                    response.headers.get("x-request-id"),
+                )
             raise
         return dict(response.json())
 

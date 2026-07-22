@@ -70,11 +70,23 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
     _ = self
     identifier = UUID(step_id)
     logger.info("AI step started step_id=%s", identifier)
-    claimed = False
     with BackendClient() as client:
         try:
             work_item = client.claim_step(identifier)
-            claimed = True
+        except Exception as exc:  # noqa: BLE001
+            if (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response is not None
+                and exc.response.status_code == 409
+            ):
+                logger.info(
+                    "AI step claim skipped for inactive/superseded target step_id=%s", identifier
+                )
+                return
+            logger.exception("AI step claim failed step_id=%s", identifier)
+            raise
+
+        try:
             result = StepExecutor().generate(work_item, backend_client=client)
             client.complete_step(identifier, result)
             logger.info("AI step completed step_id=%s", identifier)
@@ -82,11 +94,8 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
             logger.exception("AI step failed step_id=%s", identifier)
             try:
                 client.fail_step(identifier, str(exc))
-            except Exception as fail_exc:  # noqa: BLE001
-                if not claimed and "409" in str(fail_exc):
-                    logger.warning("AI step failure callback skipped for inactive target step_id=%s detail=%s", identifier, fail_exc)
-                else:
-                    logger.exception("AI step failure callback failed step_id=%s", identifier)
+            except Exception:  # noqa: BLE001
+                logger.exception("AI step failure callback failed step_id=%s", identifier)
             raise
 
 
@@ -103,11 +112,23 @@ def render_manim_scene(self, job_id: str) -> None:  # noqa: ANN001
     _ = self
     identifier = UUID(job_id)
     logger.info("Render job started job_id=%s", identifier)
-    claimed = False
     with BackendClient() as client:
         try:
             work_item = client.claim_render(identifier)
-            claimed = True
+        except Exception as exc:  # noqa: BLE001
+            if (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response is not None
+                and exc.response.status_code == 409
+            ):
+                logger.info(
+                    "Render job claim skipped for inactive/superseded target job_id=%s", identifier
+                )
+                return
+            logger.exception("Render job claim failed job_id=%s", identifier)
+            raise
+
+        try:
             if work_item.get("job_type") == "full_project":
                 result = render_full_project(
                     identifier,
@@ -132,9 +153,6 @@ def render_manim_scene(self, job_id: str) -> None:  # noqa: ANN001
             logger.exception("Render job failed job_id=%s", identifier)
             try:
                 client.fail_render(identifier, str(exc))
-            except Exception as fail_exc:  # noqa: BLE001
-                if not claimed and "409" in str(fail_exc):
-                    logger.warning("Render failure callback skipped for inactive job job_id=%s detail=%s", identifier, fail_exc)
-                else:
-                    logger.exception("Render failure callback failed job_id=%s", identifier)
+            except Exception:  # noqa: BLE001
+                logger.exception("Render failure callback failed job_id=%s", identifier)
             raise
