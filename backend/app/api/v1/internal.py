@@ -421,6 +421,8 @@ def fail_step(
         _require_current_active_run(store, queued_step)
         step = store.fail(step_id, error=body.error)
         if step is None:
+            step = store.fail_queued(step_id, error=body.error)
+        if step is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Step is not generating")
         store.update_run(step.run_id, status="failed")
         if step.scene_id:

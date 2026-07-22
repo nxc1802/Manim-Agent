@@ -70,9 +70,11 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
     _ = self
     identifier = UUID(step_id)
     logger.info("AI step started step_id=%s", identifier)
+    claimed = False
     with BackendClient() as client:
         try:
             work_item = client.claim_step(identifier)
+            claimed = True
             result = StepExecutor().generate(work_item, backend_client=client)
             client.complete_step(identifier, result)
             logger.info("AI step completed step_id=%s", identifier)
@@ -80,8 +82,11 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
             logger.exception("AI step failed step_id=%s", identifier)
             try:
                 client.fail_step(identifier, str(exc))
-            except Exception:  # noqa: BLE001
-                logger.exception("AI step failure callback failed step_id=%s", identifier)
+            except Exception as fail_exc:  # noqa: BLE001
+                if not claimed and "409" in str(fail_exc):
+                    logger.warning("AI step failure callback skipped for inactive target step_id=%s detail=%s", identifier, fail_exc)
+                else:
+                    logger.exception("AI step failure callback failed step_id=%s", identifier)
             raise
 
 
@@ -98,9 +103,11 @@ def render_manim_scene(self, job_id: str) -> None:  # noqa: ANN001
     _ = self
     identifier = UUID(job_id)
     logger.info("Render job started job_id=%s", identifier)
+    claimed = False
     with BackendClient() as client:
         try:
             work_item = client.claim_render(identifier)
+            claimed = True
             if work_item.get("job_type") == "full_project":
                 result = render_full_project(
                     identifier,
@@ -125,6 +132,9 @@ def render_manim_scene(self, job_id: str) -> None:  # noqa: ANN001
             logger.exception("Render job failed job_id=%s", identifier)
             try:
                 client.fail_render(identifier, str(exc))
-            except Exception:  # noqa: BLE001
-                logger.exception("Render failure callback failed job_id=%s", identifier)
+            except Exception as fail_exc:  # noqa: BLE001
+                if not claimed and "409" in str(fail_exc):
+                    logger.warning("Render failure callback skipped for inactive job job_id=%s detail=%s", identifier, fail_exc)
+                else:
+                    logger.exception("Render failure callback failed job_id=%s", identifier)
             raise
