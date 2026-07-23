@@ -33,13 +33,6 @@ const DEFAULT_AGENT_PROFILES: Record<GenerationAgent, { model: ReviewTierConfig[
   code_reviewer: { model: 'gemini-3.5-flash-lite', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
   visual_reviewer: { model: 'gemini-3.5-flash-lite', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
 };
-const DEFAULT_AGENT_MODELS: Record<GenerationAgent, ReviewTierConfig['model']> = {
-  idea_sketcher: 'gemini-3-flash-preview',
-  storyboarder: 'gemini-3.5-flash',
-  builder: 'gemini-3.6-flash',
-  code_reviewer: 'gemini-3.5-flash-lite',
-  visual_reviewer: 'gemini-3.5-flash-lite',
-};
 const GEMINI_REASONING_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [
   { value: 'minimal', label: 'Minimal' },
   { value: 'low', label: 'Low' },

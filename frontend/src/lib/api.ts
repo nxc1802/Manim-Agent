@@ -89,6 +89,16 @@ export interface Scene {
   generation_status: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
+export type GenerationModel =
+  | 'gemini-3-flash-preview'
+  | 'gemini-3.5-flash'
+  | 'gemini-3.5-flash-lite'
+  | 'gemini-3.6-flash'
+  | 'gemma-4-31b-it'
+  | 'gemma-4-26b-it'
+  | 'gemma-4-31b-it-thinking'
+  | 'gemma-4-26b-it-thinking';
+
 export interface UserSettings {
   theme: 'dark' | 'light';
   language: 'vi' | 'en';
@@ -100,7 +110,7 @@ export interface UserSettings {
   max_review_attempts: number;
   video_quality: '480p' | '720p' | '1080p' | '4k';
   fps: 15 | 30 | 60;
-  llm_model: 'gemini-3-flash-preview' | 'gemini-3.5-flash' | 'gemini-3.5-flash-lite' | 'gemini-3.6-flash' | 'gemma-4-31b-it' | null;
+  llm_model: GenerationModel | null;
   llm_temperature: number | null;
   llm_max_tokens: number | null;
   llm_agent_configs: Partial<Record<GenerationAgent, AgentLlmConfig>>;
@@ -114,7 +124,7 @@ export type GenerationAgent = 'idea_sketcher' | 'storyboarder' | 'builder' | 'co
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 
 export interface AgentLlmConfig {
-  model?: 'gemini-3-flash-preview' | 'gemini-3.5-flash' | 'gemini-3.5-flash-lite' | 'gemini-3.6-flash' | 'gemma-4-31b-it' | null;
+  model?: GenerationModel | null;
   temperature?: number | null;
   max_tokens?: number | null;
   reasoning_effort?: ReasoningEffort | null;
@@ -122,7 +132,7 @@ export interface AgentLlmConfig {
 }
 
 export interface ReviewTierConfig {
-  model: 'gemini-3-flash-preview' | 'gemini-3.5-flash' | 'gemini-3.5-flash-lite' | 'gemini-3.6-flash' | 'gemma-4-31b-it';
+  model: GenerationModel;
   max_attempts: number;
   reasoning_effort?: ReasoningEffort;
 }

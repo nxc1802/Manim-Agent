@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from celery import Celery
 
 from app.backend_client import BackendClient

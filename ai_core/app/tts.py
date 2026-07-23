@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import logging
 import subprocess
 import tempfile
@@ -11,7 +10,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
-from app.llm import GoogleAPIKeyPool, _SHARED_POOL, _redacted_provider_error, configured_google_keys
+from app.llm import _SHARED_POOL, GoogleAPIKeyPool, _redacted_provider_error, configured_google_keys
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ def synthesize_speech(
                 raise TtsSynthesisError(
                     f"Text-to-Speech synthesis failed: {_redacted_provider_error(last_exc, keys)}"
                 ) from None
-            raise TtsSynthesisError("TTS is enabled but no Google API key is AVAILABLE")
+            raise TtsSynthesisError("TTS is enabled but no Google API key is AVAILABLE") from None
 
         # Try Gemini 3.1 Flash TTS first (Free AI Studio Developer API model)
         pcm_path: Path | None = None
