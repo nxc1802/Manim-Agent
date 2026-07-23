@@ -108,6 +108,22 @@ class PendingPatchCheckpoint:
     record: ReviewIterationRecord
 
 
+@dataclass(frozen=True)
+class ErrorEpisode:
+    """One validated error bound to the exact source revision that produced it."""
+
+    number: int
+    source_revision: str
+    error_fingerprint: str
+    errors: tuple[ManimError | dict, ...]
+    frame_bytes: bytes | None = None
+
+
+def source_revision(code: str) -> str:
+    """Short content identity used to prevent stale error/source pairings."""
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
+
+
 def error_fingerprint(errors: list[ManimError | dict], code: str = "") -> str:
     """Stable identity for one concrete failure site in the current source."""
     if not errors:
@@ -476,6 +492,7 @@ class ReviewLoop:
         total_attempts = 0
         last_errors: list[ManimError | dict] = []
         active_error_fingerprint: str | None = None
+        active_episode: ErrorEpisode | None = None
         repair_memory: list[RepairAttempt] = []
         attempted_strategies: set[str] = set()
         pending_checkpoint: PendingPatchCheckpoint | None = None
@@ -485,47 +502,77 @@ class ReviewLoop:
             for tier_attempt in range(tier.max_attempts):
                 if max_attempts is not None and total_attempts >= max_attempts:
                     break
-                total_attempts += 1
+                next_attempt = total_attempts + 1
 
                 reviewer = "visual" if config.uses_vision else "code"
-                self._emit_stage(
-                    on_stage,
-                    {
-                        "phase": "validating",
-                        "reviewer": reviewer,
-                        "attempt": total_attempts,
-                        "model": tier.model,
-                        "message": f"Đang kiểm tra {reviewer} với {tier.model}",
-                    },
+                reuse_episode = (
+                    pending_checkpoint is None
+                    and active_episode is not None
+                    and active_episode.source_revision == source_revision(code)
                 )
-                # 1. Validate (run manim / VLM frame analysis)
-                try:
-                    errors, frame_bytes = self._validate(
-                        code,
-                        config,
-                        tier.model,
-                        llm_config=llm_config,
-                        reasoning_effort=tier.reasoning_effort,
+                if reuse_episode:
+                    # Revalidation already proved that this exact source
+                    # revision advanced to this exact error. Re-rendering here
+                    # can resurrect stale diagnostics and detach the prompt
+                    # from the source that the reviewer is asked to patch.
+                    errors = list(active_episode.errors)
+                    frame_bytes = active_episode.frame_bytes
+                    self._emit_stage(
+                        on_stage,
+                        {
+                            "phase": "error_episode_resumed",
+                            "reviewer": reviewer,
+                            "attempt": next_attempt,
+                            "model": tier.model,
+                            "message": (
+                                f"Tiếp tục error episode {active_episode.number} "
+                                "từ kết quả revalidation đã xác nhận"
+                            ),
+                            "error_episode": active_episode.number,
+                            "source_revision": active_episode.source_revision,
+                            "error_fingerprint": active_episode.error_fingerprint,
+                        },
                     )
-                except Exception as exc:
-                    error_kind = "validation error" if config.uses_vision else "renderer error"
-                    latest_validation_error = f"{error_kind}: {exc}"
-                    logger.warning("Validation failed on model %s: %s", tier.model, exc)
-                    record = ReviewIterationRecord(
-                        iteration=len(iterations) + 1,
-                        model=tier.model,
-                        error_summary=f"Validation {error_kind}: {exc}",
-                        escalated=True,
-                        outcome="validation_error",
-                        repair_history_count=len(repair_memory),
+                else:
+                    self._emit_stage(
+                        on_stage,
+                        {
+                            "phase": "validating",
+                            "reviewer": reviewer,
+                            "attempt": next_attempt,
+                            "model": tier.model,
+                            "message": f"Đang kiểm tra {reviewer} với {tier.model}",
+                        },
                     )
-                    iterations.append(record)
-                    if pending_checkpoint is not None:
-                        # The candidate is still unproven. Spend the next
-                        # configured attempt validating this exact checkpoint;
-                        # do not discard it or ask for another patch blindly.
-                        continue
-                    break  # escalate to next model
+                    # 1. Validate (run manim / VLM frame analysis)
+                    try:
+                        errors, frame_bytes = self._validate(
+                            code,
+                            config,
+                            tier.model,
+                            llm_config=llm_config,
+                            reasoning_effort=tier.reasoning_effort,
+                        )
+                    except Exception as exc:
+                        error_kind = "validation error" if config.uses_vision else "renderer error"
+                        latest_validation_error = f"{error_kind}: {exc}"
+                        logger.warning("Validation failed on model %s: %s", tier.model, exc)
+                        record = ReviewIterationRecord(
+                            iteration=len(iterations) + 1,
+                            model=tier.model,
+                            error_summary=f"Validation {error_kind}: {exc}",
+                            escalated=True,
+                            outcome="validation_error",
+                            repair_history_count=len(repair_memory),
+                        )
+                        iterations.append(record)
+                        if pending_checkpoint is not None:
+                            # The candidate is still unproven. Spend the next
+                            # configured validation slot on this exact
+                            # checkpoint, without reporting a reviewer attempt
+                            # that never happened.
+                            continue
+                        break  # escalate to next model
 
                 if pending_checkpoint is not None:
                     checkpoint = pending_checkpoint
@@ -539,7 +586,7 @@ class ReviewLoop:
                             {
                                 "phase": "checkpoint_confirmed",
                                 "reviewer": reviewer,
-                                "attempt": total_attempts,
+                                "attempt": next_attempt,
                                 "model": tier.model,
                                 "message": "Bản vá chờ xác nhận đã render thành công",
                             },
@@ -558,6 +605,11 @@ class ReviewLoop:
                     ):
                         code = checkpoint.previous_code
                         errors = checkpoint.previous_errors
+                        if (
+                            active_episode is not None
+                            and active_episode.source_revision == source_revision(code)
+                        ):
+                            frame_bytes = active_episode.frame_bytes
                         checkpoint.record.same_error = True
                         checkpoint.record.outcome = "same_error"
                         self._emit_stage(
@@ -565,7 +617,7 @@ class ReviewLoop:
                             {
                                 "phase": "checkpoint_rolled_back",
                                 "reviewer": reviewer,
-                                "attempt": total_attempts,
+                                "attempt": next_attempt,
                                 "model": tier.model,
                                 "message": (
                                     "Đã xác nhận lỗi cũ vẫn còn; chỉ rollback bản vá gần nhất"
@@ -575,14 +627,26 @@ class ReviewLoop:
                         )
                     else:
                         checkpoint.record.outcome = "advanced_to_new_error"
+                        new_fingerprint = error_fingerprint(errors, code)
+                        previous_episode_number = active_episode.number if active_episode else 0
+                        active_episode = ErrorEpisode(
+                            number=previous_episode_number + 1,
+                            source_revision=source_revision(code),
+                            error_fingerprint=new_fingerprint,
+                            errors=tuple(errors),
+                            frame_bytes=frame_bytes,
+                        )
                         self._emit_stage(
                             on_stage,
                             {
                                 "phase": "checkpoint_confirmed",
                                 "reviewer": reviewer,
-                                "attempt": total_attempts,
+                                "attempt": next_attempt,
                                 "model": tier.model,
                                 "message": "Bản vá trước đã xử lý lỗi cũ; tiếp tục với lỗi mới",
+                                "error_episode": active_episode.number,
+                                "source_revision": active_episode.source_revision,
+                                "error_fingerprint": new_fingerprint,
                             },
                         )
                     pending_checkpoint = None
@@ -603,7 +667,7 @@ class ReviewLoop:
                     self._emit_memory_reset(
                         on_stage,
                         reviewer=reviewer,
-                        attempt=total_attempts,
+                        attempt=next_attempt,
                         model=tier.model,
                         previous=active_error_fingerprint,
                         current=current_fingerprint,
@@ -611,6 +675,38 @@ class ReviewLoop:
                     repair_memory.clear()
                     attempted_strategies.clear()
                 active_error_fingerprint = current_fingerprint
+                if (
+                    active_episode is None
+                    or active_episode.source_revision != source_revision(code)
+                    or active_episode.error_fingerprint != current_fingerprint
+                ):
+                    previous_episode_number = active_episode.number if active_episode else 0
+                    active_episode = ErrorEpisode(
+                        number=previous_episode_number + 1,
+                        source_revision=source_revision(code),
+                        error_fingerprint=current_fingerprint,
+                        errors=tuple(errors),
+                        frame_bytes=frame_bytes,
+                    )
+                    self._emit_stage(
+                        on_stage,
+                        {
+                            "phase": "error_episode_started",
+                            "reviewer": reviewer,
+                            "attempt": next_attempt,
+                            "model": tier.model,
+                            "message": f"Bắt đầu error episode {active_episode.number}",
+                            "error_episode": active_episode.number,
+                            "source_revision": active_episode.source_revision,
+                            "error_fingerprint": current_fingerprint,
+                        },
+                    )
+
+                # ``max_review_attempts`` counts actual reviewer requests, not
+                # validation-only passes or checkpoint confirmation. This
+                # keeps the displayed attempts aligned with the persisted
+                # setting and with the number of LLM repair calls.
+                total_attempts += 1
 
                 record = ReviewIterationRecord(
                     iteration=len(iterations) + 1,
@@ -674,6 +770,9 @@ class ReviewLoop:
                         frame_bytes,
                         runtime_api_context=runtime_api_context,
                         repair_memory=repair_memory,
+                        error_episode=active_episode.number if active_episode else 1,
+                        error_fingerprint_value=current_fingerprint,
+                        source_revision_value=source_revision(code),
                         llm_config=llm_config,
                         reasoning_effort=tier.reasoning_effort,
                     )
@@ -835,7 +934,7 @@ class ReviewLoop:
 
                 # 4. Re-validate
                 try:
-                    new_errors, _ = self._validate(
+                    new_errors, new_frame_bytes = self._validate(
                         code,
                         config,
                         tier.model,
@@ -931,6 +1030,27 @@ class ReviewLoop:
                 repair_memory.clear()
                 attempted_strategies.clear()
                 active_error_fingerprint = new_fingerprint
+                previous_episode_number = active_episode.number if active_episode else 0
+                active_episode = ErrorEpisode(
+                    number=previous_episode_number + 1,
+                    source_revision=source_revision(code),
+                    error_fingerprint=new_fingerprint,
+                    errors=tuple(new_errors),
+                    frame_bytes=new_frame_bytes,
+                )
+                self._emit_stage(
+                    on_stage,
+                    {
+                        "phase": "error_episode_started",
+                        "reviewer": reviewer,
+                        "attempt": total_attempts,
+                        "model": tier.model,
+                        "message": f"Bắt đầu error episode {active_episode.number}",
+                        "error_episode": active_episode.number,
+                        "source_revision": active_episode.source_revision,
+                        "error_fingerprint": new_fingerprint,
+                    },
+                )
 
         # All tiers exhausted
         if pending_checkpoint is not None:
@@ -1113,6 +1233,9 @@ class ReviewLoop:
         *,
         runtime_api_context: dict[str, Any] | None = None,
         repair_memory: list[RepairAttempt] | None = None,
+        error_episode: int = 1,
+        error_fingerprint_value: str = "",
+        source_revision_value: str = "",
         llm_config: AgentModel | None = None,
         reasoning_effort: str = "none",
     ) -> CodeFix | None:
@@ -1125,6 +1248,15 @@ class ReviewLoop:
         runtime_section = format_runtime_api_context(runtime_api_context)
         history_section = self._format_repair_memory(repair_memory or [])
         prompt_sections = [
+            (
+                "<CURRENT_ERROR_EPISODE "
+                f'number="{error_episode}" '
+                f'error_fingerprint="{error_fingerprint_value}" '
+                f'source_revision="{source_revision_value}">\n'
+                "Fix only the traceback in this episode against the source revision below. "
+                "Errors from earlier episodes are already resolved; do not recreate or patch them.\n"
+                "</CURRENT_ERROR_EPISODE>"
+            ),
             f"Source code:\n```python\n{code}\n```\n\n"
             f"Errors / issues found:\n{error_text}"
         ]

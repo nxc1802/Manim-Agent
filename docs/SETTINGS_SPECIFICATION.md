@@ -14,7 +14,7 @@ consumed by the application.
 | `fps` | `15`, `30`, `60` | `30` | Sent to the Manim worker with `--fps`. |
 | `code_review_enabled` | boolean | `true` | Enables the Builder code-review loop. |
 | `visual_review_enabled` | boolean | `true` | Enables the post-code visual-review loop. |
-| `max_review_attempts` | integer `1`–`5` | `3` | Caps the total automatic review attempts for each code or visual review loop. |
+| `max_review_attempts` | integer `1`–`5` | `3` | Caps actual LLM repair requests in each code or visual review loop; validation-only passes do not consume this quota. |
 | `hitl_enabled` | boolean | `true` | Requires a human approval before a generated draft is applied. |
 | `ai_agent_persona` | `Professional Educator`, `Creative Storyteller`, `Technical Explainer` | `Professional Educator` | Explicit creative direction sent to the Storyboarder and Builder prompts. |
 | `template_selection` | `Educational`, `Conceptual walkthrough`, `Worked example` | `Educational` | Explicit structure and pacing direction sent to the Storyboarder and Builder prompts. |
@@ -43,9 +43,10 @@ Backend atomically upserts the complete validated document into
 as an authorization source. If PostgREST has not loaded the extension columns,
 the API returns a clear migration error instead of silently dropping settings.
 
-TTS uses the server-side `GOOGLE_API_KEY`; it must belong to a Google Cloud
-project with Cloud Text-to-Speech enabled. The key is never sent to the
-browser or the Manim subprocess.
+TTS uses the server-side `GOOGLE_API_KEY` and tries Gemini TTS first, falling
+back to Cloud Text-to-Speech when Gemini is unavailable. Enable Cloud
+Text-to-Speech on the project when the fallback is required. The key is never
+sent to the browser or the Manim subprocess.
 
 The final-project render consumes each scene's approved `manim_code` and
 `voice_script` directly. It rerenders valid scenes in order, skips invalid

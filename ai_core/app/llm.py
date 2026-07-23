@@ -108,6 +108,15 @@ class GoogleAPIKeyPool:
         return self._redis.hgetall(state_key)
 
     def acquire(self) -> tuple[str, str]:
+        """Atomically reserve the next position in the shared round-robin ring.
+
+        ``INCR`` is atomic in Redis, so concurrent workers cannot observe the
+        same ring position.  We advance once for every inspected key as well:
+        when a key is cooling down, the next request naturally resumes after
+        the first usable key rather than repeatedly favouring key zero.
+        """
+        if not self._keys:
+            raise RuntimeError("No Google API key is configured")
         now = datetime.now(tz=UTC).timestamp()
         for _ in range(len(self._keys)):
             idx = (self._redis.incr(f"{self._prefix}index") - 1) % len(self._keys)
@@ -129,10 +138,6 @@ class GoogleAPIKeyPool:
 
     def record_failure(self, identity: str, error: BaseException) -> None:
         message = str(error).lower()
-        quota = "quota" in message or "resource_exhausted" in message
-        rate_limited = "429" in message or "rate limit" in message or "too many requests" in message
-        if not quota and not rate_limited:
-            return
 
         self._state(identity)
         now = datetime.now(tz=UTC)
@@ -144,6 +149,9 @@ class GoogleAPIKeyPool:
                 mapping={"state": KeyState.EXHAUSTED, "retry_at": str(retry_at)},
             )
         else:
+            # A provider/network failure is not a reason to burn the key
+            # permanently, but trying it again immediately causes thundering
+            # herds across Celery workers.  Keep it out of the ring briefly.
             retry_at = (now + timedelta(seconds=60)).timestamp()
             self._redis.hset(
                 f"{self._prefix}{identity}",
@@ -298,6 +306,7 @@ class GoogleLLM:
     ) -> AsyncIterator[str]:
         logger = logging.getLogger(__name__)
         last_exc: BaseException | None = None
+        emitted = False
 
         for _ in range(len(self.pool._keys)):
             try:
@@ -331,16 +340,25 @@ class GoogleLLM:
 
                 delta = first_chunk.choices[0].delta.content if first_chunk.choices else None
                 if delta:
+                    emitted = True
                     yield str(delta)
 
                 async for chunk in iterator:
                     delta = chunk.choices[0].delta.content if chunk.choices else None
                     if delta:
+                        emitted = True
                         yield str(delta)
                 return
             except Exception as exc:  # noqa: BLE001
                 self.pool.record_failure(identity, exc)
                 last_exc = exc
+                # Retrying after sending any token corrupts the accumulated
+                # draft and browser stream by replaying the entire prompt.
+                if emitted:
+                    raise RuntimeError(
+                        "Google provider stream interrupted after output began: "
+                        f"{_redacted_provider_error(exc, self.pool._keys)}"
+                    ) from None
                 logger.warning(
                     "Key failed in stream, trying next: %s",
                     _redacted_provider_error(exc, self.pool._keys),

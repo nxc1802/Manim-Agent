@@ -473,12 +473,12 @@ export const Settings: React.FC = () => {
 
         <Card padding="lg" className="settings-card bento-item">
           <h2>Voice-over (TTS)</h2>
-          <p className="section-desc">When enabled, the render worker synthesizes each scene narration with Google Cloud Text-to-Speech and muxes it into the MP4.</p>
+          <p className="section-desc">When enabled, the render worker uses Gemini TTS with Google Cloud Text-to-Speech fallback, then muxes narration into the MP4.</p>
           <div className="settings-stack">
             <div className="settings-item">
               <div>
                 <h3>Enable TTS</h3>
-                <p>Requires a server Google API key with Cloud Text-to-Speech enabled.</p>
+                <p>Requires a server Google API key. Cloud Text-to-Speech is used automatically if Gemini TTS is unavailable.</p>
               </div>
               <label className="switch">
                 <input

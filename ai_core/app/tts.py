@@ -20,9 +20,88 @@ _GEMINI_TTS_URL = (
 _CLOUD_TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize"
 _MAX_SYNTHESIS_CHARS = 4_500
 
+_GEMINI_VOICE_MAPPING = {
+    "vi-VN-female": "Puck",
+    "vi-VN-male": "Charon",
+    "en-US-female": "Puck",
+    "en-US-male": "Charon",
+    "vi-VN-Standard-A": "Puck",
+    "vi-VN-Standard-B": "Charon",
+    "en-US-Standard-C": "Puck",
+    "en-US-Standard-D": "Charon",
+}
+
 
 class TtsSynthesisError(RuntimeError):
     """A user-actionable failure from the configured speech provider."""
+
+
+def _split_narration(text: str, limit: int = _MAX_SYNTHESIS_CHARS) -> list[str]:
+    """Split long narration near sentence boundaries for synchronous providers."""
+    if len(text) <= limit:
+        return [text]
+
+    segments: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        candidate = remaining[:limit]
+        boundary = max(candidate.rfind(mark) for mark in (". ", "! ", "? ", "; ", ", ", " "))
+        if boundary < limit // 2:
+            boundary = candidate.rfind(" ")
+        if boundary <= 0:
+            boundary = limit
+        segments.append(remaining[:boundary + 1].strip())
+        remaining = remaining[boundary + 1 :].strip()
+    if remaining:
+        segments.append(remaining)
+    return segments
+
+
+def _concat_mp3_segments(segment_paths: list[Path], destination: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="tts_concat_") as temp_dir:
+        list_file = Path(temp_dir) / "segments.txt"
+        # Segment files are generated in a private temporary directory and do
+        # not contain user-controlled paths.
+        list_file.write_text(
+            "\n".join(f"file '{path}'" for path in segment_paths), encoding="utf-8"
+        )
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+                "-c", "copy", str(destination),
+            ],
+            capture_output=True,
+            timeout=settings.tts_timeout_seconds,
+            check=False,
+        )
+        if result.returncode != 0 or not destination.is_file() or destination.stat().st_size == 0:
+            raise TtsSynthesisError("Unable to concatenate TTS narration segments")
+
+
+def _gemini_voice_and_prompt(
+    text: str, source_language: str | None, user_settings: dict[str, Any]
+) -> tuple[str, str]:
+    """Translate the public TTS controls to Gemini's voice/directing model.
+
+    Gemini TTS uses named voices and natural-language direction instead of the
+    numeric Cloud TTS rate/pitch fields.  The wording is deliberately separate
+    from the transcript so narration remains the content to be spoken.
+    """
+    requested_voice = str(user_settings.get("tts_voice") or "auto")
+    if requested_voice == "auto":
+        voice = "Puck" if str(source_language or "en").lower().startswith("vi") else "Kore"
+    else:
+        voice = _GEMINI_VOICE_MAPPING.get(requested_voice, "Puck")
+
+    rate = float(user_settings.get("tts_speaking_rate", 1))
+    pitch = float(user_settings.get("tts_pitch", 0))
+    pace = "slow" if rate < 0.9 else "fast" if rate > 1.1 else "natural"
+    pitch_direction = "lower-pitched" if pitch < -1 else "higher-pitched" if pitch > 1 else "natural-pitched"
+    prompt = (
+        f"Read this narration exactly once, with a {pace} pace and a {pitch_direction} voice. "
+        f"Do not read these instructions aloud.\n\nNarration:\n{text}"
+    )
+    return voice, prompt
 
 
 def synthesize_speech(
@@ -31,6 +110,7 @@ def synthesize_speech(
     source_language: str | None,
     user_settings: dict[str, Any],
     destination: Path,
+    _split_long_text: bool = True,
 ) -> Path | None:
     """Create an MP3 narration only when TTS is explicitly enabled.
 
@@ -43,9 +123,26 @@ def synthesize_speech(
     if not text:
         raise TtsSynthesisError("TTS is enabled but this scene has no narration to synthesize")
     if len(text) > _MAX_SYNTHESIS_CHARS:
-        raise TtsSynthesisError(
-            f"Scene narration is too long for synchronous TTS ({len(text)} characters)"
-        )
+        if not _split_long_text:
+            raise TtsSynthesisError("TTS segment exceeds the synchronous provider limit")
+        segments = _split_narration(text)
+        with tempfile.TemporaryDirectory(prefix="tts_segments_") as temp_dir:
+            temp = Path(temp_dir)
+            segment_paths: list[Path] = []
+            for index, segment in enumerate(segments):
+                segment_path = temp / f"segment_{index:04d}.mp3"
+                audio = synthesize_speech(
+                    narration=segment,
+                    source_language=source_language,
+                    user_settings=user_settings,
+                    destination=segment_path,
+                    _split_long_text=False,
+                )
+                if audio is None:
+                    raise TtsSynthesisError("TTS did not create a narration segment")
+                segment_paths.append(audio)
+            _concat_mp3_segments(segment_paths, destination)
+        return destination
 
     keys = configured_google_keys()
     if not keys:
@@ -67,14 +164,15 @@ def synthesize_speech(
         # Try Gemini 3.1 Flash TTS first (Free AI Studio Developer API model)
         pcm_path: Path | None = None
         try:
+            gemini_voice, gemini_text = _gemini_voice_and_prompt(text, source_language, user_settings)
             gemini_payload = {
-                "contents": [{"parts": [{"text": text}]}],
+                "contents": [{"parts": [{"text": gemini_text}]}],
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
                     "speechConfig": {
                         "voiceConfig": {
                             "prebuiltVoiceConfig": {
-                                "voiceName": "Puck"
+                                "voiceName": gemini_voice
                             }
                         }
                     }
@@ -111,12 +209,15 @@ def synthesize_speech(
                             )
                             if res.returncode == 0 and destination.is_file() and destination.stat().st_size > 0:
                                 return destination
-            elif resp.status_code in {429, 403, 500, 503}:
-                resp.raise_for_status()
+                            raise TtsSynthesisError("Gemini TTS audio conversion failed")
+                raise TtsSynthesisError("Gemini TTS returned no audio content")
+            resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001
-            pool.record_failure(identity, exc)
             last_exc = exc
-            logger.warning("Gemini Flash TTS failed on key, trying fallback/next key: %s", _redacted_provider_error(exc, keys))
+            # Do not cool the shared key yet: Cloud TTS may still succeed with
+            # it, and the pool is also used by the LLM provider.  The key is
+            # cooled below only when the fallback fails too.
+            logger.warning("Gemini Flash TTS failed; trying Cloud TTS fallback: %s", _redacted_provider_error(exc, keys))
         finally:
             if pcm_path is not None:
                 pcm_path.unlink(missing_ok=True)

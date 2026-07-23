@@ -146,7 +146,7 @@ def test_review_loop_passes_on_valid_code() -> None:
         loop = _make_loop()
         result = loop.run("valid code", CODE_REVIEW_CONFIG)
     assert result.passed is True
-    assert result.total_attempts == 1
+    assert result.total_attempts == 0
     assert len(result.iterations) == 0
 
 
@@ -580,7 +580,7 @@ def test_repair_memory_reaches_stronger_model_and_guard_blocks_semantic_duplicat
     assert result.iterations[1].strategy_guard_triggered is True
     assert result.iterations[1].outcome == "duplicate_strategy"
     assert result.manim_code == source
-    assert render.call_count == 3  # duplicate strategy is never rendered again
+    assert render.call_count == 2  # cached episode + duplicate strategy are not rendered again
 
 
 def test_repair_memory_resets_after_advancing_to_a_new_error() -> None:
@@ -610,7 +610,7 @@ def test_repair_memory_resets_after_advancing_to_a_new_error() -> None:
     with (
         patch(
             "app.review_loop.render_manim_for_validation",
-            side_effect=[error_a, error_b, error_b, success],
+            side_effect=[error_a, error_b, success],
         ),
         patch("app.review_loop.build_runtime_api_context", return_value=None),
     ):
@@ -625,6 +625,107 @@ def test_repair_memory_resets_after_advancing_to_a_new_error() -> None:
     assert result.iterations[0].outcome == "advanced_to_new_error"
     assert result.iterations[1].repair_history_count == 0
     assert any(stage["phase"] == "repair_memory_reset" for stage in stages)
+    assert [stage["error_episode"] for stage in stages if stage["phase"] == "error_episode_started"] == [1, 2]
+
+
+def test_new_error_episode_uses_new_traceback_and_current_source_without_rerender() -> None:
+    """Regression: CENTER is fixed before FileNotFoundError becomes actionable."""
+    from app.models import ModelTier
+
+    center_error = ManimRenderResult(
+        success=False,
+        stderr=(
+            'File "/tmp/scene.py", line 2\n'
+            "NameError: name 'CENTER' is not defined"
+        ),
+        stdout="",
+    )
+    file_error = ManimRenderResult(
+        success=False,
+        stderr=(
+            'File "/tmp/scene.py", line 3\n'
+            "FileNotFoundError: assets/chart.csv"
+        ),
+        stdout="",
+    )
+    success = ManimRenderResult(success=True, stderr="", stdout="")
+    llm = MagicMock()
+    llm.complete.side_effect = [
+        (
+            '{"can_fix": true, "original_code": "aligned_edge=CENTER", '
+            '"replacement_code": "aligned_edge=ORIGIN", '
+            '"explanation": "replace invalid CENTER"}'
+        ),
+        (
+            '{"can_fix": true, "original_code": "load(\\"assets/chart.csv\\")", '
+            '"replacement_code": "load_optional(\\"assets/chart.csv\\")", '
+            '"explanation": "handle the missing asset"}'
+        ),
+    ]
+    source = (
+        "header\n"
+        "aligned_edge=CENTER\n"
+        'load("assets/chart.csv")\n'
+        "line4\nline5\nline6\nline7\nline8\n"
+    )
+
+    with (
+        patch(
+            "app.review_loop.render_manim_for_validation",
+            side_effect=[center_error, file_error, success],
+        ) as render,
+        patch("app.review_loop.build_runtime_api_context", return_value=None),
+    ):
+        result = ReviewLoop(
+            llm=llm,
+            tiers=[ModelTier(model="one-model", max_attempts=3)],
+        ).run(source, CODE_REVIEW_CONFIG, max_attempts=3)
+
+    second_prompt = llm.complete.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "FileNotFoundError: assets/chart.csv" in second_prompt
+    assert "aligned_edge=ORIGIN" in second_prompt
+    assert "name 'CENTER' is not defined" not in second_prompt
+    assert 'number="2"' in second_prompt
+    assert result.passed is True
+    assert result.total_attempts == 2
+    assert render.call_count == 3
+
+
+def test_configured_attempt_cap_matches_actual_reviewer_requests() -> None:
+    from app.models import ModelTier
+
+    persistent_error = ManimRenderResult(
+        success=False,
+        stderr='File "/tmp/scene.py", line 2\nNameError: bad',
+        stdout="",
+    )
+    llm = MagicMock()
+    llm.complete.side_effect = [
+        (
+            '{"can_fix": true, "original_code": "header", '
+            f'"replacement_code": "header_{attempt}", '
+            f'"explanation": "strategy {attempt}"}}'
+        )
+        for attempt in range(1, 4)
+    ]
+    source = "header\nbad\nline3\nline4\nline5\nline6\nline7\nline8\n"
+
+    with (
+        patch(
+            "app.review_loop.render_manim_for_validation",
+            return_value=persistent_error,
+        ),
+        patch("app.review_loop.build_runtime_api_context", return_value=None),
+    ):
+        result = ReviewLoop(
+            llm=llm,
+            tiers=[ModelTier(model="one-model", max_attempts=5)],
+        ).run(source, CODE_REVIEW_CONFIG, max_attempts=3)
+
+    assert result.passed is False
+    assert result.total_attempts == 3
+    assert llm.complete.call_count == 3
+    assert len(result.iterations) == 3
 
 
 def test_revalidation_exception_keeps_patch_for_the_next_tier() -> None:
@@ -700,7 +801,7 @@ def test_transient_revalidation_error_retries_same_tier_checkpoint() -> None:
         ).run("header\nbad_a\nfooter", CODE_REVIEW_CONFIG)
 
     assert result.passed is True
-    assert result.total_attempts == 2
+    assert result.total_attempts == 1
     assert result.manim_code == "header\nfixed_a\nfooter"
     assert result.iterations[0].outcome == "resolved"
     assert llm.complete.call_count == 1
@@ -827,7 +928,7 @@ def test_same_message_at_a_later_source_location_is_a_new_error() -> None:
     with (
         patch(
             "app.review_loop.render_manim_for_validation",
-            side_effect=[first_location, second_location, second_location, success],
+            side_effect=[first_location, second_location, success],
         ),
         patch("app.review_loop.build_runtime_api_context", return_value=None),
     ):

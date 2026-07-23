@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from app.config import Settings
@@ -25,6 +28,32 @@ def test_google_key_enters_cooldown_and_next_key_is_selected() -> None:
     pool.record_failure(identity, RuntimeError("429 RESOURCE_EXHAUSTED quota exceeded"))
     next_key, _ = pool.acquire()
     assert next_key == "key-b"
+    assert pool.snapshot()[0]["state"] == KeyState.COOLDOWN
+
+
+def test_google_key_pool_round_robins_in_ring_order() -> None:
+    pool = GoogleAPIKeyPool(["key-a", "key-b", "key-c"])
+
+    selected = [pool.acquire()[0] for _ in range(5)]
+
+    assert selected == ["key-a", "key-b", "key-c", "key-a", "key-b"]
+
+
+def test_google_key_pool_allocates_distinct_ring_positions_concurrently() -> None:
+    pool = GoogleAPIKeyPool(["key-a", "key-b", "key-c"])
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        selected = list(executor.map(lambda _: pool.acquire()[0], range(3)))
+
+    assert set(selected) == {"key-a", "key-b", "key-c"}
+
+
+def test_non_quota_provider_error_also_temporarily_cools_the_key() -> None:
+    pool = GoogleAPIKeyPool(["key-a"])
+    _, identity = pool.acquire()
+
+    pool.record_failure(identity, RuntimeError("upstream connection reset"))
+
     assert pool.snapshot()[0]["state"] == KeyState.COOLDOWN
 
 
@@ -71,6 +100,47 @@ def test_provider_failures_redact_api_keys_from_logs_and_task_errors(
     assert secret not in str(error.value)
     assert secret not in caplog.text
     assert "[REDACTED]" in str(error.value)
+
+
+def test_stream_does_not_replay_prompt_after_emitting_a_token(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import app.llm as llm_module
+
+    class BrokenStream:
+        def __aiter__(self):  # noqa: ANN201
+            return self
+
+        async def __anext__(self):  # noqa: ANN201
+            if not hasattr(self, "sent"):
+                self.sent = True
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="first"))]
+                )
+            raise RuntimeError("connection reset")
+
+    calls = 0
+
+    async def fake_completion(**_kwargs):  # noqa: ANN202
+        nonlocal calls
+        calls += 1
+        return BrokenStream()
+
+    monkeypatch.setattr(llm_module, "acompletion", fake_completion)
+    client = GoogleLLM(GoogleAPIKeyPool(["key-a", "key-b"]))
+
+    async def consume() -> list[str]:
+        chunks: list[str] = []
+        with pytest.raises(RuntimeError, match="interrupted after output began"):
+            async for chunk in client.stream(
+                messages=[{"role": "user", "content": "test"}],
+                model="gemini-3.5-flash",
+                temperature=0.1,
+                max_tokens=32,
+            ):
+                chunks.append(chunk)
+        return chunks
+
+    assert asyncio.run(consume()) == ["first"]
+    assert calls == 1
 
 
 def test_production_ai_settings_require_a_provider_key(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -162,6 +232,49 @@ def test_tts_sends_the_configured_voice_and_writes_mp3(tmp_path: Path, monkeypat
     assert "params" not in request.call_args.kwargs
     assert payload["voice"] == {"languageCode": "vi-VN", "name": "vi-VN-Standard-A"}
     assert payload["audioConfig"]["audioEncoding"] == "MP3"
+
+
+def test_tts_gemini_primary_honors_voice_and_directing_controls(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from unittest.mock import MagicMock
+
+    import app.tts as tts
+
+    monkeypatch.setattr(tts, "configured_google_keys", lambda: ["test-key"])
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "candidates": [{"content": {"parts": [{"inlineData": {"data": "AAE="}}]}}]
+    }
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(tts.httpx, "post", request)
+
+    def fake_ffmpeg(command, **_kwargs):  # type: ignore[no-untyped-def]
+        Path(command[-1]).write_bytes(b"mp3")
+        return __import__("subprocess").CompletedProcess(command, 0)
+
+    monkeypatch.setattr(tts.subprocess, "run", fake_ffmpeg)
+    destination = tmp_path / "voice.mp3"
+    audio = synthesize_speech(
+        narration="Xin chào",
+        source_language="vi",
+        user_settings={
+            "tts_enabled": True,
+            "tts_voice": "vi-VN-male",
+            "tts_speaking_rate": 1.25,
+            "tts_pitch": 2,
+        },
+        destination=destination,
+    )
+
+    assert audio == destination
+    assert request.call_count == 1
+    payload = request.call_args.kwargs["json"]
+    assert payload["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Charon"
+    prompt = payload["contents"][0]["parts"][0]["text"]
+    assert "fast pace" in prompt
+    assert "higher-pitched" in prompt
 
 
 def test_audio_mux_pads_the_shorter_stream_and_maps_video_and_audio(
