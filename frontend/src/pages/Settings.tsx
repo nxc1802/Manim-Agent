@@ -321,6 +321,22 @@ export const Settings: React.FC = () => {
                           ))}
                         </select>
                         <select
+                          className="select-field review-tier-retries"
+                          value={tier.max_attempts}
+                          onChange={event => updateReviewTiers(reviewTiers.map((item, itemIndex) => (
+                            itemIndex === index
+                              ? { ...item, max_attempts: Number(event.target.value) }
+                              : item
+                          )))}
+                          aria-label={`Attempts for tier ${index + 1}`}
+                        >
+                          {[1, 2, 3, 4, 5].map(attempts => (
+                            <option key={attempts} value={attempts}>
+                              {attempts === 1 ? '1 attempt' : `${attempts} attempts`}
+                            </option>
+                          ))}
+                        </select>
+                        <select
                           className="select-field review-tier-reasoning"
                           value={tier.reasoning_effort || 'none'}
                           onChange={event => updateReviewTiers(reviewTiers.map((item, itemIndex) => (
@@ -576,26 +592,6 @@ export const Settings: React.FC = () => {
                 />
                 <span className="slider"></span>
               </label>
-            </div>
-
-            <div className="divider" />
-
-            <div className="settings-item">
-              <div>
-                <h3>Max Review Attempts</h3>
-                <p>Maximum retries before falling back to HITL.</p>
-              </div>
-              <div className="segmented-control">
-                {[1, 2, 3, 4, 5].map(num => (
-                  <button
-                    key={num}
-                    className={`segment ${settings.max_review_attempts === num ? 'active' : ''}`}
-                    onClick={() => updateSetting('max_review_attempts', num)}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
             </div>
 
           </div>
