@@ -3,6 +3,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import pytest
+from app.errors import InactiveStepError
 from app.step_executor import StepExecutor
 
 
@@ -40,6 +42,15 @@ def _work_item() -> dict:
         "scene": {},
         "approved_outputs": [],
     }
+
+
+def test_streaming_stops_when_backend_marks_step_inactive() -> None:
+    executor = StepExecutor(llm=_StreamingLLM())  # type: ignore[arg-type]
+    client = MagicMock()
+    client.stream_step_chunk.side_effect = InactiveStepError("inactive")
+
+    with pytest.raises(InactiveStepError, match="inactive"):
+        executor.generate(_work_item(), backend_client=client)
 
 
 def test_builder_stops_before_visual_review_when_code_review_is_exhausted() -> None:

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from app.config import settings
-from app.worker import _remove_uploaded_local_artifact
+from app.errors import InactiveStepError
+from app.worker import _remove_uploaded_local_artifact, generate_hitl_step
 
 
 def test_uploaded_artifact_is_removed_after_durable_callback(
@@ -49,3 +52,23 @@ def test_cleanup_refuses_paths_outside_artifact_root(
     )
 
     assert outside.exists()
+
+
+def test_inactive_step_stops_without_failure_callback() -> None:
+    step_id = uuid4()
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.claim_step.return_value = {"step": {"id": step_id, "kind": "builder"}}
+    executor = MagicMock()
+    executor.generate.side_effect = InactiveStepError("inactive")
+
+    with (
+        patch("app.worker.BackendClient", return_value=client),
+        patch("app.worker.StepExecutor", return_value=executor),
+        patch("app.worker._StepHeartbeat") as heartbeat_type,
+    ):
+        heartbeat_type.return_value.__enter__.return_value = heartbeat_type.return_value
+        generate_hitl_step.run(str(step_id))
+
+    client.complete_step.assert_not_called()
+    client.fail_step.assert_not_called()

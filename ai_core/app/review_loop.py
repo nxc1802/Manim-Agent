@@ -27,6 +27,7 @@ from typing import Any
 
 from shared.schemas.hitl import ReviewIterationRecord, ReviewLoopResult
 
+from app.errors import InactiveStepError
 from app.llm import GoogleLLM
 from app.models import AgentModel, ModelTier, load_review_loop_tiers
 from app.prompts import (
@@ -1078,6 +1079,8 @@ class ReviewLoop:
             return
         try:
             callback(stage)
+        except InactiveStepError:
+            raise
         except Exception:  # noqa: BLE001
             logger.warning("Unable to publish review stage", exc_info=True)
 

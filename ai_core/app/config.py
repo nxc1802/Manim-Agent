@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ai_step_time_limit_seconds: int = Field(
         default=1890, ge=61, validation_alias="AI_STEP_TIME_LIMIT_SECONDS"
     )
+    ai_step_heartbeat_seconds: float = Field(
+        default=30.0, ge=5.0, validation_alias="AI_STEP_HEARTBEAT_SECONDS"
+    )
     render_soft_time_limit_seconds: int = Field(
         default=3900, ge=120, validation_alias="RENDER_SOFT_TIME_LIMIT_SECONDS"
     )

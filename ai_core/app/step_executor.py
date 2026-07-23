@@ -8,6 +8,7 @@ from contextlib import nullcontext
 from typing import Any
 
 from app.backend_client import BackendClient
+from app.errors import InactiveStepError
 from app.llm import GoogleLLM
 from app.models import AgentModel, ModelTier, load_agent_model, load_review_loop_tiers
 from app.prompts import SYSTEM_PROMPTS
@@ -87,6 +88,8 @@ class StepExecutor:
                 full_text += chunk
                 try:
                     client.stream_step_chunk(step_id, chunk)
+                except InactiveStepError:
+                    raise
                 except Exception as exc:
                     logger.warning("Failed to stream chunk: %s", exc)
             return full_text

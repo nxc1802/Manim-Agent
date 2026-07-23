@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from threading import Event, Thread
 from uuid import UUID
 
 import httpx
@@ -9,10 +10,54 @@ from celery import Celery
 
 from app.backend_client import BackendClient
 from app.config import settings
+from app.errors import InactiveStepError
 from app.renderer import render_full_project, render_manim_code
 from app.step_executor import StepExecutor
 
 logger = logging.getLogger(__name__)
+
+
+class _StepHeartbeat:
+    """Keep a claimed step fresh and notice cancellation during long provider calls."""
+
+    def __init__(self, step_id: UUID) -> None:
+        self._step_id = step_id
+        self._stop = Event()
+        self._inactive = Event()
+        self._thread = Thread(
+            target=self._run,
+            name=f"ai-step-heartbeat-{step_id}",
+            daemon=True,
+        )
+
+    def __enter__(self) -> _StepHeartbeat:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+
+    def _run(self) -> None:
+        with BackendClient() as client:
+            while not self._stop.wait(settings.ai_step_heartbeat_seconds):
+                try:
+                    client.heartbeat_step(self._step_id)
+                except InactiveStepError:
+                    self._inactive.set()
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "AI step heartbeat failed step_id=%s error=%s",
+                        self._step_id,
+                        exc,
+                    )
+
+    def raise_if_inactive(self) -> None:
+        if self._inactive.is_set():
+            raise InactiveStepError(
+                f"AI step {self._step_id} became inactive while generation was running"
+            )
 
 
 def _remove_uploaded_local_artifact(
@@ -88,9 +133,17 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
             raise
 
         try:
-            result = StepExecutor().generate(work_item, backend_client=client)
-            client.complete_step(identifier, result)
+            with _StepHeartbeat(identifier) as heartbeat:
+                result = StepExecutor().generate(work_item, backend_client=client)
+                heartbeat.raise_if_inactive()
+                client.complete_step(identifier, result)
             logger.info("AI step completed step_id=%s", identifier)
+        except InactiveStepError:
+            logger.info(
+                "AI step stopped because target is inactive/superseded step_id=%s",
+                identifier,
+            )
+            return
         except Exception as exc:  # noqa: BLE001
             logger.exception("AI step failed step_id=%s", identifier)
             try:

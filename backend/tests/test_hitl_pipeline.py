@@ -498,6 +498,27 @@ def test_stale_generating_storyboard_is_failed_instead_of_remaining_active(monke
     assert events[-1][1]["failure_stage"] == "generation_timeout"
 
 
+def test_stale_snapshot_does_not_fail_a_step_refreshed_by_heartbeat(monkeypatch) -> None:
+    project, _scene, store, _queue, _content, service = _make_fixtures()
+    monkeypatch.setattr(
+        "app.services.hitl_service.publish_project_event", lambda *_args, **_kwargs: None
+    )
+    run, step = service.start_project_run(
+        project_id=project.id, user_id=project.user_id, prompt="Concept"
+    )
+    stale_snapshot = step.model_copy(
+        update={"status": "generating", "updated_at": datetime.now(UTC).replace(year=2020)}
+    )
+    refreshed = stale_snapshot.model_copy(update={"updated_at": datetime.now(UTC)})
+    store.steps[step.id] = refreshed
+
+    result = service.expire_stale_generation(run=run, step=stale_snapshot)
+
+    assert result.status == "generating"
+    assert store.steps[step.id].status == "generating"
+    assert store.runs[run.id].status == "queued"
+
+
 def test_stale_queued_storyboard_is_failed_when_no_worker_claims_it(monkeypatch) -> None:
     project, _scene, store, _queue, _content, service = _make_fixtures()
     events: list[tuple[str, dict]] = []

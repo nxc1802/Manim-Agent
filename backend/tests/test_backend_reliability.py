@@ -282,6 +282,11 @@ def test_hitl_reads_are_cached_and_transitions_invalidate_step_list(monkeypatch)
     assert store.claim(step_id).status == "generating"  # type: ignore[union-attr]
     assert store.list_steps(run_id)[0].status == "generating"
     assert calls == 4
+    heartbeat = store.heartbeat(step_id)
+    assert heartbeat is not None
+    assert heartbeat.status == "generating"
+    assert heartbeat.updated_at >= datetime.fromisoformat(now)
+    assert calls == 5
 
 
 def test_dashboard_uses_actual_redis_render_jobs() -> None:

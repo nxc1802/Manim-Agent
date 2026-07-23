@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from app.config import settings
+from app.errors import InactiveStepError
 
 logger = logging.getLogger(__name__)
 
@@ -63,17 +64,36 @@ class BackendClient:
     def claim_step(self, step_id: UUID) -> dict[str, Any]:
         return self._request("POST", f"/hitl-steps/{step_id}/claim")
 
+    def _step_request(
+        self, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        try:
+            return self._request(method, path, body)
+        except httpx.HTTPStatusError as exc:
+            if exc.response is not None and exc.response.status_code == 409:
+                raise InactiveStepError(
+                    f"Backend no longer accepts callbacks for step path {path}"
+                ) from exc
+            raise
+
+    def heartbeat_step(self, step_id: UUID) -> None:
+        self._step_request("POST", f"/hitl-steps/{step_id}/stream", {"heartbeat": True})
+
     def stream_step_chunk(self, step_id: UUID, content_delta: str) -> None:
-        self._request("POST", f"/hitl-steps/{step_id}/stream", {"content_delta": content_delta})
+        self._step_request(
+            "POST", f"/hitl-steps/{step_id}/stream", {"content_delta": content_delta}
+        )
 
     def publish_step_stage(self, step_id: UUID, review: dict[str, Any]) -> None:
-        self._request("POST", f"/hitl-steps/{step_id}/stream", {"review": review})
+        self._step_request("POST", f"/hitl-steps/{step_id}/stream", {"review": review})
 
     def complete_step(self, step_id: UUID, draft_output: dict[str, Any]) -> None:
-        self._request("POST", f"/hitl-steps/{step_id}/complete", {"draft_output": draft_output})
+        self._step_request(
+            "POST", f"/hitl-steps/{step_id}/complete", {"draft_output": draft_output}
+        )
 
     def fail_step(self, step_id: UUID, error: str) -> None:
-        self._request("POST", f"/hitl-steps/{step_id}/fail", {"error": error[:4000]})
+        self._step_request("POST", f"/hitl-steps/{step_id}/fail", {"error": error[:4000]})
 
     def claim_render(self, job_id: UUID) -> dict[str, Any]:
         return self._request("POST", f"/render-jobs/{job_id}/claim")

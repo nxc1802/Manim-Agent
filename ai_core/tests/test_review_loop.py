@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from app.errors import InactiveStepError
 from app.renderer import ManimError, ManimRenderResult
 from app.review_loop import (
     CODE_REVIEW_CONFIG,
@@ -18,6 +19,14 @@ from app.review_loop import (
 # ---------------------------------------------------------------------------
 # Unit: apply_partial_fix
 # ---------------------------------------------------------------------------
+
+
+def test_review_stage_propagates_inactive_step_signal() -> None:
+    def cancelled(_stage: dict) -> None:
+        raise InactiveStepError("cancelled")
+
+    with pytest.raises(InactiveStepError, match="cancelled"):
+        ReviewLoop._emit_stage(cancelled, {"stage": "reviewing"})
 
 
 def test_apply_partial_fix_replaces_a_unique_occurrence() -> None:

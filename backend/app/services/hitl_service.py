@@ -561,6 +561,21 @@ class HitlPipelineService:
             return step
 
         with self._lock_factory(run.project_id, run.scene_id):
+            # The caller may have loaded a stale snapshot immediately before a
+            # worker heartbeat won the target lock. Re-read and re-check the
+            # deadline so an active worker is never failed by that race.
+            current = self.store.get_step(step.id)
+            if current is None or current.status not in {"queued", "generating"}:
+                return current or step
+            current_timeout = (
+                settings.ai_step_queue_stale_after_seconds
+                if current.status == "queued"
+                else settings.ai_step_stale_after_seconds
+            )
+            if datetime.now(tz=UTC) < current.updated_at + timedelta(seconds=current_timeout):
+                return current
+            step = current
+            is_queued = step.status == "queued"
             error = (
                 "AI worker did not claim the queued step before the timeout. "
                 "Check the ai-worker service and retry the step."

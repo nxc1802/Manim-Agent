@@ -288,6 +288,19 @@ def stream_step(
     step = store.get_step(step_id)
     if step is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found")
+    if body.get("heartbeat") is True:
+        with pipeline_target_lock(step.project_id, step.scene_id):
+            step = store.get_step(step_id)
+            if step is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found")
+            _require_current_active_run(store, step)
+            refreshed = store.heartbeat(step_id)
+            if refreshed is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Step is not generating",
+                )
+            step = refreshed
     run = store.get_run(step.run_id)
     if step.status != "generating" or run is None or run.status in {
         "completed",

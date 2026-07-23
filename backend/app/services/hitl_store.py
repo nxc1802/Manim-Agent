@@ -233,6 +233,14 @@ class SupabaseHitlStore:
     def claim(self, step_id: UUID) -> AgentStep | None:
         return self._transition(step_id, expected_status="queued", values={"status": "generating"})
 
+    def heartbeat(self, step_id: UUID) -> AgentStep | None:
+        """Refresh liveness without changing the user-visible step state."""
+        return self._transition(
+            step_id,
+            expected_status="generating",
+            values={"updated_at": datetime.now(UTC).isoformat()},
+        )
+
     def complete(self, step_id: UUID, *, draft_output: dict[str, Any]) -> AgentStep | None:
         return self._transition(
             step_id,
