@@ -17,12 +17,22 @@ const AVAILABLE_MODELS: ReviewTierConfig['model'][] = [
   'gemini-3.5-flash',
   'gemini-3.6-flash',
   'gemma-4-31b-it',
+  'gemma-4-26b-it',
+  'gemma-4-31b-it-thinking',
+  'gemma-4-26b-it-thinking',
 ];
 const DEFAULT_REVIEW_TIERS: ReviewTierConfig[] = [
   { model: 'gemini-3.5-flash-lite', max_attempts: 1, reasoning_effort: 'high' },
   { model: 'gemini-3.5-flash', max_attempts: 1, reasoning_effort: 'high' },
   { model: 'gemini-3.6-flash', max_attempts: 3, reasoning_effort: 'high' },
 ];
+const DEFAULT_AGENT_PROFILES: Record<GenerationAgent, { model: ReviewTierConfig['model']; temperature: number; max_tokens: number; reasoning_effort: ReasoningEffort }> = {
+  idea_sketcher: { model: 'gemini-3-flash-preview', temperature: 0.5, max_tokens: 4096, reasoning_effort: 'high' },
+  storyboarder: { model: 'gemini-3.5-flash', temperature: 0.3, max_tokens: 16384, reasoning_effort: 'high' },
+  builder: { model: 'gemini-3.6-flash', temperature: 0.1, max_tokens: 16384, reasoning_effort: 'high' },
+  code_reviewer: { model: 'gemini-3.5-flash-lite', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
+  visual_reviewer: { model: 'gemma-4-31b-it', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
+};
 const DEFAULT_AGENT_MODELS: Record<GenerationAgent, ReviewTierConfig['model']> = {
   idea_sketcher: 'gemini-3-flash-preview',
   storyboarder: 'gemini-3.5-flash',
@@ -123,6 +133,7 @@ export const Settings: React.FC = () => {
 
   const activeAgent = GENERATION_AGENTS.find(agent => agent.id === activeGenerationAgent)!;
   const activeAgentConfig = settings.llm_agent_configs?.[activeGenerationAgent] || {};
+  const activeAgentDefault = DEFAULT_AGENT_PROFILES[activeGenerationAgent];
   const isReviewer = activeGenerationAgent === 'code_reviewer' || activeGenerationAgent === 'visual_reviewer';
   const reviewTiers = activeAgentConfig.review_tiers || [];
 
@@ -378,10 +389,10 @@ export const Settings: React.FC = () => {
                       });
                     }}
                   >
-                    <option value="">Backend default</option>
-                    <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                    <option value="gemma-4-31b-it">Gemma 4 31B IT</option>
+                    <option value="">Backend default ({activeAgentDefault.model})</option>
+                    {AVAILABLE_MODELS.map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="divider" />
@@ -398,9 +409,9 @@ export const Settings: React.FC = () => {
                       (event.target.value || null) as AgentLlmConfig['reasoning_effort'],
                     )}
                   >
-                    <option value="">Backend default</option>
+                    <option value="">Backend default ({activeAgentDefault.reasoning_effort})</option>
                     {reasoningOptionsForModel(
-                      activeAgentConfig.model || DEFAULT_AGENT_MODELS[activeGenerationAgent],
+                      activeAgentConfig.model || activeAgentDefault.model,
                     ).map(option => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
@@ -420,10 +431,11 @@ export const Settings: React.FC = () => {
                 value={activeAgentConfig.temperature ?? ''}
                 onChange={event => updateAgentSetting('temperature', event.target.value === '' ? null : Number(event.target.value))}
               >
-                <option value="">Backend default</option>
+                <option value="">Backend default ({activeAgentDefault.temperature})</option>
                 <option value="0">0.0 — deterministic</option>
                 <option value="0.1">0.1 — precise</option>
                 <option value="0.3">0.3 — balanced</option>
+                <option value="0.5">0.5 — moderate</option>
                 <option value="0.7">0.7 — exploratory</option>
                 <option value="1">1.0 — varied</option>
               </select>
@@ -441,7 +453,7 @@ export const Settings: React.FC = () => {
                 value={activeAgentConfig.max_tokens ?? ''}
                 onChange={event => updateAgentSetting('max_tokens', event.target.value === '' ? null : Number(event.target.value))}
               >
-                <option value="">Backend default</option>
+                <option value="">Backend default ({activeAgentDefault.max_tokens.toLocaleString()})</option>
                 <option value="4096">4,096</option>
                 <option value="8192">8,192</option>
                 <option value="16384">16,384</option>
