@@ -826,7 +826,7 @@ class ReviewLoop:
                     logger.info(
                         "Model %s cannot fix; tier attempt %d/%d",
                         tier.model,
-                        total_attempts,
+                        tier_attempt + 1,
                         tier.max_attempts,
                     )
                     continue  # retry this tier until its configured budget is spent

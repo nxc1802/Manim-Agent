@@ -233,27 +233,55 @@ def render_manim_code(
         temp = Path(temp_dir)
         scene_file = temp / "scene.py"
         scene_file.write_text(code, encoding="utf-8")
-        result = _run_manim(
-            [
+        final_mp4: Path | None = None
+        last_stderr = ""
+        for render_attempt in range(2):
+            media_dir = temp / f"media_{render_attempt}"
+            command = [
                 *_get_manim_cmd(),
                 "render",
                 quality_flag,
                 "--fps",
                 str(fps_val),
                 "--media_dir",
-                str(temp / "media"),
-                str(scene_file),
-                "GeneratedScene",
-            ],
-            timeout=settings.manim_timeout_seconds,
-            work_dir=temp,
-        )
-        if result.returncode != 0:
-            raise UnsafeManimCode(f"Manim Error:\n{result.stderr}")
-        mp4_files = _final_manim_videos(temp / "media")
-        if not mp4_files:
+                str(media_dir),
+            ]
+            if render_attempt:
+                command.append("--disable_caching")
+            command.extend([str(scene_file), "GeneratedScene"])
+            result = _run_manim(
+                command,
+                timeout=settings.manim_timeout_seconds,
+                work_dir=temp,
+            )
+            last_stderr = result.stderr or ""
+            if result.returncode == 0:
+                mp4_files = _final_manim_videos(media_dir)
+                if mp4_files:
+                    final_mp4 = mp4_files[0]
+                    break
+            elif _is_transient_partial_movie_list_failure(last_stderr):
+                recovered = _recover_partial_movie_concat(
+                    media_dir,
+                    work_dir=temp,
+                    renderer_output="\n".join((result.stdout or "", last_stderr)),
+                )
+                if recovered is not None:
+                    final_mp4 = recovered
+                    break
+                if render_attempt == 0:
+                    logger.warning("Retrying final Manim render after partial-movie concat failure")
+                    continue
+                raise RuntimeError(
+                    "Manim renderer could not combine its internal partial movie files"
+                )
+            else:
+                raise UnsafeManimCode(f"Manim Error:\n{last_stderr}")
+
+        if final_mp4 is None:
+            if last_stderr:
+                raise UnsafeManimCode(f"Manim Error:\n{last_stderr}")
             raise UnsafeManimCode("Manim did not produce any MP4 files")
-        final_mp4 = mp4_files[0]
         audio_file = synthesize_speech(
             narration=voice_script,
             source_language=source_language,
@@ -296,6 +324,113 @@ def _is_transient_partial_movie_list_failure(stderr: str) -> bool:
         and "partial_movie_files" in normalised
         and "partial_movie_file_list.txt" in normalised
     )
+
+
+def _recover_partial_movie_concat(
+    media_dir: Path,
+    *,
+    work_dir: Path,
+    renderer_output: str = "",
+) -> Path | None:
+    """Finish a Manim render whose PyAV concat stage failed.
+
+    Manim has already rendered every animation by the time it opens
+    ``partial_movie_file_list.txt``.  Rebuilding that list and invoking the
+    FFmpeg concat demuxer avoids turning an internal PyAV race into a scene-code
+    error.  Every input is constrained to the current render workspace.
+    """
+    media_root = media_dir.resolve()
+    logged_paths = re.findall(
+        r"Partial movie file written in\s+['\"]([^'\"]+\.mp4)['\"]",
+        renderer_output,
+    )
+
+    for index, partial_dir in enumerate(
+        sorted(media_dir.rglob("partial_movie_files/GeneratedScene"))
+    ):
+        input_files: list[Path] = []
+        list_file = partial_dir / "partial_movie_file_list.txt"
+        if list_file.is_file():
+            for line in list_file.read_text(encoding="utf-8").splitlines():
+                match = re.fullmatch(r"\s*file\s+'file:(.+)'\s*", line)
+                if match:
+                    input_files.append(Path(match.group(1)))
+        if not input_files and logged_paths:
+            input_files = [Path(path) for path in logged_paths if Path(path).parent == partial_dir]
+        if not input_files:
+            input_files = sorted(
+                partial_dir.glob("*.mp4"),
+                key=lambda path: (path.stat().st_mtime_ns, path.name),
+            )
+        if not input_files:
+            continue
+
+        safe_inputs: list[Path] = []
+        for input_file in input_files:
+            try:
+                resolved = input_file.resolve(strict=True)
+            except OSError:
+                safe_inputs = []
+                break
+            if not resolved.is_relative_to(media_root) or not resolved.is_file():
+                safe_inputs = []
+                break
+            safe_inputs.append(resolved)
+        if not safe_inputs:
+            continue
+
+        recovery_list = work_dir / f"partial_movie_recovery_{index}.txt"
+        recovery_list.write_text(
+            "\n".join(f"file '{path.as_posix()}'" for path in safe_inputs),
+            encoding="utf-8",
+        )
+        destination = partial_dir.parent.parent / "GeneratedScene.mp4"
+        recovered = destination.with_name("GeneratedScene.recovered.mp4")
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(recovery_list),
+                    "-c",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    "-y",
+                    str(recovered),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=settings.manim_timeout_seconds,
+                check=False,
+                preexec_fn=_manim_preexec if os.name == "posix" else None,
+                cwd=work_dir,
+                env=_sanitized_subprocess_env(work_dir),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            logger.warning("FFmpeg fallback for Manim partial movies failed", exc_info=True)
+            continue
+        if result.returncode != 0 or not recovered.is_file() or recovered.stat().st_size == 0:
+            logger.warning(
+                "FFmpeg fallback for Manim partial movies returned %s: %s",
+                result.returncode,
+                (result.stderr or "")[-500:],
+            )
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        recovered.replace(destination)
+        logger.info(
+            "Recovered Manim partial-movie concat with FFmpeg (%d clips)",
+            len(safe_inputs),
+        )
+        return destination
+    return None
 
 
 def _probe_duration(media_file: Path, work_dir: Path) -> float:
@@ -657,10 +792,10 @@ def render_manim_for_validation(
             qual,
             "--media_dir",
             str(media_dir),
-            *flags,
-            str(scene_file),
-            "GeneratedScene",
         ]
+        if render_attempt:
+            cmd.append("--disable_caching")
+        cmd.extend([*flags, str(scene_file), "GeneratedScene"])
         try:
             result = _run_manim(cmd, timeout=tout, work_dir=temp)
         except ManimProcessTimeout as exc:
@@ -679,14 +814,35 @@ def render_manim_for_validation(
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise
 
-        if (
-            result.returncode != 0
-            and render_attempt == 0
-            and _is_transient_partial_movie_list_failure(result.stderr or "")
-        ):
-            logger.warning("Retrying transient Manim partial-movie concat failure")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            continue
+        if result.returncode != 0 and _is_transient_partial_movie_list_failure(result.stderr or ""):
+            recovered = _recover_partial_movie_concat(
+                media_dir,
+                work_dir=temp,
+                renderer_output="\n".join((result.stdout or "", result.stderr or "")),
+            )
+            if recovered is not None:
+                result = subprocess.CompletedProcess(
+                    result.args,
+                    0,
+                    result.stdout,
+                    result.stderr,
+                )
+            elif render_attempt == 0:
+                logger.warning("Retrying transient Manim partial-movie concat failure")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                continue
+            elif "-s" not in flags and "--save_last_frame" not in flags:
+                # Scene construction and every animation completed before
+                # Manim entered its internal concat step. Code review only
+                # needs that execution result; do not spend an LLM attempt on
+                # a renderer-infrastructure failure.
+                logger.warning("Ignoring Manim partial-movie concat failure during code validation")
+                result = subprocess.CompletedProcess(
+                    result.args,
+                    0,
+                    result.stdout,
+                    result.stderr,
+                )
 
         image_path: Path | None = None
         video_path: Path | None = None

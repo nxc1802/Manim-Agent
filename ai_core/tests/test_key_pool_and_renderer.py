@@ -17,6 +17,7 @@ from app.renderer import (
     UnsafeManimCode,
     _is_transient_partial_movie_list_failure,
     _mux_audio,
+    _recover_partial_movie_concat,
     _run_manim,
     _sanitized_subprocess_env,
     render_manim_for_validation,
@@ -221,15 +222,16 @@ def test_validation_retries_only_manim_partial_movie_list_race(
         "FileNotFoundError: /tmp/media/videos/scene/480p15/"
         "partial_movie_files/GeneratedScene/partial_movie_file_list.txt"
     )
+    run_manim = Mock(
+        side_effect=[
+            subprocess.CompletedProcess([], 1, "", transient_error),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+    )
     monkeypatch.setattr(
         renderer,
         "_run_manim",
-        Mock(
-            side_effect=[
-                subprocess.CompletedProcess([], 1, "", transient_error),
-                subprocess.CompletedProcess([], 0, "", ""),
-            ]
-        ),
+        run_manim,
     )
     result = render_manim_for_validation(
         "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self): pass\n"
@@ -238,8 +240,75 @@ def test_validation_retries_only_manim_partial_movie_list_race(
     assert result.success is True
     assert result.temp_dir == str(second_workspace)
     assert not first_workspace.exists()
+    assert "--disable_caching" in run_manim.call_args_list[1].args[0]
     assert _is_transient_partial_movie_list_failure(transient_error)
     assert not _is_transient_partial_movie_list_failure("FileNotFoundError: assets/chart.csv")
+
+
+def test_partial_movie_concat_is_recovered_with_ffmpeg(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    media_dir = tmp_path / "media"
+    partial_dir = (
+        media_dir
+        / "videos"
+        / "scene"
+        / "480p15"
+        / "partial_movie_files"
+        / "GeneratedScene"
+    )
+    partial_dir.mkdir(parents=True)
+    first = partial_dir / "first.mp4"
+    second = partial_dir / "second.mp4"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    list_file = partial_dir / "partial_movie_file_list.txt"
+    list_file.write_text(
+        f"file 'file:{first}'\nfile 'file:{second}'\n",
+        encoding="utf-8",
+    )
+
+    def fake_ffmpeg(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        Path(command[-1]).write_bytes(b"recovered-video")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_ffmpeg)
+
+    recovered = _recover_partial_movie_concat(media_dir, work_dir=tmp_path)
+
+    expected = partial_dir.parent.parent / "GeneratedScene.mp4"
+    assert recovered == expected
+    assert expected.read_bytes() == b"recovered-video"
+
+
+def test_validation_does_not_spend_llm_attempt_on_persistent_concat_failure(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    import app.renderer as renderer
+
+    first_workspace = tmp_path / "first"
+    second_workspace = tmp_path / "second"
+    first_workspace.mkdir()
+    second_workspace.mkdir()
+    directories = iter((str(first_workspace), str(second_workspace)))
+    monkeypatch.setattr(renderer.tempfile, "mkdtemp", lambda **_kwargs: next(directories))
+    transient_error = (
+        "FileNotFoundError: /tmp/media/videos/scene/480p15/"
+        "partial_movie_files/GeneratedScene/partial_movie_file_list.txt"
+    )
+    monkeypatch.setattr(
+        renderer,
+        "_run_manim",
+        Mock(return_value=subprocess.CompletedProcess([], 1, "", transient_error)),
+    )
+
+    result = render_manim_for_validation(
+        "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self): pass\n"
+    )
+
+    assert result.success is True
+    assert result.video_path is None
+    assert result.temp_dir == str(second_workspace)
 
 
 def test_tts_sends_the_configured_voice_and_writes_mp3(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
