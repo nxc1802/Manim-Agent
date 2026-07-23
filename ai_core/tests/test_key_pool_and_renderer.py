@@ -15,6 +15,7 @@ from app.llm import GoogleAPIKeyPool, GoogleLLM, KeyState
 from app.renderer import (
     ManimProcessTimeout,
     UnsafeManimCode,
+    _is_transient_frame_allocation_failure,
     _is_transient_partial_movie_list_failure,
     _mux_audio,
     _recover_partial_movie_concat,
@@ -309,6 +310,43 @@ def test_validation_does_not_spend_llm_attempt_on_persistent_concat_failure(
     assert result.success is True
     assert result.video_path is None
     assert result.temp_dir == str(second_workspace)
+
+
+def test_validation_retries_small_frame_allocation_failure(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    import app.renderer as renderer
+
+    first_workspace = tmp_path / "first"
+    second_workspace = tmp_path / "second"
+    first_workspace.mkdir()
+    second_workspace.mkdir()
+    directories = iter((str(first_workspace), str(second_workspace)))
+    monkeypatch.setattr(renderer.tempfile, "mkdtemp", lambda **_kwargs: next(directories))
+    memory_error = (
+        "MemoryError: Unable to allocate 1.56 MiB for an array "
+        "with shape (480, 854, 4) and data type uint8"
+    )
+    run_manim = Mock(
+        side_effect=[
+            subprocess.CompletedProcess([], 1, "", memory_error),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+    )
+    monkeypatch.setattr(renderer, "_run_manim", run_manim)
+
+    result = render_manim_for_validation(
+        "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self): pass\n"
+    )
+
+    assert result.success is True
+    assert result.temp_dir == str(second_workspace)
+    assert not first_workspace.exists()
+    assert "--disable_caching" in run_manim.call_args_list[1].args[0]
+    assert _is_transient_frame_allocation_failure(memory_error)
+    assert not _is_transient_frame_allocation_failure(
+        "MemoryError: Unable to allocate 2.00 GiB for an array with shape (10000, 10000)"
+    )
 
 
 def test_tts_sends_the_configured_voice_and_writes_mp3(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

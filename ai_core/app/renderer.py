@@ -275,6 +275,9 @@ def render_manim_code(
                 raise RuntimeError(
                     "Manim renderer could not combine its internal partial movie files"
                 )
+            elif render_attempt == 0 and _is_transient_frame_allocation_failure(last_stderr):
+                logger.warning("Retrying final Manim render after a small frame allocation failure")
+                continue
             else:
                 raise UnsafeManimCode(f"Manim Error:\n{last_stderr}")
 
@@ -324,6 +327,27 @@ def _is_transient_partial_movie_list_failure(stderr: str) -> bool:
         and "partial_movie_files" in normalised
         and "partial_movie_file_list.txt" in normalised
     )
+
+
+def _is_transient_frame_allocation_failure(stderr: str) -> bool:
+    """Detect failure to allocate one ordinary low-quality RGBA frame.
+
+    This can happen under momentary container pressure.  Only small NumPy
+    allocations are retried; large requests remain scene-code errors so an
+    updater that allocates unbounded arrays is still sent to Auto-Review.
+    """
+    normalised = " ".join(stderr.split())
+    match = re.search(
+        r"MemoryError: Unable to allocate ([0-9]+(?:\.[0-9]+)?) "
+        r"(KiB|MiB) for an array with shape \(([^)]+)\)",
+        normalised,
+    )
+    if match is None:
+        return False
+    amount = float(match.group(1))
+    amount_mib = amount / 1024 if match.group(2) == "KiB" else amount
+    dimensions = [part.strip() for part in match.group(3).split(",")]
+    return amount_mib <= 16 and len(dimensions) in {2, 3}
 
 
 def _recover_partial_movie_concat(
@@ -843,6 +867,14 @@ def render_manim_for_validation(
                     result.stdout,
                     result.stderr,
                 )
+        elif (
+            result.returncode != 0
+            and render_attempt == 0
+            and _is_transient_frame_allocation_failure(result.stderr or "")
+        ):
+            logger.warning("Retrying transient Manim frame allocation failure")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            continue
 
         image_path: Path | None = None
         video_path: Path | None = None

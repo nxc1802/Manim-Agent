@@ -82,7 +82,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://backend:8000/internal
       ARTIFACTS_DIR: /artifacts
-      MANIM_MEMORY_LIMIT_MB: 2048
+      MANIM_MEMORY_LIMIT_MB: 2816
       MANIM_CPU_LIMIT_SECONDS: 300
       SUPABASE_URL: ""
       SUPABASE_SECRET_KEY: ""
@@ -117,7 +117,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://backend:8000/internal
       ARTIFACTS_DIR: /artifacts
-      MANIM_MEMORY_LIMIT_MB: 2048
+      MANIM_MEMORY_LIMIT_MB: 2816
       MANIM_CPU_LIMIT_SECONDS: 300
       SUPABASE_URL: ""
       SUPABASE_SECRET_KEY: ""

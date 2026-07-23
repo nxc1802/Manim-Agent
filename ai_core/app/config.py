@@ -69,7 +69,7 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="REVIEW_RENDER_TIMEOUT",
     )
-    manim_memory_limit_mb: int = Field(default=2048, validation_alias="MANIM_MEMORY_LIMIT_MB")
+    manim_memory_limit_mb: int = Field(default=2816, validation_alias="MANIM_MEMORY_LIMIT_MB")
     manim_cpu_limit_seconds: int = Field(default=300, validation_alias="MANIM_CPU_LIMIT_SECONDS")
 
     @model_validator(mode="after")
