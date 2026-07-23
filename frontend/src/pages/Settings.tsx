@@ -31,14 +31,14 @@ const DEFAULT_AGENT_PROFILES: Record<GenerationAgent, { model: ReviewTierConfig[
   storyboarder: { model: 'gemini-3.5-flash', temperature: 0.3, max_tokens: 16384, reasoning_effort: 'high' },
   builder: { model: 'gemini-3.6-flash', temperature: 0.1, max_tokens: 16384, reasoning_effort: 'high' },
   code_reviewer: { model: 'gemini-3.5-flash-lite', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
-  visual_reviewer: { model: 'gemma-4-31b-it', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
+  visual_reviewer: { model: 'gemini-3.5-flash-lite', temperature: 0.1, max_tokens: 4096, reasoning_effort: 'high' },
 };
 const DEFAULT_AGENT_MODELS: Record<GenerationAgent, ReviewTierConfig['model']> = {
   idea_sketcher: 'gemini-3-flash-preview',
   storyboarder: 'gemini-3.5-flash',
   builder: 'gemini-3.6-flash',
   code_reviewer: 'gemini-3.5-flash-lite',
-  visual_reviewer: 'gemma-4-31b-it',
+  visual_reviewer: 'gemini-3.5-flash-lite',
 };
 const GEMINI_REASONING_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [
   { value: 'minimal', label: 'Minimal' },
