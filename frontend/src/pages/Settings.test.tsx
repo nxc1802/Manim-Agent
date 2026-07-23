@@ -53,4 +53,16 @@ describe('Settings autosave', () => {
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ fps: 60 }));
     await screen.findByText('Changes save automatically.');
   });
+
+  it('persists the global reviewer cap separately from tier retry counts', async () => {
+    render(<Settings />);
+
+    await screen.findByRole('heading', { name: 'Studio Settings' });
+    fireEvent.click(screen.getAllByRole('tab', { name: 'Code review' }).at(-1)!);
+    fireEvent.change(screen.getByLabelText('Global review attempt cap'), {
+      target: { value: '5' },
+    });
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ max_review_attempts: 5 }));
+  });
 });

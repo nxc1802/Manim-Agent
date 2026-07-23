@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from app.config import Settings
@@ -13,9 +15,11 @@ from app.llm import GoogleAPIKeyPool, GoogleLLM, KeyState
 from app.renderer import (
     ManimProcessTimeout,
     UnsafeManimCode,
+    _is_transient_partial_movie_list_failure,
     _mux_audio,
     _run_manim,
     _sanitized_subprocess_env,
+    render_manim_for_validation,
     validate_manim_code,
 )
 from app.tts import synthesize_speech
@@ -200,6 +204,42 @@ def test_renderer_subprocess_environment_drops_service_secrets(
     assert child_env["HOME"] == str(tmp_path)
     assert "INTERNAL_SERVICE_TOKEN" not in child_env
     assert "GOOGLE_API_KEY" not in child_env
+
+
+def test_validation_retries_only_manim_partial_movie_list_race(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    import app.renderer as renderer
+
+    first_workspace = tmp_path / "first"
+    second_workspace = tmp_path / "second"
+    first_workspace.mkdir()
+    second_workspace.mkdir()
+    directories = iter((str(first_workspace), str(second_workspace)))
+    monkeypatch.setattr(renderer.tempfile, "mkdtemp", lambda **_kwargs: next(directories))
+    transient_error = (
+        "FileNotFoundError: /tmp/media/videos/scene/480p15/"
+        "partial_movie_files/GeneratedScene/partial_movie_file_list.txt"
+    )
+    monkeypatch.setattr(
+        renderer,
+        "_run_manim",
+        Mock(
+            side_effect=[
+                subprocess.CompletedProcess([], 1, "", transient_error),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ]
+        ),
+    )
+    result = render_manim_for_validation(
+        "from manim import *\nclass GeneratedScene(Scene):\n    def construct(self): pass\n"
+    )
+
+    assert result.success is True
+    assert result.temp_dir == str(second_workspace)
+    assert not first_workspace.exists()
+    assert _is_transient_partial_movie_list_failure(transient_error)
+    assert not _is_transient_partial_movie_list_failure("FileNotFoundError: assets/chart.csv")
 
 
 def test_tts_sends_the_configured_voice_and_writes_mp3(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

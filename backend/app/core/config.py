@@ -90,7 +90,10 @@ class Settings(BaseSettings):
         default=2.0, ge=0.1, validation_alias="READINESS_TIMEOUT_SECONDS"
     )
     ai_step_stale_after_seconds: int = Field(
-        default=1920, ge=120, validation_alias="AI_STEP_STALE_AFTER_SECONDS"
+        # A worker loss must not leave the editor in "Generating" for the
+        # duration of a full render timeout. Long-running render jobs use their
+        # own timeout; agent steps report progress or become retryable quickly.
+        default=180, ge=120, validation_alias="AI_STEP_STALE_AFTER_SECONDS"
     )
     ai_step_queue_stale_after_seconds: int = Field(
         default=180, ge=30, validation_alias="AI_STEP_QUEUE_STALE_AFTER_SECONDS"

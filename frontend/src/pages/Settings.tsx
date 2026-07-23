@@ -287,6 +287,25 @@ export const Settings: React.FC = () => {
                   </label>
                 </div>
 
+                <div className="settings-item">
+                  <div>
+                    <h3>Global review attempt cap</h3>
+                    <p>Limits all repair requests in this review loop. Set it to at least the sum of the tiers to allow every configured retry.</p>
+                  </div>
+                  <select
+                    className="select-field"
+                    value={settings.max_review_attempts}
+                    onChange={event => updateSetting('max_review_attempts', Number(event.target.value))}
+                    aria-label="Global review attempt cap"
+                  >
+                    {[1, 2, 3, 4, 5].map(attempts => (
+                      <option key={attempts} value={attempts}>
+                        {attempts === 1 ? '1 attempt' : `${attempts} attempts`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {activeAgentConfig.review_tiers != null && (
                   <div className="review-tier-list" aria-label="Custom escalation tiers">
                     <p className="review-tier-note">Models are tried from top to bottom. A tier receives its configured number of repair attempts before escalation; Max Review Attempts remains the global safety cap.</p>

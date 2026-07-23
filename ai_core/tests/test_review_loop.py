@@ -728,6 +728,52 @@ def test_configured_attempt_cap_matches_actual_reviewer_requests() -> None:
     assert len(result.iterations) == 3
 
 
+def test_reviewer_tier_budgets_are_consumed_before_escalation() -> None:
+    from app.models import ModelTier
+
+    failed_render = ManimRenderResult(
+        success=False,
+        stderr='File "scene.py", line 2\nNameError: bad',
+        stdout="",
+    )
+    llm = MagicMock()
+    llm.complete.return_value = (
+        '{"can_fix": false, "original_code": "", "replacement_code": "", '
+        '"explanation": "needs another review"}'
+    )
+    tiers = [
+        ModelTier(model="tier-1", max_attempts=1),
+        ModelTier(model="tier-2", max_attempts=1),
+        ModelTier(model="tier-3", max_attempts=3),
+    ]
+
+    with (
+        patch("app.review_loop.render_manim_for_validation", return_value=failed_render),
+        patch("app.review_loop.build_runtime_api_context", return_value=None),
+    ):
+        result = ReviewLoop(llm=llm, tiers=tiers).run(
+            "header\nbad\nfooter", CODE_REVIEW_CONFIG, max_attempts=5
+        )
+
+    assert result.passed is False
+    assert result.total_attempts == 5
+    assert llm.complete.call_count == 5
+    assert [iteration.model for iteration in result.iterations] == [
+        "tier-1",
+        "tier-2",
+        "tier-3",
+        "tier-3",
+        "tier-3",
+    ]
+    assert [iteration.escalated for iteration in result.iterations] == [
+        True,
+        True,
+        False,
+        False,
+        True,
+    ]
+
+
 def test_revalidation_exception_keeps_patch_for_the_next_tier() -> None:
     from app.models import ModelTier
 

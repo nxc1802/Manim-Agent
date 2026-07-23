@@ -780,7 +780,7 @@ class ReviewLoop:
                     logger.warning(
                         "Fix request failed with LLM error on model %s: %s", tier.model, exc
                     )
-                    record.escalated = True
+                    record.escalated = tier_attempt + 1 >= tier.max_attempts
                     record.error_summary = f"{record.error_summary or ''}; LLM error: {exc}".strip(
                         "; "
                     )
@@ -794,10 +794,10 @@ class ReviewLoop:
                         )
                     )
                     iterations.append(record)
-                    break  # escalate to next model
+                    continue  # retry this tier until its configured budget is spent
 
                 if fix is None:
-                    record.escalated = True
+                    record.escalated = tier_attempt + 1 >= tier.max_attempts
                     record.outcome = "invalid_reviewer_response"
                     repair_memory.append(
                         RepairAttempt(
@@ -807,10 +807,10 @@ class ReviewLoop:
                         )
                     )
                     iterations.append(record)
-                    break  # escalate to next model
+                    continue  # retry this tier until its configured budget is spent
 
                 if not fix.can_fix:
-                    record.escalated = True
+                    record.escalated = tier_attempt + 1 >= tier.max_attempts
                     record.outcome = "cannot_fix"
                     record.fix_applied = fix.explanation or None
                     repair_memory.append(
@@ -823,11 +823,12 @@ class ReviewLoop:
                     )
                     iterations.append(record)
                     logger.info(
-                        "Model %s cannot fix → escalating (attempt %d)",
+                        "Model %s cannot fix; tier attempt %d/%d",
                         tier.model,
                         total_attempts,
+                        tier.max_attempts,
                     )
-                    break  # escalate to next model
+                    continue  # retry this tier until its configured budget is spent
 
                 strategy_fingerprint = semantic_strategy_fingerprint(
                     fix.original_code, fix.replacement_code
@@ -881,7 +882,7 @@ class ReviewLoop:
                     code, fix.original_code, fix.replacement_code
                 )
                 if rejection_reason is not None:
-                    record.escalated = True
+                    record.escalated = tier_attempt + 1 >= tier.max_attempts
                     record.error_summary = (
                         f"{record.error_summary or ''}; rejected reviewer patch: "
                         f"{rejection_reason}"
@@ -910,7 +911,7 @@ class ReviewLoop:
                             "strategy_fingerprint": strategy_fingerprint,
                         },
                     )
-                    break  # escalate without mutating code
+                    continue  # retry this tier with the recorded rejection context
 
                 prev_code = code
                 code = apply_partial_fix(code, fix.original_code, fix.replacement_code)

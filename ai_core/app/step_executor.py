@@ -302,9 +302,10 @@ class StepExecutor:
         custom_tiers = (
             configured_agent.get("review_tiers") if isinstance(configured_agent, dict) else None
         )
+        effective_tiers = self._review_tiers(custom_tiers) if custom_tiers is not None else None
         loop = ReviewLoop(
             llm=self.llm,
-            tiers=self._review_tiers(custom_tiers) if custom_tiers is not None else None,
+            tiers=effective_tiers,
         )
         step_id = work_item["step"]["id"]
         client_scope = nullcontext(client) if client is not None else BackendClient()
@@ -324,7 +325,22 @@ class StepExecutor:
             result.total_attempts,
             len(result.iterations),
         )
-        return result.model_dump()
+        payload = result.model_dump()
+        # Persist the effective schedule with the review result.  This makes a
+        # completed run auditable: the UI and support tooling can distinguish a
+        # configured retry limit from a model that simply resolved early.
+        payload["attempt_config"] = {
+            "max_review_attempts": max_attempts,
+            "tiers": [
+                {
+                    "model": tier.model,
+                    "max_attempts": tier.max_attempts,
+                    "reasoning_effort": tier.reasoning_effort,
+                }
+                for tier in (effective_tiers or loop.tiers)
+            ],
+        }
+        return payload
 
     @staticmethod
     def _review_tiers(value: object) -> list[ModelTier]:

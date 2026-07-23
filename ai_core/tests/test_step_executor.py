@@ -147,9 +147,10 @@ def test_review_loop_receives_the_user_attempt_limit() -> None:
     }
 
     with patch("app.step_executor.ReviewLoop", return_value=loop):
-        executor._run_review_loop(work_item, config=MagicMock(), client=MagicMock())
+        result = executor._run_review_loop(work_item, config=MagicMock(), client=MagicMock())
 
     assert loop.run.call_args.kwargs["max_attempts"] == 2
+    assert result["attempt_config"]["max_review_attempts"] == 2
 
 
 def test_reviewer_reuses_the_task_backend_client_for_stage_callbacks() -> None:
@@ -245,7 +246,9 @@ def test_custom_code_reviewer_chain_replaces_the_backend_default_chain() -> None
     }
 
     with patch("app.step_executor.ReviewLoop", return_value=loop) as review_loop:
-        executor._run_review_loop(work_item, config=MagicMock(uses_vision=False), client=MagicMock())
+        result = executor._run_review_loop(
+            work_item, config=MagicMock(uses_vision=False), client=MagicMock()
+        )
 
     selected_tiers = review_loop.call_args.kwargs["tiers"]
     assert [(tier.model, tier.max_attempts) for tier in selected_tiers] == [
@@ -254,6 +257,13 @@ def test_custom_code_reviewer_chain_replaces_the_backend_default_chain() -> None
     ]
     assert [tier.reasoning_effort for tier in selected_tiers] == ["high", "low"]
     assert loop.run.call_args.kwargs["llm_config"].temperature == 0.7
+    assert result["attempt_config"] == {
+        "max_review_attempts": 2,
+        "tiers": [
+            {"model": "gemini-3.5-flash", "max_attempts": 2, "reasoning_effort": "high"},
+            {"model": "gemini-3.5-flash-lite", "max_attempts": 1, "reasoning_effort": "low"},
+        ],
+    }
 
 
 def test_reviewer_without_custom_chain_keeps_backend_escalation() -> None:

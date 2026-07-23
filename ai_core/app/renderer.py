@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import re
 import shutil
@@ -17,6 +18,8 @@ import httpx
 
 from app.config import settings
 from app.tts import synthesize_speech
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_IMPORTS = {"manim", "math", "numpy", "typing", "__future__"}
 _FORBIDDEN_CALLS = {
@@ -277,6 +280,22 @@ def _final_manim_videos(media_dir: Path) -> list[Path]:
     ]
     named = [path for path in candidates if path.name == "GeneratedScene.mp4"]
     return sorted(named or candidates, key=lambda path: (path.stat().st_mtime_ns, str(path)))
+
+
+def _is_transient_partial_movie_list_failure(stderr: str) -> bool:
+    """Identify Manim's intermittent internal concat-file race.
+
+    This is deliberately narrow: a user scene can legitimately raise a
+    ``FileNotFoundError`` and must still be reviewed.  Only Manim's own
+    generated ``partial_movie_file_list.txt`` is safe to retry in a fresh
+    workspace without involving the Auto Repair Loop.
+    """
+    normalised = " ".join(stderr.split())
+    return (
+        "FileNotFoundError" in normalised
+        and "partial_movie_files" in normalised
+        and "partial_movie_file_list.txt" in normalised
+    )
 
 
 def _probe_duration(media_file: Path, work_dir: Path) -> float:
@@ -621,59 +640,75 @@ def render_manim_for_validation(
     tout = timeout or settings.review_render_timeout
     flags = list(extra_flags or [])
 
-    temp_dir = tempfile.mkdtemp(prefix="manim_review_")
-    temp = Path(temp_dir)
-    scene_file = temp / "scene.py"
-    scene_file.write_text(code, encoding="utf-8")
-    media_dir = temp / "media"
+    # Manim can very occasionally fail while concatenating its *own* partial
+    # clips, even though the exact same source succeeds in a fresh directory.
+    # Keep this below the review layer: it is renderer infrastructure, not a
+    # scene-code defect and must not spend an LLM repair attempt.
+    for render_attempt in range(2):
+        temp_dir = tempfile.mkdtemp(prefix="manim_review_")
+        temp = Path(temp_dir)
+        scene_file = temp / "scene.py"
+        scene_file.write_text(code, encoding="utf-8")
+        media_dir = temp / "media"
 
-    cmd = [
-        *_get_manim_cmd(),
-        "render",
-        qual,
-        "--media_dir",
-        str(media_dir),
-        *flags,
-        str(scene_file),
-        "GeneratedScene",
-    ]
-    try:
-        result = _run_manim(cmd, timeout=tout, work_dir=temp)
-    except ManimProcessTimeout as exc:
-        # A timeout is still a render failure, not an LLM/service failure.
-        # Preserve partial traceback output so the review loop can repair the
-        # actual TypeError/NameError that caused the orphaned process chain.
-        diagnostics = "\n".join(part for part in (exc.stderr, exc.stdout) if part).strip()
-        timeout_message = f"Manim validation timed out after {tout}s"
+        cmd = [
+            *_get_manim_cmd(),
+            "render",
+            qual,
+            "--media_dir",
+            str(media_dir),
+            *flags,
+            str(scene_file),
+            "GeneratedScene",
+        ]
+        try:
+            result = _run_manim(cmd, timeout=tout, work_dir=temp)
+        except ManimProcessTimeout as exc:
+            # A timeout is still a render failure, not an LLM/service failure.
+            # Preserve partial traceback output so the review loop can repair the
+            # actual TypeError/NameError that caused the orphaned process chain.
+            diagnostics = "\n".join(part for part in (exc.stderr, exc.stdout) if part).strip()
+            timeout_message = f"Manim validation timed out after {tout}s"
+            return ManimRenderResult(
+                success=False,
+                stderr=f"{diagnostics}\n{timeout_message}".strip(),
+                stdout=exc.stdout,
+                temp_dir=temp_dir,
+            )
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+
+        if (
+            result.returncode != 0
+            and render_attempt == 0
+            and _is_transient_partial_movie_list_failure(result.stderr or "")
+        ):
+            logger.warning("Retrying transient Manim partial-movie concat failure")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            continue
+
+        image_path: Path | None = None
+        video_path: Path | None = None
+        if result.returncode == 0:
+            # -s writes images; otherwise look for videos
+            images = list(media_dir.rglob("*.png"))
+            if images:
+                image_path = images[0]
+            videos = _final_manim_videos(media_dir)
+            if videos:
+                video_path = videos[0]
+
         return ManimRenderResult(
-            success=False,
-            stderr=f"{diagnostics}\n{timeout_message}".strip(),
-            stdout=exc.stdout,
+            success=result.returncode == 0,
+            stderr=result.stderr or "",
+            stdout=result.stdout or "",
+            image_path=image_path,
+            video_path=video_path,
             temp_dir=temp_dir,
         )
-    except Exception:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise
 
-    image_path: Path | None = None
-    video_path: Path | None = None
-    if result.returncode == 0:
-        # -s writes images; otherwise look for videos
-        images = list(media_dir.rglob("*.png"))
-        if images:
-            image_path = images[0]
-        videos = _final_manim_videos(media_dir)
-        if videos:
-            video_path = videos[0]
-
-    return ManimRenderResult(
-        success=result.returncode == 0,
-        stderr=result.stderr or "",
-        stdout=result.stdout or "",
-        image_path=image_path,
-        video_path=video_path,
-        temp_dir=temp_dir,
-    )
+    raise RuntimeError("Validation render retry loop exhausted unexpectedly")
 
 
 @dataclass
