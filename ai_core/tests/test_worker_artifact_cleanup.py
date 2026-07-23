@@ -72,3 +72,27 @@ def test_inactive_step_stops_without_failure_callback() -> None:
 
     client.complete_step.assert_not_called()
     client.fail_step.assert_not_called()
+
+
+def test_heartbeat_stops_before_step_completion_callback() -> None:
+    step_id = uuid4()
+    events: list[str] = []
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.claim_step.return_value = {"step": {"id": step_id, "kind": "builder"}}
+    client.complete_step.side_effect = lambda *_args: events.append("completed")
+    executor = MagicMock()
+    executor.generate.return_value = {"manim_code": "valid"}
+    heartbeat = MagicMock()
+    heartbeat.__enter__.return_value = heartbeat
+    heartbeat.__exit__.side_effect = lambda *_args: events.append("heartbeat_stopped")
+
+    with (
+        patch("app.worker.BackendClient", return_value=client),
+        patch("app.worker.StepExecutor", return_value=executor),
+        patch("app.worker._StepHeartbeat", return_value=heartbeat),
+    ):
+        generate_hitl_step.run(str(step_id))
+
+    assert events == ["heartbeat_stopped", "completed"]
+    heartbeat.raise_if_inactive.assert_called_with()

@@ -36,7 +36,16 @@ class _StepHeartbeat:
 
     def __exit__(self, *_args: object) -> None:
         self._stop.set()
-        self._thread.join(timeout=2.0)
+        # The loopback heartbeat can still be waiting for Backend's database
+        # update.  Let that request finish before /complete changes the step
+        # state; otherwise the in-flight heartbeat arrives after completion
+        # and creates a misleading 409 conflict in otherwise successful runs.
+        self._thread.join(timeout=10.0)
+        if self._thread.is_alive():
+            logger.warning(
+                "AI step heartbeat did not stop before completion step_id=%s",
+                self._step_id,
+            )
 
     def _run(self) -> None:
         with BackendClient() as client:
@@ -136,7 +145,11 @@ def generate_hitl_step(self, step_id: str) -> None:  # noqa: ANN001
             with _StepHeartbeat(identifier) as heartbeat:
                 result = StepExecutor().generate(work_item, backend_client=client)
                 heartbeat.raise_if_inactive()
-                client.complete_step(identifier, result)
+            # Heartbeat must be stopped before the terminal callback. Check
+            # once more in case its final in-flight request learned that the
+            # step was cancelled while the context was closing.
+            heartbeat.raise_if_inactive()
+            client.complete_step(identifier, result)
             logger.info("AI step completed step_id=%s", identifier)
         except InactiveStepError:
             logger.info(
