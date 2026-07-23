@@ -124,14 +124,21 @@ def synthesize_speech(
 
         # Fallback to Google Cloud Text-to-Speech API
         requested_voice = str(user_settings.get("tts_voice") or "auto")
-        if requested_voice == "auto":
+        voice_mapping = {
+            "vi-VN-female": "vi-VN-Standard-A",
+            "vi-VN-male": "vi-VN-Standard-B",
+            "en-US-female": "en-US-Standard-C",
+            "en-US-male": "en-US-Standard-D",
+        }
+        mapped_voice = voice_mapping.get(requested_voice, requested_voice)
+        if mapped_voice == "auto":
             voice_name = (
                 "vi-VN-Standard-A"
                 if str(source_language or "en").lower().startswith("vi")
                 else "en-US-Standard-C"
             )
         else:
-            voice_name = requested_voice
+            voice_name = mapped_voice
         language_code = "vi-VN" if voice_name.startswith("vi-") else "en-US"
 
         payload = {

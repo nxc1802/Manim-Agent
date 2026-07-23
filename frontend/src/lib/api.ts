@@ -105,7 +105,7 @@ export interface UserSettings {
   llm_max_tokens: number | null;
   llm_agent_configs: Partial<Record<GenerationAgent, AgentLlmConfig>>;
   tts_enabled: boolean;
-  tts_voice: 'auto' | 'vi-VN-Standard-A' | 'vi-VN-Standard-B' | 'en-US-Standard-C' | 'en-US-Standard-D';
+  tts_voice: 'auto' | 'vi-VN-female' | 'vi-VN-male' | 'en-US-female' | 'en-US-male' | 'vi-VN-Standard-A' | 'vi-VN-Standard-B' | 'en-US-Standard-C' | 'en-US-Standard-D';
   tts_speaking_rate: number;
   tts_pitch: number;
 }

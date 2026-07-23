@@ -483,10 +483,10 @@ export const Settings: React.FC = () => {
                 onChange={event => updateSetting('tts_voice', event.target.value as UserSettings['tts_voice'])}
               >
                 <option value="auto">Auto by project language</option>
-                <option value="vi-VN-Standard-A">Vietnamese — Standard A</option>
-                <option value="vi-VN-Standard-B">Vietnamese — Standard B</option>
-                <option value="en-US-Standard-C">English (US) — Standard C</option>
-                <option value="en-US-Standard-D">English (US) — Standard D</option>
+                <option value="vi-VN-female">Vietnamese — Female (Nữ)</option>
+                <option value="vi-VN-male">Vietnamese — Male (Nam)</option>
+                <option value="en-US-female">English (US) — Female (Nữ)</option>
+                <option value="en-US-male">English (US) — Male (Nam)</option>
               </select>
             </div>
 

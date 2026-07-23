@@ -25,6 +25,10 @@ GenerationAgent = Literal[
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high"]
 TtsVoice = Literal[
     "auto",
+    "vi-VN-female",
+    "vi-VN-male",
+    "en-US-female",
+    "en-US-male",
     "vi-VN-Standard-A",
     "vi-VN-Standard-B",
     "en-US-Standard-C",
